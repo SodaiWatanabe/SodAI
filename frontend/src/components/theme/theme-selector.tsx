@@ -43,9 +43,9 @@ export function ThemeSelector() {
               aria-checked={selected}
               aria-label={label}
               title={label}
-              className={`grid h-8 place-items-center rounded-[10px] transition-[background-color,color,box-shadow] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)] ${
+              className={`grid h-8 place-items-center rounded-[10px] transition-[background-color,color] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)] ${
                 selected
-                  ? "bg-[var(--surface-elevated)] text-[var(--text)] shadow-[0_1px_3px_var(--control-shadow)]"
+                  ? "bg-[var(--popover-background)] text-[var(--text)]"
                   : "text-[var(--muted)] hover:text-[var(--text)]"
               }`}
               onClick={() => setPreference(value)}
