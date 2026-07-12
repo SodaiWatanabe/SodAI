@@ -334,7 +334,7 @@ export function AuthDialog({
                     value={email}
                     onChange={(event) => setEmail(event.target.value)}
                     placeholder="メールアドレス"
-                    className="h-12 w-full rounded-full border border-black/[0.12] bg-transparent px-4 text-[15px] outline-none transition placeholder:text-[#6e6e73] focus:border-[#0071e3] focus:ring-4 focus:ring-[#0071e3]/10"
+                    className="h-12 w-full rounded-full border border-black/[0.12] bg-transparent px-4 text-[15px] outline-none placeholder:text-[#6e6e73]"
                   />
                   <button
                     type="submit"
@@ -361,7 +361,7 @@ export function AuthDialog({
                       maxLength={80}
                       disabled={pending}
                       placeholder="表示名"
-                      className="h-12 w-full rounded-full border border-black/[0.12] bg-[#f5f5f7] px-4 text-[15px] outline-none transition placeholder:text-[#6e6e73] focus:border-[#0071e3] focus:bg-white focus:ring-4 focus:ring-[#0071e3]/10 disabled:opacity-50"
+                      className="h-12 w-full rounded-full border border-black/[0.12] bg-[#f5f5f7] px-4 text-[15px] outline-none placeholder:text-[#6e6e73] disabled:opacity-50"
                     />
                   </div>
                 ) : null}
@@ -382,7 +382,7 @@ export function AuthDialog({
                   maxLength={128}
                   disabled={pending}
                   placeholder="パスワード"
-                  className="h-12 w-full rounded-full border border-black/[0.12] bg-[#f5f5f7] px-4 text-[15px] outline-none transition placeholder:text-[#6e6e73] focus:border-[#0071e3] focus:bg-white focus:ring-4 focus:ring-[#0071e3]/10 disabled:opacity-50"
+                  className="h-12 w-full rounded-full border border-black/[0.12] bg-[#f5f5f7] px-4 text-[15px] outline-none placeholder:text-[#6e6e73] disabled:opacity-50"
                 />
                 {mode === "register" ? (
                   <p className="mt-2 px-1 text-xs text-[#6e6e73]">
