@@ -56,7 +56,7 @@ function SidebarContent({
     <>
       <div className="relative flex h-12 shrink-0 items-center px-1.5">
         <span
-          className={`absolute left-[19px] whitespace-nowrap text-lg font-semibold tracking-[-0.025em] text-[#1d1d1f] transition-opacity duration-150 ${
+          className={`absolute left-[19px] whitespace-nowrap text-lg font-semibold tracking-[-0.025em] text-[var(--text)] transition-opacity duration-150 ${
             compact
               ? "lg:pointer-events-none lg:opacity-0"
               : "opacity-100 lg:delay-100 lg:motion-reduce:delay-0"
@@ -68,7 +68,7 @@ function SidebarContent({
           type="button"
           aria-label={compact ? "サイドバーを開く" : "サイドバーを閉じる"}
           aria-expanded={!compact}
-          className="ml-auto hidden size-10 place-items-center rounded-xl text-[#6e6e73] transition-colors hover:bg-black/[0.05] hover:text-[#3a3a3c] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0071e3] lg:grid"
+          className="ml-auto hidden size-10 place-items-center rounded-xl text-[var(--muted)] transition-colors hover:bg-[var(--hover)] hover:text-[var(--icon-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)] lg:grid"
           onClick={onClose}
         >
           {compact ? (
@@ -81,7 +81,7 @@ function SidebarContent({
           type="button"
           aria-label="サイドバーを閉じる"
           data-mobile-sidebar-close
-          className="ml-auto grid size-10 place-items-center rounded-xl text-[#6e6e73] transition-colors hover:bg-black/[0.05] hover:text-[#3a3a3c] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0071e3] lg:hidden"
+          className="ml-auto grid size-10 place-items-center rounded-xl text-[var(--muted)] transition-colors hover:bg-[var(--hover)] hover:text-[var(--icon-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)] lg:hidden"
           onClick={onClose}
         >
           <X className="size-5" />
@@ -92,7 +92,7 @@ function SidebarContent({
         <button
           type="button"
           title="新しいチャット"
-          className="flex h-9 w-full items-center rounded-xl text-left text-sm font-medium text-[#1d1d1f] transition-colors duration-150 hover:bg-black/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0071e3]"
+          className="flex h-9 w-full items-center rounded-xl text-left text-sm font-medium text-[var(--text)] transition-colors duration-150 hover:bg-[var(--hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)]"
           onClick={onNewChat}
         >
           <span className="grid w-10 shrink-0 place-items-center" aria-hidden="true">
@@ -132,7 +132,7 @@ function SidebarContent({
             <button
               type="button"
               title="ログイン"
-              className="flex h-10 w-full items-center justify-center rounded-full border border-black/[0.12] bg-white/70 px-1.5 text-center text-sm font-medium text-[#1d1d1f] transition-colors hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0071e3]"
+              className="flex h-10 w-full items-center justify-center rounded-full border border-[var(--border)] bg-[var(--button-background)] px-1.5 text-center text-sm font-medium text-[var(--text)] transition-colors hover:bg-[var(--button-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)]"
               onClick={onLogin}
             >
               ログイン
@@ -140,7 +140,7 @@ function SidebarContent({
             <button
               type="button"
               title="アカウントを作成"
-              className="flex h-10 w-full items-center justify-center rounded-full border border-black/[0.12] bg-white/70 px-1.5 text-center text-sm font-medium text-[#1d1d1f] transition-colors hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0071e3]"
+              className="flex h-10 w-full items-center justify-center rounded-full border border-[var(--border)] bg-[var(--button-background)] px-1.5 text-center text-sm font-medium text-[var(--text)] transition-colors hover:bg-[var(--button-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)]"
               onClick={onCreateAccount}
             >
               アカウントを作成
@@ -283,10 +283,10 @@ export function ChatShell({
   };
 
   return (
-    <div className="flex h-[100dvh] overflow-hidden bg-white">
+    <div className="flex h-[100dvh] overflow-hidden bg-[var(--canvas)]">
       <aside
         aria-label="チャットサイドバー"
-        className={`hidden shrink-0 flex-col overflow-hidden bg-[#f5f5f7] shadow-[inset_-1px_0_0_rgba(0,0,0,0.06)] transition-[width] duration-300 ease-out lg:flex ${
+        className={`hidden shrink-0 flex-col overflow-hidden bg-[var(--sidebar)] shadow-[inset_-1px_0_0_var(--separator)] transition-[width] duration-300 ease-out lg:flex ${
           desktopCollapsed ? "w-[52px]" : "w-[256px]"
         }`}
       >
@@ -300,7 +300,7 @@ export function ChatShell({
 
       <div
         aria-hidden="true"
-        className={`fixed inset-0 z-30 bg-black/15 transition-opacity duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] will-change-[opacity] motion-reduce:transition-none lg:hidden ${
+        className={`fixed inset-0 z-30 bg-[var(--overlay)] transition-opacity duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] will-change-[opacity] motion-reduce:transition-none lg:hidden ${
           mobileSidebarOpen
             ? "pointer-events-auto opacity-100"
             : "pointer-events-none opacity-0"
@@ -316,7 +316,7 @@ export function ChatShell({
         aria-modal={mobileSidebarOpen}
         inert={!mobileSidebarOpen}
         tabIndex={-1}
-        className="fixed inset-y-0 left-0 z-40 flex w-[256px] flex-col overflow-hidden bg-[#f5f5f7] shadow-[inset_-1px_0_0_rgba(0,0,0,0.06),12px_0_32px_rgba(0,0,0,0.1)] outline-none transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] will-change-transform motion-reduce:transition-none lg:hidden"
+        className="fixed inset-y-0 left-0 z-40 flex w-[256px] flex-col overflow-hidden bg-[var(--sidebar)] shadow-[inset_-1px_0_0_var(--separator),12px_0_32px_var(--sidebar-shadow)] outline-none transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] will-change-transform motion-reduce:transition-none lg:hidden"
         style={{
           transform: mobileSidebarOpen
             ? "translate3d(0, 0, 0)"
@@ -341,7 +341,7 @@ export function ChatShell({
             aria-label="サイドバーを開く"
             aria-controls="mobile-chat-sidebar"
             aria-expanded={mobileSidebarOpen}
-            className="grid size-10 place-items-center rounded-xl text-[#6e6e73] transition-colors hover:bg-black/[0.04] hover:text-[#3a3a3c] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0071e3] lg:hidden"
+            className="grid size-10 place-items-center rounded-xl text-[var(--muted)] transition-colors hover:bg-[var(--hover)] hover:text-[var(--icon-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)] lg:hidden"
             onClick={() => setMobileSidebarOpen(true)}
           >
             <Equal className="size-[21px]" />
@@ -350,7 +350,7 @@ export function ChatShell({
 
         <section className="mx-auto flex w-full max-w-[720px] flex-1 flex-col justify-center px-5 pb-20 sm:px-8 lg:pb-16">
           <div className="w-full -translate-y-[7vh]">
-            <h1 className="text-center text-2xl font-normal tracking-[-0.035em] text-[#1d1d1f] sm:text-[27px]">
+            <h1 className="text-center text-2xl font-normal tracking-[-0.035em] text-[var(--text)] sm:text-[27px]">
               {greeting}
             </h1>
             <label htmlFor="chat-message" className="sr-only">
@@ -364,7 +364,7 @@ export function ChatShell({
               onChange={updateMessage}
               placeholder="話しかけてください"
               spellCheck="true"
-              className="mt-6 block h-13 w-full rounded-full border border-black/[0.1] bg-white px-6 text-[16px] text-[#1d1d1f] shadow-[0_6px_24px_rgba(0,0,0,0.055)] outline-none placeholder:text-[#6e6e73]"
+              className="mt-6 block h-13 w-full rounded-full border border-[var(--field-border)] bg-[var(--surface)] px-6 text-[16px] text-[var(--text)] shadow-[0_6px_24px_var(--input-shadow)] outline-none placeholder:text-[var(--muted)]"
             />
           </div>
         </section>

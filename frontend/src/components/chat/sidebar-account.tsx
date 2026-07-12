@@ -10,6 +10,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { ThemeSelector } from "@/components/theme/theme-selector";
 
 export type SidebarUser = {
   email: string;
@@ -65,9 +66,9 @@ export function SidebarAccount({
       matchTriggerWidth={!compact}
     >
       <PopoverTrigger
-        aria-haspopup="menu"
+        aria-haspopup="dialog"
         aria-label={`${displayName}のアカウントメニュー`}
-        className="flex h-9 w-full items-center rounded-xl text-[#1d1d1f] transition-colors duration-150 hover:bg-black/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0071e3]"
+        className="flex h-9 w-full items-center rounded-xl text-[var(--text)] transition-colors duration-150 hover:bg-[var(--hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)]"
       >
         <span className="grid w-10 shrink-0 place-items-center" aria-hidden="true">
           <AccountAvatar key={user.image} image={user.image} />
@@ -82,7 +83,7 @@ export function SidebarAccount({
       </PopoverTrigger>
 
       <PopoverContent
-        role="menu"
+        role="dialog"
         aria-label="アカウントメニュー"
         className={compact ? "w-60" : ""}
       >
@@ -91,19 +92,20 @@ export function SidebarAccount({
             <AccountAvatar key={user.image} image={user.image} />
           </span>
           <div className="min-w-0 flex-1 py-2 pr-3">
-            <p className="truncate text-sm font-medium text-[#1d1d1f]">
+            <p className="truncate text-sm font-medium text-[var(--text)]">
               {displayName}
             </p>
-            <p className="mt-0.5 truncate text-xs text-[#6e6e73]">
+            <p className="mt-0.5 truncate text-xs text-[var(--muted)]">
               {user.email}
             </p>
           </div>
         </div>
-        <div className="mx-2 my-1 h-px bg-black/[0.08]" />
+        <div className="mx-2 my-1 h-px bg-[var(--divider)]" />
+        <ThemeSelector />
+        <div className="mx-2 my-1 h-px bg-[var(--divider)]" />
         <PopoverClose
-          role="menuitem"
           disabled={signingOut}
-          className="flex h-9 w-full items-center rounded-xl text-left text-sm text-[#1d1d1f] transition-colors hover:bg-black/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0071e3] disabled:cursor-wait disabled:opacity-40"
+          className="flex h-9 w-full items-center rounded-xl text-left text-sm text-[var(--text)] transition-colors hover:bg-[var(--hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)] disabled:cursor-wait disabled:opacity-40"
           onClick={onSignOut}
         >
           <span className="grid w-10 shrink-0 place-items-center" aria-hidden="true">

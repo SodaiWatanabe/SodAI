@@ -199,7 +199,7 @@ export function AuthDialog({
     <dialog
       ref={dialogRef}
       aria-labelledby={titleId}
-      className="auth-dialog m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-[420px] overflow-y-auto overscroll-contain rounded-[28px] border border-black/[0.08] bg-white p-0 text-[#1d1d1f] shadow-[0_28px_80px_rgba(0,0,0,0.2)]"
+      className="auth-dialog m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-[420px] overflow-y-auto overscroll-contain rounded-[28px] border border-[var(--divider)] bg-[var(--surface)] p-0 text-[var(--text)] shadow-[0_28px_80px_var(--dialog-shadow)]"
       onCancel={(event) => {
         event.preventDefault();
         closeDialog();
@@ -215,7 +215,7 @@ export function AuthDialog({
         <button
           type="button"
           aria-label="閉じる"
-          className="absolute right-4 top-4 grid size-9 place-items-center rounded-full text-[#6e6e73] transition-colors hover:bg-black/[0.05] hover:text-[#1d1d1f] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0071e3] disabled:opacity-40"
+          className="absolute right-4 top-4 grid size-9 place-items-center rounded-full text-[var(--muted)] transition-colors hover:bg-[var(--hover)] hover:text-[var(--text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)] disabled:opacity-40"
           disabled={pending}
           onClick={closeDialog}
         >
@@ -224,20 +224,20 @@ export function AuthDialog({
 
         {step === "complete" ? (
           <div role="status" className="pb-1 pt-5 text-center">
-            <div className="mx-auto mb-5 grid size-12 place-items-center rounded-full bg-[#1d1d1f] text-white">
+            <div className="mx-auto mb-5 grid size-12 place-items-center rounded-full bg-[var(--primary)] text-[var(--on-primary)]">
               <Check className="size-6" />
             </div>
             <h2 id={titleId} className="text-[22px] font-semibold tracking-[-0.03em]">
               メールを確認してください
             </h2>
-            <p className="mx-auto mt-3 max-w-[310px] text-sm leading-6 text-[#6e6e73]">
-              <span className="font-medium text-[#1d1d1f]">{email}</span>
+            <p className="mx-auto mt-3 max-w-[310px] text-sm leading-6 text-[var(--muted)]">
+              <span className="font-medium text-[var(--text)]">{email}</span>
               に確認リンクを送りました。
             </p>
             <button
               ref={completeButtonRef}
               type="button"
-              className="mt-7 h-12 w-full rounded-full bg-[#1d1d1f] text-sm font-medium text-white transition hover:bg-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0071e3] focus-visible:ring-offset-2"
+              className="mt-7 h-12 w-full rounded-full bg-[var(--primary)] text-sm font-medium text-[var(--on-primary)] transition hover:bg-[var(--primary-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--surface)]"
               onClick={closeDialog}
             >
               閉じる
@@ -249,7 +249,7 @@ export function AuthDialog({
               <button
                 type="button"
                 aria-label="メールアドレス入力へ戻る"
-                className="absolute left-4 top-4 grid size-9 place-items-center rounded-full text-[#6e6e73] transition-colors hover:bg-black/[0.05] hover:text-[#1d1d1f] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0071e3] disabled:opacity-40"
+                className="absolute left-4 top-4 grid size-9 place-items-center rounded-full text-[var(--muted)] transition-colors hover:bg-[var(--hover)] hover:text-[var(--text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)] disabled:opacity-40"
                 disabled={pending}
                 onClick={() => {
                   setErrorMessage(undefined);
@@ -273,7 +273,7 @@ export function AuthDialog({
                     ? "パスワードを入力"
                     : "プロフィールを設定"}
               </h2>
-              <p className="mt-2 text-sm leading-5 text-[#6e6e73]">
+              <p className="mt-2 text-sm leading-5 text-[var(--muted)]">
                 {step === "email"
                   ? "ログインしてチャットを保存したり、より高度なモデルを利用しましょう。"
                   : email}
@@ -283,7 +283,7 @@ export function AuthDialog({
             {errorMessage ? (
               <p
                 role="alert"
-                className="mt-5 rounded-full bg-red-50 px-4 py-2.5 text-center text-xs leading-5 text-red-700"
+                className="mt-5 rounded-full bg-[var(--danger-background)] px-4 py-2.5 text-center text-xs leading-5 text-[var(--danger-text)]"
               >
                 {errorMessage}
               </p>
@@ -296,7 +296,7 @@ export function AuthDialog({
                   aria-describedby={
                     googleEnabled ? undefined : `${titleId}-google-disabled`
                   }
-                  className="flex h-12 w-full items-center justify-center gap-2.5 rounded-full border border-black/[0.12] bg-white text-sm font-medium transition hover:bg-black/[0.025] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0071e3] disabled:cursor-not-allowed disabled:opacity-40"
+                  className="flex h-12 w-full items-center justify-center gap-2.5 rounded-full border border-[var(--border)] bg-[var(--surface)] text-sm font-medium transition hover:bg-[var(--hover-soft)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)] disabled:cursor-not-allowed disabled:opacity-40"
                   disabled={!googleEnabled || pending}
                   onClick={continueWithGoogle}
                   title={
@@ -315,9 +315,9 @@ export function AuthDialog({
                 ) : null}
 
                 <div className="my-5 flex items-center gap-3" aria-hidden="true">
-                  <span className="h-px flex-1 bg-black/[0.08]" />
-                  <span className="text-[11px] text-[#6e6e73]">または</span>
-                  <span className="h-px flex-1 bg-black/[0.08]" />
+                  <span className="h-px flex-1 bg-[var(--divider)]" />
+                  <span className="text-[11px] text-[var(--muted)]">または</span>
+                  <span className="h-px flex-1 bg-[var(--divider)]" />
                 </div>
 
                 <form onSubmit={continueWithEmail}>
@@ -334,11 +334,11 @@ export function AuthDialog({
                     value={email}
                     onChange={(event) => setEmail(event.target.value)}
                     placeholder="メールアドレス"
-                    className="h-12 w-full rounded-full border border-black/[0.12] bg-transparent px-4 text-[15px] outline-none placeholder:text-[#6e6e73]"
+                    className="h-12 w-full rounded-full border border-[var(--border)] bg-transparent px-4 text-[15px] outline-none placeholder:text-[var(--muted)]"
                   />
                   <button
                     type="submit"
-                    className="mt-3 h-12 w-full rounded-full bg-[#1d1d1f] text-sm font-medium text-white transition hover:bg-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0071e3] focus-visible:ring-offset-2"
+                    className="mt-3 h-12 w-full rounded-full bg-[var(--primary)] text-sm font-medium text-[var(--on-primary)] transition hover:bg-[var(--primary-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--surface)]"
                   >
                     続行
                   </button>
@@ -361,7 +361,7 @@ export function AuthDialog({
                       maxLength={80}
                       disabled={pending}
                       placeholder="表示名"
-                      className="h-12 w-full rounded-full border border-black/[0.12] bg-[#f5f5f7] px-4 text-[15px] outline-none placeholder:text-[#6e6e73] disabled:opacity-50"
+                      className="h-12 w-full rounded-full border border-[var(--border)] bg-[var(--field)] px-4 text-[15px] outline-none placeholder:text-[var(--muted)] disabled:opacity-50"
                     />
                   </div>
                 ) : null}
@@ -382,17 +382,17 @@ export function AuthDialog({
                   maxLength={128}
                   disabled={pending}
                   placeholder="パスワード"
-                  className="h-12 w-full rounded-full border border-black/[0.12] bg-[#f5f5f7] px-4 text-[15px] outline-none placeholder:text-[#6e6e73] disabled:opacity-50"
+                  className="h-12 w-full rounded-full border border-[var(--border)] bg-[var(--field)] px-4 text-[15px] outline-none placeholder:text-[var(--muted)] disabled:opacity-50"
                 />
                 {mode === "register" ? (
-                  <p className="mt-2 px-1 text-xs text-[#6e6e73]">
+                  <p className="mt-2 px-1 text-xs text-[var(--muted)]">
                     12文字以上で設定してください
                   </p>
                 ) : null}
                 <button
                   type="submit"
                   disabled={pending}
-                  className="mt-4 h-12 w-full rounded-full bg-[#1d1d1f] text-sm font-medium text-white transition hover:bg-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0071e3] focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-50"
+                  className="mt-4 h-12 w-full rounded-full bg-[var(--primary)] text-sm font-medium text-[var(--on-primary)] transition hover:bg-[var(--primary-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--surface)] disabled:cursor-wait disabled:opacity-50"
                 >
                   {pending
                     ? "処理中…"

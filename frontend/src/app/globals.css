@@ -1,24 +1,71 @@
 @import "tailwindcss";
 
 :root {
-  color-scheme: light;
-  background: #ffffff;
-  color: #1d1d1f;
+  color-scheme: light dark;
+  --canvas: light-dark(#ffffff, #000000);
+  --sidebar: light-dark(#f5f5f7, #1c1c1e);
+  --surface: light-dark(#ffffff, #1c1c1e);
+  --surface-elevated: light-dark(#ffffff, #3a3a3c);
+  --surface-translucent: light-dark(
+    rgb(255 255 255 / 95%),
+    rgb(44 44 46 / 95%)
+  );
+  --field: light-dark(#f5f5f7, #2c2c2e);
+  --text: light-dark(#1d1d1f, #f5f5f7);
+  --muted: light-dark(#6e6e73, #a1a1a6);
+  --icon-hover: light-dark(#3a3a3c, #d1d1d6);
+  --primary: light-dark(#1d1d1f, #f5f5f7);
+  --primary-hover: light-dark(#000000, #ffffff);
+  --on-primary: light-dark(#ffffff, #1d1d1f);
+  --focus: light-dark(#0071e3, #0a84ff);
+  --border: light-dark(rgb(0 0 0 / 12%), rgb(255 255 255 / 14%));
+  --field-border: light-dark(rgb(0 0 0 / 10%), rgb(255 255 255 / 14%));
+  --divider: light-dark(rgb(0 0 0 / 8%), rgb(255 255 255 / 10%));
+  --separator: light-dark(rgb(0 0 0 / 6%), rgb(255 255 255 / 8%));
+  --hover: light-dark(rgb(0 0 0 / 5%), rgb(255 255 255 / 8%));
+  --hover-soft: light-dark(rgb(0 0 0 / 2.5%), rgb(255 255 255 / 5%));
+  --button-background: light-dark(rgb(255 255 255 / 70%), rgb(255 255 255 / 6%));
+  --button-hover: light-dark(#ffffff, rgb(255 255 255 / 10%));
+  --control-background: light-dark(rgb(0 0 0 / 6%), rgb(0 0 0 / 28%));
+  --control-shadow: light-dark(rgb(0 0 0 / 16%), rgb(0 0 0 / 55%));
+  --overlay: light-dark(rgb(0 0 0 / 15%), rgb(0 0 0 / 45%));
+  --dialog-backdrop: light-dark(rgb(0 0 0 / 24%), rgb(0 0 0 / 58%));
+  --input-shadow: light-dark(rgb(0 0 0 / 5.5%), rgb(0 0 0 / 42%));
+  --sidebar-shadow: light-dark(rgb(0 0 0 / 10%), rgb(0 0 0 / 48%));
+  --popover-shadow: light-dark(rgb(0 0 0 / 16%), rgb(0 0 0 / 58%));
+  --dialog-shadow: light-dark(rgb(0 0 0 / 20%), rgb(0 0 0 / 68%));
+  --selection: light-dark(rgb(0 0 0 / 12%), rgb(255 255 255 / 18%));
+  --danger-background: light-dark(#fef2f2, rgb(255 69 58 / 14%));
+  --danger-text: light-dark(#b91c1c, #ff6961);
+  background: var(--canvas);
+  color: var(--text);
   font-family:
     -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
     "Helvetica Neue", "Hiragino Sans", "Yu Gothic UI", sans-serif;
 }
 
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+:root[data-theme="system"] {
+  color-scheme: light dark;
+}
+
 html,
 body {
   min-height: 100%;
-  background: #ffffff;
+  background: var(--canvas);
 }
 
 body {
   margin: 0;
   overflow: hidden;
-  color: #1d1d1f;
+  color: var(--text);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
@@ -35,7 +82,7 @@ button {
 }
 
 ::selection {
-  background: rgb(0 0 0 / 12%);
+  background: var(--selection);
 }
 
 .ui-popover {
@@ -74,7 +121,7 @@ button {
 }
 
 .auth-dialog::backdrop {
-  background: rgb(0 0 0 / 24%);
+  background: var(--dialog-backdrop);
   -webkit-backdrop-filter: blur(10px);
   backdrop-filter: blur(10px);
   animation: auth-backdrop-in 180ms ease-out;
