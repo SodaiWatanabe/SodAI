@@ -275,7 +275,7 @@ export function AuthDialog({
               </h2>
               <p className="mt-2 text-sm leading-5 text-[#6e6e73]">
                 {step === "email"
-                  ? "続ける方法を選んでください"
+                  ? "ログインしてチャットを保存したり、より高度なモデルを利用しましょう。"
                   : email}
               </p>
             </header>
