@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUp } from "lucide-react";
+import { ArrowDown, ArrowUp } from "lucide-react";
 import {
   type FormEvent,
   useCallback,
@@ -82,6 +82,7 @@ export function ConversationShell(props: ConversationShellProps) {
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
 
   const loadConversation = useCallback(
     () => getConversation(conversationId),
@@ -204,6 +205,7 @@ export function ConversationShell(props: ConversationShellProps) {
       element.scrollTop = element.scrollHeight;
       initialScrollPositionedRef.current = true;
       stickToBottomRef.current = true;
+      setShowScrollToBottom(false);
       return;
     }
     if (stickToBottomRef.current) {
@@ -216,6 +218,7 @@ export function ConversationShell(props: ConversationShellProps) {
     const input = message.trim();
     if (!input || !model || sending) return;
     stickToBottomRef.current = true;
+    setShowScrollToBottom(false);
     setMessage("");
     setSending(true);
     dismissToast("message-send");
@@ -248,6 +251,14 @@ export function ConversationShell(props: ConversationShellProps) {
     }
   }
 
+  function scrollToBottom() {
+    const element = scrollRef.current;
+    if (!element) return;
+    stickToBottomRef.current = true;
+    setShowScrollToBottom(false);
+    element.scrollTo({ top: element.scrollHeight, behavior: "smooth" });
+  }
+
   return (
     <div
       ref={scrollRef}
@@ -256,7 +267,9 @@ export function ConversationShell(props: ConversationShellProps) {
         const element = event.currentTarget;
         const distanceFromBottom =
           element.scrollHeight - element.scrollTop - element.clientHeight;
-        stickToBottomRef.current = distanceFromBottom <= STICK_TO_BOTTOM_THRESHOLD;
+        const nearBottom = distanceFromBottom <= STICK_TO_BOTTOM_THRESHOLD;
+        stickToBottomRef.current = nearBottom;
+        setShowScrollToBottom(!nearBottom);
       }}
     >
       <ChatHeader
@@ -269,10 +282,24 @@ export function ConversationShell(props: ConversationShellProps) {
 
       <ConversationViewport conversation={conversation} loading={loading} />
 
-      <div className="sticky bottom-0 z-20 shrink-0 bg-[var(--canvas)] px-5 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-8">
+      <div className="conversation-composer sticky bottom-0 z-20 shrink-0 px-5 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-8">
+        <button
+          type="button"
+          aria-label="会話の最下部へ移動"
+          aria-hidden={!showScrollToBottom}
+          tabIndex={showScrollToBottom ? 0 : -1}
+          className={`absolute -top-12 left-1/2 z-20 grid size-9 -translate-x-1/2 place-items-center rounded-full border border-[var(--divider)] bg-[var(--surface-translucent)] text-[var(--muted)] shadow-[0_8px_24px_var(--popover-shadow)] backdrop-blur-xl transition-[opacity,translate,background-color,color] hover:bg-[var(--hover)] hover:text-[var(--text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)] ${
+            showScrollToBottom
+              ? "translate-y-0 opacity-100"
+              : "pointer-events-none translate-y-1 opacity-0"
+          }`}
+          onClick={scrollToBottom}
+        >
+          <ArrowDown aria-hidden="true" className="size-4" strokeWidth={2} />
+        </button>
         <form
           onSubmit={submit}
-          className="relative mx-auto max-w-[760px]"
+          className="relative z-10 mx-auto max-w-[760px]"
         >
           <label htmlFor="conversation-message" className="sr-only">
             対話を続ける
@@ -297,7 +324,7 @@ export function ConversationShell(props: ConversationShellProps) {
             <ArrowUp className="size-[18px]" strokeWidth={2.2} />
           </button>
         </form>
-        <p className="mx-auto mt-2 max-w-[760px] text-center text-xs text-[var(--muted)]">
+        <p className="relative z-10 mx-auto mt-2 max-w-[760px] text-center text-xs text-[var(--muted)]">
           SodAIは息をするように嘘をつきます。安易に信用しないでください。
         </p>
       </div>
