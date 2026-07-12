@@ -1,0 +1,95 @@
+# 認証・アカウント境界
+
+## 目的
+
+SodAIはBetter Authをセルフホストします。ただし、Better Authを永続的に交換不能な中心には置きません。認証は「本人が誰であるかを証明する層」、SodAIアカウントは「会話、権限、クレジット、貢献を所有する層」として分離します。
+
+```text
+Google / Email
+      │
+      ▼
+Better Auth ── auth schema
+      │ issuer + subject
+      ▼
+SodAI identity mapping ── app schema
+      │ internal user UUID
+      ├─ conversations
+      ├─ credit accounts
+      ├─ feedback
+      └─ inference runs
+```
+
+## PostgreSQLの所有境界
+
+1つのPostgreSQLデータベース`sodai`の中で、schemaとロールを分けます。
+
+| 領域 | DBロール | schema | 所有するデータ |
+| --- | --- | --- | --- |
+| 認証 | `sodai_auth` | `auth` | Better Authのユーザー、セッション、アカウント、検証情報、鍵 |
+| アプリ | `sodai_app` | `app` | SodAI内部ユーザー、identity対応、会話、クレジット、フィードバック |
+
+各ロールは自分のschemaだけを所有し、他方のschemaへ権限を持ちません。ロールごとの`search_path`もデータベース初期化時に固定します。Better AuthとFastAPIが同じPostgreSQLを利用しても、誤ったmigrationで相手のテーブルを変更しにくい境界です。
+
+アプリケーションの接続契約は次の通りです。
+
+```text
+Next.js:  AUTH_DATABASE_URL=postgresql://sodai_auth:...@HOST:5432/sodai
+FastAPI:  DATABASE_URL=postgresql+asyncpg://sodai_app:...@HOST:5432/sodai
+```
+
+Dockerネットワーク内の`HOST`は`postgres`、ホストから開発する場合は`127.0.0.1`です。パスワードを含むURLはコミットしません。
+
+## アプリ内の不変ID
+
+アプリ内ではSodAIが発行するUUIDをユーザーの主キーとします。認証主体は概念上、次の対応表で関連付けます。
+
+```text
+auth_identities
+├─ user_id       # SodAI内部UUID
+├─ issuer        # トークン発行者
+├─ subject       # 発行者内のユーザー識別子
+├─ email
+└─ email_verified
+
+UNIQUE (issuer, subject)
+```
+
+会話やクレジット台帳は常に内部`user_id`を参照します。メールアドレスは変更可能であり、主キーや無条件のアカウント結合キーにはしません。
+
+## FastAPIの認証境界
+
+FastAPIは「Better Authのテーブル」を読んで認証しません。受け取ったトークンを発行者ごとの検証器で検証し、正規化済みの認証主体へ変換します。
+
+```text
+Bearer token
+   └─ Token verifier (issuer / JWKS / audience)
+          └─ AuthenticatedPrincipal(issuer, subject, email, email_verified)
+                 └─ app schemaのidentityからinternal user UUIDを解決
+```
+
+署名、`issuer`、`audience`、有効期限を検証し、クレジットやモデル利用権はトークン内の値を信用せず`app`schemaから取得します。WebSocketを追加するときは、同じ検証境界から一度限り・短寿命の接続ticketを発行します。
+
+## Cognitoへの将来移行
+
+AWSへのホスティング移行とCognitoへの認証移行は別々に実施できます。まずRDSやECSへ配置を移し、Better Authを継続しても構いません。
+
+Cognitoへ移る場合は、次の順序で停止時間を小さくします。
+
+1. Cognito User PoolとGoogle IdPを準備する
+2. FastAPIへCognitoのissuer/JWKS検証器を追加し、旧新両issuerを許可する
+3. Cognitoでの初回ログイン時に、確認済みの手続きで既存の内部UUIDへidentityを追加する
+4. 新規ログインをCognitoへ切り替える
+5. 旧セッションの期限後にBetter Auth issuerを停止する
+6. `auth`schemaを保持したバックアップを取得してから旧認証サービスを撤去する
+
+Google利用者は再ログインで移行できます。メール・パスワード利用者については、Cognitoへ既存ハッシュをそのままCSV移行できない前提で、パスワード再設定またはUser Migration Lambdaを選択します。どちらの場合も、会話やクレジットは内部UUIDへ紐付いているため移動しません。
+
+## 外部依存を正確に捉える
+
+データ主権は「外部サービスを一切使わない」という意味ではありません。
+
+- Google OAuthにはログイン時の識別情報が渡る
+- メール配送事業者には宛先とメール本文が渡る
+- Cloudflare Tunnel利用時は公開経路とTLS終端をCloudflareへ依存する
+
+一方、パスワードハッシュ、セッションDB、会話、クレジット台帳、モデル、学習データはSodAI管理下に残します。各外部依存は固有IDをアプリ全体へ漏らさず、設定とadapter境界で交換できるようにします。
