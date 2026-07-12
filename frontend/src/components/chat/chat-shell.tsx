@@ -7,8 +7,8 @@ import { type FormEvent, useEffect, useRef, useState } from "react";
 import { useChatData } from "@/components/chat/chat-data-provider";
 import { ChatHeader } from "@/components/chat/chat-header";
 import { useToast } from "@/components/ui/toast-provider";
-import { createConversation } from "@/lib/chat/api";
 import type { AvailableModel } from "@/lib/chat/types";
+import { useChatApi } from "@/lib/chat/use-chat-api";
 
 type ChatShellProps = {
   greeting: string;
@@ -16,6 +16,7 @@ type ChatShellProps = {
 
 export function ChatShell(props: ChatShellProps) {
   const router = useRouter();
+  const { createConversation } = useChatApi();
   const { models, upsertConversation } = useChatData();
   const { dismissToast, showToast } = useToast();
   const inputRef = useRef<HTMLInputElement>(null);

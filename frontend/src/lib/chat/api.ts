@@ -1,6 +1,6 @@
 "use client";
 
-import { getOptionalApiAccessToken } from "@/lib/auth/api-client";
+import type { ApiAccessTokenSource } from "@/lib/auth/api-client";
 import type {
   AvailableModel,
   Conversation,
@@ -22,83 +22,94 @@ export class ChatApiError extends Error {
   }
 }
 
-async function apiFetch(path: `/${string}`, init: RequestInit = {}) {
-  const headers = new Headers(init.headers);
-  const token = await getOptionalApiAccessToken();
-  if (token) {
-    headers.set("Authorization", `Bearer ${token}`);
+export function createChatApi(accessToken: ApiAccessTokenSource) {
+  async function apiFetch(path: `/${string}`, init: RequestInit = {}) {
+    const token = await accessToken.get();
+    const headers = new Headers(init.headers);
+    if (token) headers.set("Authorization", `Bearer ${token}`);
+    if (init.body) headers.set("Content-Type", "application/json");
+
+    const response = await fetch(`${API_BASE_URL}${path}`, {
+      ...init,
+      credentials: "include",
+      headers,
+    });
+    if (response.status === 401 && token) accessToken.invalidate();
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as {
+        detail?: string;
+      } | null;
+      throw new ChatApiError(
+        payload?.detail ?? "SodAI APIへ接続できませんでした。",
+        response.status,
+      );
+    }
+    return response;
   }
-  if (init.body) {
-    headers.set("Content-Type", "application/json");
+
+  async function listConversations(): Promise<ConversationSummary[]> {
+    const response = await apiFetch("/api/v1/conversations");
+    const payload = (await response.json()) as { items: ConversationSummary[] };
+    return payload.items;
   }
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...init,
-    credentials: "include",
-    headers,
-  });
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as {
-      detail?: string;
-    } | null;
-    throw new ChatApiError(
-      payload?.detail ?? "SodAI APIへ接続できませんでした。",
-      response.status,
-    );
+
+  async function listModels(): Promise<AvailableModel[]> {
+    const response = await apiFetch("/api/v1/models");
+    const payload = (await response.json()) as { items: AvailableModel[] };
+    return payload.items;
   }
-  return response;
-}
 
-export async function listConversations(): Promise<ConversationSummary[]> {
-  const response = await apiFetch("/api/v1/conversations");
-  const payload = (await response.json()) as { items: ConversationSummary[] };
-  return payload.items;
-}
+  async function createConversation(
+    input: string,
+    model: AvailableModel["id"],
+  ): Promise<ConversationCreation> {
+    const response = await apiFetch("/api/v1/conversations", {
+      method: "POST",
+      body: JSON.stringify({ input, model }),
+    });
+    return (await response.json()) as ConversationCreation;
+  }
 
-export async function listModels(): Promise<AvailableModel[]> {
-  const response = await apiFetch("/api/v1/models");
-  const payload = (await response.json()) as { items: AvailableModel[] };
-  return payload.items;
-}
+  async function getConversation(id: string): Promise<Conversation> {
+    const response = await apiFetch(`/api/v1/conversations/${id}`);
+    return (await response.json()) as Conversation;
+  }
 
-export async function createConversation(
-  input: string,
-  model: AvailableModel["id"],
-): Promise<ConversationCreation> {
-  const response = await apiFetch("/api/v1/conversations", {
-    method: "POST",
-    body: JSON.stringify({ input, model }),
-  });
-  return (await response.json()) as ConversationCreation;
-}
+  async function createTurn(
+    id: string,
+    input: string,
+    model: AvailableModel["id"],
+  ): Promise<ConversationCreation> {
+    const response = await apiFetch(`/api/v1/conversations/${id}/turns`, {
+      method: "POST",
+      body: JSON.stringify({ input, model }),
+    });
+    return (await response.json()) as ConversationCreation;
+  }
 
-export async function getConversation(id: string): Promise<Conversation> {
-  const response = await apiFetch(`/api/v1/conversations/${id}`);
-  return (await response.json()) as Conversation;
-}
+  async function createRealtimeSocket(after?: number): Promise<WebSocket> {
+    const response = await apiFetch("/api/v1/realtime/tickets", {
+      method: "POST",
+    });
+    const { ticket, cursor } = (await response.json()) as {
+      ticket: string;
+      cursor: number;
+    };
+    const url = new URL(`${API_BASE_URL}/api/v1/realtime`);
+    url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+    url.searchParams.set("ticket", ticket);
+    url.searchParams.set("after", String(after ?? cursor));
+    return new WebSocket(url);
+  }
 
-export async function createTurn(
-  id: string,
-  input: string,
-  model: AvailableModel["id"],
-): Promise<ConversationCreation> {
-  const response = await apiFetch(`/api/v1/conversations/${id}/turns`, {
-    method: "POST",
-    body: JSON.stringify({ input, model }),
-  });
-  return (await response.json()) as ConversationCreation;
-}
-
-export async function createRealtimeSocket(after?: number): Promise<WebSocket> {
-  const response = await apiFetch("/api/v1/realtime/tickets", {
-    method: "POST",
-  });
-  const { ticket, cursor } = (await response.json()) as {
-    ticket: string;
-    cursor: number;
+  return {
+    createConversation,
+    createRealtimeSocket,
+    createTurn,
+    getConversation,
+    listConversations,
+    listModels,
   };
-  const url = new URL(`${API_BASE_URL}/api/v1/realtime`);
-  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-  url.searchParams.set("ticket", ticket);
-  url.searchParams.set("after", String(after ?? cursor));
-  return new WebSocket(url);
 }
+
+export type ChatApi = ReturnType<typeof createChatApi>;

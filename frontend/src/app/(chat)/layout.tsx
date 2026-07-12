@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 
+import { ApiAccessTokenProvider } from "@/components/auth/api-access-token-provider";
 import { ChatDataProvider } from "@/components/chat/chat-data-provider";
 import { ChatFrame } from "@/components/chat/chat-frame";
 import { ToastProvider } from "@/components/ui/toast-provider";
@@ -31,15 +32,17 @@ export default async function ChatLayout({
 
   return (
     <ToastProvider>
-      <ChatDataProvider key={ownerKey} ownerKey={ownerKey}>
-        <ChatFrame
-          googleAuthEnabled={isGoogleAuthConfigured()}
-          initialDesktopSidebarCollapsed={sidebarPreference === "collapsed"}
-          initialUser={user}
-        >
-          {children}
-        </ChatFrame>
-      </ChatDataProvider>
+      <ApiAccessTokenProvider key={ownerKey} authenticated={Boolean(session)}>
+        <ChatDataProvider>
+          <ChatFrame
+            googleAuthEnabled={isGoogleAuthConfigured()}
+            initialDesktopSidebarCollapsed={sidebarPreference === "collapsed"}
+            initialUser={user}
+          >
+            {children}
+          </ChatFrame>
+        </ChatDataProvider>
+      </ApiAccessTokenProvider>
     </ToastProvider>
   );
 }

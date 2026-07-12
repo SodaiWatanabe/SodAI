@@ -11,6 +11,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import { AuthDialog, type AuthMode } from "@/components/auth/auth-dialog";
+import { useApiAccessToken } from "@/components/auth/api-access-token-provider";
 import {
   SidebarAccount,
   type SidebarUser,
@@ -168,6 +169,7 @@ export function ChatFrame({
 }: ChatFrameProps) {
   const pathname = usePathname();
   const router = useRouter();
+  const { invalidate: invalidateAccessToken } = useApiAccessToken();
   const { conversations } = useChatData();
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const mobileSidebarRef = useRef<HTMLElement>(null);
@@ -241,6 +243,7 @@ export function ChatFrame({
 
   async function signOut() {
     setSigningOut(true);
+    invalidateAccessToken();
     await authClient.signOut();
     setSigningOut(false);
     router.refresh();

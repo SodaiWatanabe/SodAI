@@ -7,17 +7,13 @@ import { useChatData } from "@/components/chat/chat-data-provider";
 import { ChatHeader } from "@/components/chat/chat-header";
 import { ConversationViewport } from "@/components/chat/conversation-viewport";
 import { useToast } from "@/components/ui/toast-provider";
-import {
-  createRealtimeSocket,
-  createTurn,
-  getConversation,
-} from "@/lib/chat/api";
 import type {
   AvailableModel,
   ChatMessage,
   Conversation,
   RealtimeEvent,
 } from "@/lib/chat/types";
+import { useChatApi } from "@/lib/chat/use-chat-api";
 
 type ConversationShellProps = {
   conversationId: string;
@@ -66,6 +62,7 @@ function mergeMessages(current: ChatMessage[], incoming: ChatMessage[]) {
 
 export function ConversationShell(props: ConversationShellProps) {
   const { conversationId } = props;
+  const { createRealtimeSocket, createTurn, getConversation } = useChatApi();
   const { models, patchConversation } = useChatData();
   const { dismissToast, showToast } = useToast();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -84,7 +81,7 @@ export function ConversationShell(props: ConversationShellProps) {
 
   const loadConversation = useCallback(
     () => getConversation(conversationId),
-    [conversationId],
+    [conversationId, getConversation],
   );
 
   useEffect(() => {
@@ -248,7 +245,13 @@ export function ConversationShell(props: ConversationShellProps) {
       dismissToast("conversation-load");
       dismissToast("realtime-connection");
     };
-  }, [conversationId, dismissToast, loadConversation, showToast]);
+  }, [
+    conversationId,
+    createRealtimeSocket,
+    dismissToast,
+    loadConversation,
+    showToast,
+  ]);
 
   useEffect(() => {
     const element = scrollRef.current;

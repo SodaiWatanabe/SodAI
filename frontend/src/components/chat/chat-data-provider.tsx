@@ -11,8 +11,8 @@ import {
 } from "react";
 
 import { useToast } from "@/components/ui/toast-provider";
-import { listConversations, listModels } from "@/lib/chat/api";
 import type { AvailableModel, ConversationSummary } from "@/lib/chat/types";
+import { useChatApi } from "@/lib/chat/use-chat-api";
 
 type ConversationPatch = Partial<
   Pick<ConversationSummary, "last_activity_at" | "model" | "title">
@@ -28,18 +28,8 @@ type ChatDataContextValue = {
 
 const ChatDataContext = createContext<ChatDataContextValue | null>(null);
 
-async function loadChatData() {
-  const conversations = await listConversations();
-  const models = await listModels();
-  return { conversations, models };
-}
-
-type ChatDataProviderProps = {
-  children: ReactNode;
-  ownerKey: string;
-};
-
-export function ChatDataProvider({ children, ownerKey }: ChatDataProviderProps) {
+export function ChatDataProvider({ children }: { children: ReactNode }) {
+  const chatApi = useChatApi();
   const { dismissToast, showToast } = useToast();
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [models, setModels] = useState<AvailableModel[]>([]);
@@ -51,11 +41,11 @@ export function ChatDataProvider({ children, ownerKey }: ChatDataProviderProps) 
 
   useEffect(() => {
     let cancelled = false;
-    void loadChatData().then(
-      (data) => {
+    void Promise.all([chatApi.listConversations(), chatApi.listModels()]).then(
+      ([conversations, models]) => {
         if (cancelled) return;
-        setConversations(data.conversations);
-        setModels(data.models);
+        setConversations(conversations);
+        setModels(models);
         dismissToast("conversation-list-load");
       },
       () => {
@@ -72,7 +62,7 @@ export function ChatDataProvider({ children, ownerKey }: ChatDataProviderProps) 
     return () => {
       cancelled = true;
     };
-  }, [dismissToast, loadVersion, ownerKey, refresh, showToast]);
+  }, [chatApi, dismissToast, loadVersion, refresh, showToast]);
 
   const value = useMemo<ChatDataContextValue>(
     () => ({

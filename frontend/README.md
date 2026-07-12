@@ -53,6 +53,8 @@ https://platform.sodai.me/api/auth/callback/google
 
 JWTはセッションの代替ではなく、FastAPIなど別サービスへ本人性を渡すためだけに発行します。JWT署名秘密鍵も`auth.jwks`へ暗号化して保存されます。
 
+チャットレイアウトはServer Componentで確定した認証状態をクライアントへ引き継ぎます。ゲストは認証APIを呼ばず、ログインユーザーのJWTは有効期限直前までメモリ上で共有します。これにより、FastAPIへの各リクエスト前に`/get-session`を重複実行しません。
+
 ## メール配送
 
 メール配送は`AuthEmailDelivery`インターフェースで分離されています。
