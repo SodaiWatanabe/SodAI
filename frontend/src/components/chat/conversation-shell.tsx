@@ -1,7 +1,14 @@
 "use client";
 
 import { ArrowUp } from "lucide-react";
-import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import {
+  type FormEvent,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 
 import { useChatData } from "@/components/chat/chat-data-provider";
 import { ChatHeader } from "@/components/chat/chat-header";
@@ -21,6 +28,7 @@ type ConversationShellProps = {
 
 const REALTIME_RECONNECT_DELAY = 1200;
 const REALTIME_TOAST_DELAY = 1800;
+const STICK_TO_BOTTOM_THRESHOLD = 120;
 
 function mergeMessages(current: ChatMessage[], incoming: ChatMessage[]) {
   const byId = new Map(current.map((message) => [message.id, message]));
@@ -67,6 +75,7 @@ export function ConversationShell(props: ConversationShellProps) {
   const { dismissToast, showToast } = useToast();
   const scrollRef = useRef<HTMLDivElement>(null);
   const initialScrollPositionedRef = useRef(false);
+  const stickToBottomRef = useRef(true);
   const mountedRef = useRef(true);
   const cursorRef = useRef(0);
   const realtimeRevisionRef = useRef(0);
@@ -253,21 +262,25 @@ export function ConversationShell(props: ConversationShellProps) {
     showToast,
   ]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const element = scrollRef.current;
     if (!element || !conversation) return;
     if (!initialScrollPositionedRef.current) {
-      element.scrollTop = 0;
+      element.scrollTop = element.scrollHeight;
       initialScrollPositionedRef.current = true;
+      stickToBottomRef.current = true;
       return;
     }
-    element.scrollTo({ top: element.scrollHeight, behavior: "smooth" });
+    if (stickToBottomRef.current) {
+      element.scrollTo({ top: element.scrollHeight, behavior: "smooth" });
+    }
   }, [conversation]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     const input = message.trim();
     if (!input || !model || sending) return;
+    stickToBottomRef.current = true;
     setMessage("");
     setSending(true);
     dismissToast("message-send");
@@ -301,7 +314,16 @@ export function ConversationShell(props: ConversationShellProps) {
   }
 
   return (
-    <>
+    <div
+      ref={scrollRef}
+      className="flex min-h-0 flex-1 flex-col overflow-y-auto scroll-smooth"
+      onScroll={(event) => {
+        const element = event.currentTarget;
+        const distanceFromBottom =
+          element.scrollHeight - element.scrollTop - element.clientHeight;
+        stickToBottomRef.current = distanceFromBottom <= STICK_TO_BOTTOM_THRESHOLD;
+      }}
+    >
       <ChatHeader
         disabled={sending}
         model={model}
@@ -310,13 +332,9 @@ export function ConversationShell(props: ConversationShellProps) {
         showPseudoBadge
       />
 
-      <ConversationViewport
-        conversation={conversation}
-        loading={loading}
-        scrollRef={scrollRef}
-      />
+      <ConversationViewport conversation={conversation} loading={loading} />
 
-      <div className="shrink-0 bg-[linear-gradient(to_top,var(--canvas)_75%,transparent)] px-5 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-5 sm:px-8">
+      <div className="sticky bottom-0 z-20 shrink-0 bg-[var(--canvas)] px-5 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-8">
         <form
           onSubmit={submit}
           className="relative mx-auto max-w-[760px]"
@@ -344,10 +362,10 @@ export function ConversationShell(props: ConversationShellProps) {
             <ArrowUp className="size-[18px]" strokeWidth={2.2} />
           </button>
         </form>
-        <p className="mx-auto mt-2 max-w-[760px] text-center text-[10px] text-[var(--muted)]">
-          疑似AIによる基盤確認用の応答です
+        <p className="mx-auto mt-2 max-w-[760px] text-center text-xs text-[var(--muted)]">
+          SodAIは息をするように嘘をつきます。安易に信用しないでください。
         </p>
       </div>
-    </>
+    </div>
   );
 }
