@@ -1,0 +1,317 @@
+"use client";
+
+import {
+  Equal,
+  MessageCircle,
+  PanelLeftClose,
+  PanelLeftOpen,
+  SquarePen,
+  X,
+} from "lucide-react";
+import { useRouter } from "next/navigation";
+import { type ReactNode, useEffect, useRef, useState } from "react";
+
+import { AuthDialog, type AuthMode } from "@/components/auth/auth-dialog";
+import {
+  SidebarAccount,
+  type SidebarUser,
+} from "@/components/chat/sidebar-account";
+import { authClient } from "@/lib/auth/client";
+import type { ConversationSummary } from "@/lib/chat/types";
+import { saveDesktopSidebarPreference } from "@/lib/preferences/sidebar";
+
+export type ChatFrameProps = {
+  activeConversationId?: string;
+  children: ReactNode;
+  conversations: ConversationSummary[];
+  googleAuthEnabled: boolean;
+  initialDesktopSidebarCollapsed: boolean;
+  initialGoogleAuthError: boolean;
+  initialUser: SidebarUser | null;
+};
+
+type SidebarProps = {
+  activeConversationId?: string;
+  compact: boolean;
+  contentVisible: boolean;
+  conversations: ConversationSummary[];
+  onClose: () => void;
+  onOpenAuth: (mode: AuthMode) => void;
+  onSelectConversation: (id: string) => void;
+  onSignOut: () => void;
+  signingOut: boolean;
+  user: SidebarUser | null;
+};
+
+function Sidebar({
+  activeConversationId,
+  compact,
+  contentVisible,
+  conversations,
+  onClose,
+  onOpenAuth,
+  onSelectConversation,
+  onSignOut,
+  signingOut,
+  user,
+}: SidebarProps) {
+  const hiddenLabel = compact ? "lg:w-0 lg:overflow-hidden lg:opacity-0" : "";
+
+  return (
+    <>
+      <div className="relative flex h-12 shrink-0 items-center px-1.5">
+        <span
+          className={`absolute left-[19px] whitespace-nowrap text-lg font-semibold tracking-[-0.025em] text-[var(--text)] transition-opacity ${hiddenLabel}`}
+        >
+          SodAI
+        </span>
+        <button
+          type="button"
+          aria-label={compact ? "サイドバーを開く" : "サイドバーを閉じる"}
+          className="ml-auto hidden size-10 place-items-center rounded-xl text-[var(--muted)] transition-colors hover:bg-[var(--hover)] hover:text-[var(--text)] lg:grid"
+          onClick={onClose}
+        >
+          {compact ? (
+            <PanelLeftOpen className="size-5" />
+          ) : (
+            <PanelLeftClose className="size-5" />
+          )}
+        </button>
+        <button
+          type="button"
+          aria-label="サイドバーを閉じる"
+          className="ml-auto grid size-10 place-items-center rounded-xl text-[var(--muted)] lg:hidden"
+          onClick={onClose}
+        >
+          <X className="size-5" />
+        </button>
+      </div>
+
+      <nav className="min-h-0 flex-1 overflow-y-auto px-1.5 pt-2" aria-label="会話">
+        <button
+          type="button"
+          title="新しい会話"
+          className="flex h-10 w-full items-center rounded-xl text-left text-sm font-medium text-[var(--text)] transition-colors hover:bg-[var(--hover)]"
+          onClick={() => onSelectConversation("")}
+        >
+          <span className="grid w-10 shrink-0 place-items-center">
+            <SquarePen className="size-[18px]" />
+          </span>
+          <span className={`whitespace-nowrap transition-opacity ${hiddenLabel}`}>
+            新しい会話
+          </span>
+        </button>
+
+        {contentVisible && conversations.length > 0 ? (
+          <div className="mt-6 px-1">
+            <p className="mb-2 px-2 text-[11px] font-medium tracking-wide text-[var(--muted)]">
+              会話
+            </p>
+            <div className="space-y-0.5">
+              {conversations.map((conversation) => (
+                <button
+                  key={conversation.id}
+                  type="button"
+                  aria-current={
+                    conversation.id === activeConversationId ? "page" : undefined
+                  }
+                  className={`group flex h-9 w-full items-center rounded-[10px] px-2 text-left text-[13px] transition-colors ${
+                    conversation.id === activeConversationId
+                      ? "bg-[var(--hover)] text-[var(--text)]"
+                      : "text-[var(--muted)] hover:bg-[var(--hover-soft)] hover:text-[var(--text)]"
+                  }`}
+                  onClick={() => onSelectConversation(conversation.id)}
+                >
+                  <MessageCircle className="mr-2 size-3.5 shrink-0 opacity-70" />
+                  <span className="truncate">{conversation.title}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </nav>
+
+      <div className="px-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom))]">
+        {user ? (
+          <SidebarAccount
+            compact={compact}
+            contentVisible={contentVisible}
+            onSignOut={onSignOut}
+            signingOut={signingOut}
+            user={user}
+          />
+        ) : contentVisible ? (
+          <div className="space-y-1.5">
+            <button
+              type="button"
+              className="h-10 w-full rounded-full border border-[var(--border)] bg-[var(--button-background)] text-sm font-medium transition-colors hover:bg-[var(--button-hover)]"
+              onClick={() => onOpenAuth("login")}
+            >
+              ログイン
+            </button>
+            <button
+              type="button"
+              className="h-10 w-full rounded-full border border-[var(--border)] bg-[var(--button-background)] text-sm font-medium transition-colors hover:bg-[var(--button-hover)]"
+              onClick={() => onOpenAuth("register")}
+            >
+              アカウントを作成
+            </button>
+          </div>
+        ) : null}
+      </div>
+    </>
+  );
+}
+
+export function ChatFrame({
+  activeConversationId,
+  children,
+  conversations,
+  googleAuthEnabled,
+  initialDesktopSidebarCollapsed,
+  initialGoogleAuthError,
+  initialUser,
+}: ChatFrameProps) {
+  const router = useRouter();
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const mobileSidebarRef = useRef<HTMLElement>(null);
+  const [desktopCollapsed, setDesktopCollapsed] = useState(
+    initialDesktopSidebarCollapsed,
+  );
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [authMode, setAuthMode] = useState<AuthMode>();
+  const [signingOut, setSigningOut] = useState(false);
+
+  useEffect(() => {
+    if (!mobileOpen) return;
+    requestAnimationFrame(() => mobileSidebarRef.current?.focus());
+
+    function handleKeyDown(event: KeyboardEvent) {
+      const sidebar = mobileSidebarRef.current;
+      if (!sidebar) return;
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setMobileOpen(false);
+        requestAnimationFrame(() => menuButtonRef.current?.focus());
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const focusable = Array.from(
+        sidebar.querySelectorAll<HTMLButtonElement | HTMLAnchorElement>(
+          "button:not([disabled]), a[href]",
+        ),
+      ).filter((element) => element.getClientRects().length > 0);
+      const first = focusable.at(0);
+      const last = focusable.at(-1);
+      if (!first || !last) return;
+      if (event.shiftKey && (document.activeElement === first || document.activeElement === sidebar)) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [mobileOpen]);
+
+  function navigate(id: string) {
+    setMobileOpen(false);
+    router.push(id ? `/c/${id}` : "/");
+  }
+
+  function toggleDesktop() {
+    const next = !desktopCollapsed;
+    setDesktopCollapsed(next);
+    saveDesktopSidebarPreference(next ? "collapsed" : "expanded");
+  }
+
+  async function signOut() {
+    setSigningOut(true);
+    await authClient.signOut();
+    setSigningOut(false);
+    router.refresh();
+  }
+
+  const sidebar = (compact: boolean, contentVisible: boolean, onClose: () => void) => (
+    <Sidebar
+      activeConversationId={activeConversationId}
+      compact={compact}
+      contentVisible={contentVisible}
+      conversations={conversations}
+      onClose={onClose}
+      onOpenAuth={setAuthMode}
+      onSelectConversation={navigate}
+      onSignOut={signOut}
+      signingOut={signingOut}
+      user={initialUser}
+    />
+  );
+
+  return (
+    <div className="flex h-[100dvh] overflow-hidden bg-[var(--canvas)]">
+      <aside
+        aria-label="会話サイドバー"
+        className={`hidden shrink-0 flex-col overflow-hidden bg-[var(--sidebar)] shadow-[inset_-1px_0_0_var(--separator)] transition-[width] duration-300 lg:flex ${
+          desktopCollapsed ? "w-[52px]" : "w-[256px]"
+        }`}
+      >
+        {sidebar(desktopCollapsed, !desktopCollapsed, toggleDesktop)}
+      </aside>
+
+      <div
+        aria-hidden="true"
+        className={`fixed inset-0 z-30 bg-[var(--overlay)] transition-opacity duration-300 lg:hidden ${
+          mobileOpen ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"
+        }`}
+        onClick={() => setMobileOpen(false)}
+      />
+      <aside
+        ref={mobileSidebarRef}
+        id="mobile-conversation-sidebar"
+        role="dialog"
+        aria-label="会話メニュー"
+        aria-hidden={!mobileOpen}
+        aria-modal={mobileOpen}
+        inert={!mobileOpen}
+        tabIndex={-1}
+        className={`fixed inset-y-0 left-0 z-40 flex w-[256px] flex-col bg-[var(--sidebar)] shadow-[12px_0_32px_var(--sidebar-shadow)] transition-transform duration-300 lg:hidden ${
+          mobileOpen ? "translate-x-0" : "-translate-x-full"
+        }`}
+      >
+        {sidebar(false, true, () => setMobileOpen(false))}
+      </aside>
+
+      <main className="relative flex min-w-0 flex-1 flex-col">
+        <button
+          ref={menuButtonRef}
+          type="button"
+          aria-label="サイドバーを開く"
+          aria-controls="mobile-conversation-sidebar"
+          aria-expanded={mobileOpen}
+          className="absolute left-1.5 top-1 z-20 grid size-10 place-items-center rounded-xl text-[var(--muted)] hover:bg-[var(--hover)] lg:hidden"
+          onClick={() => setMobileOpen(true)}
+        >
+          <Equal className="size-[21px]" />
+        </button>
+        {children}
+      </main>
+
+      {authMode ? (
+        <AuthDialog
+          key={authMode}
+          googleEnabled={googleAuthEnabled}
+          mode={authMode}
+          initialError={
+            initialGoogleAuthError
+              ? "Googleログインを完了できませんでした。もう一度お試しください。"
+              : undefined
+          }
+          onClose={() => setAuthMode(undefined)}
+        />
+      ) : null}
+    </div>
+  );
+}

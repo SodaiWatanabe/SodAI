@@ -17,6 +17,8 @@ Internet ── Cloudflare Tunnel ── 自宅環境
 
 認証プロバイダーのユーザーIDをサービス全体の主キーにせず、SodAI内部の不変UUIDと`(issuer, subject)`の対応として扱います。これによりBetter Authを自前運用しながら、将来Cognitoなどへ段階移行できます。詳細は[認証・アカウント境界](docs/architecture/authentication.md)を参照してください。
 
+会話はHTTPで永続化し、疑似AIまたは将来のSodAI workerからの生成差分をWebSocketで配信します。匿名会話、再読込後の復元、イベント再送、モデル権限の境界は[会話・リアルタイム基盤](docs/architecture/conversations-realtime.md)にまとめています。
+
 ## ディレクトリ
 
 ```text

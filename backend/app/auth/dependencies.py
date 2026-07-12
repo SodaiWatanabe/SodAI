@@ -34,14 +34,14 @@ async def get_authenticated_identity(
     verifier: TokenVerifier = Depends(get_token_verifier),
 ) -> ExternalIdentity:
     if credentials is None or credentials.scheme.lower() != "bearer":
-        raise _unauthorized()
+        raise authentication_required()
     try:
         return await verifier.verify(credentials.credentials)
     except TokenVerificationError as exc:
-        raise _unauthorized() from exc
+        raise authentication_required() from exc
 
 
-def _unauthorized() -> HTTPException:
+def authentication_required() -> HTTPException:
     return HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Authentication required",

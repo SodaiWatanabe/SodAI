@@ -30,3 +30,12 @@ export function createDesktopSidebarCookie(
 
   return attributes.join("; ");
 }
+
+export function saveDesktopSidebarPreference(
+  preference: DesktopSidebarPreference,
+) {
+  document.cookie = createDesktopSidebarCookie(
+    preference,
+    window.location.protocol === "https:",
+  );
+}

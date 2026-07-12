@@ -6,13 +6,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import get_settings
 from app.db.session import dispose_engine
 from app.routers import api_router
+from app.services.conversation import get_conversation_service_singleton
 
 settings = get_settings()
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    await get_conversation_service_singleton().recover_interrupted_runs()
     yield
+    await get_conversation_service_singleton().shutdown()
     await dispose_engine()
 
 

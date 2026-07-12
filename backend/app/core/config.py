@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     app_env: str = "development"
     api_prefix: str = "/api/v1"
     frontend_origin: str = "http://localhost:3000"
+    guest_cookie_secure: bool = False
 
     database_url: str = "postgresql+asyncpg://sodai_app:sodai@localhost:5432/sodai"
 

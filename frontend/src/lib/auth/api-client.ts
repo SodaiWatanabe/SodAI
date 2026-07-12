@@ -23,6 +23,17 @@ export async function getApiAccessToken(): Promise<string> {
   return data.token;
 }
 
+export async function getOptionalApiAccessToken(): Promise<string | null> {
+  const { data: session, error } = await authClient.getSession();
+  if (error) {
+    throw new AuthenticationRequiredError();
+  }
+  if (!session) {
+    return null;
+  }
+  return getApiAccessToken();
+}
+
 export async function authenticatedApiFetch(
   path: `/${string}`,
   init: RequestInit = {},
