@@ -17,6 +17,7 @@ import {
   type SidebarUser,
 } from "@/components/chat/sidebar-account";
 import { useChatData } from "@/components/chat/chat-data-provider";
+import { ConversationListItem } from "@/components/chat/conversation-list-item";
 import { ToastViewport } from "@/components/ui/toast-provider";
 import { authClient } from "@/lib/auth/client";
 import type { ConversationSummary } from "@/lib/chat/types";
@@ -35,6 +36,7 @@ type SidebarProps = {
   contentVisible: boolean;
   conversations: ConversationSummary[];
   onClose: () => void;
+  onArchiveConversation: (id: string) => void;
   onOpenAuth: (mode: AuthMode) => void;
   onSelectConversation: (id: string) => void;
   onSignOut: () => void;
@@ -48,6 +50,7 @@ function Sidebar({
   contentVisible,
   conversations,
   onClose,
+  onArchiveConversation,
   onOpenAuth,
   onSelectConversation,
   onSignOut,
@@ -108,21 +111,13 @@ function Sidebar({
             </p>
             <div className="space-y-0.5">
               {conversations.map((conversation) => (
-                <button
+                <ConversationListItem
                   key={conversation.id}
-                  type="button"
-                  aria-current={
-                    conversation.id === activeConversationId ? "page" : undefined
-                  }
-                  className={`flex h-9 w-full items-center rounded-xl pl-2.5 pr-2 text-left text-sm font-medium transition-colors ${
-                    conversation.id === activeConversationId
-                      ? "bg-[var(--hover)] text-[var(--text)]"
-                      : "text-[var(--muted)] hover:bg-[var(--hover)] hover:text-[var(--text)]"
-                  }`}
-                  onClick={() => onSelectConversation(conversation.id)}
-                >
-                  <span className="truncate">{conversation.title}</span>
-                </button>
+                  active={conversation.id === activeConversationId}
+                  conversation={conversation}
+                  onArchive={() => onArchiveConversation(conversation.id)}
+                  onSelect={() => onSelectConversation(conversation.id)}
+                />
               ))}
             </div>
           </div>
@@ -170,7 +165,7 @@ export function ChatFrame({
   const pathname = usePathname();
   const router = useRouter();
   const { invalidate: invalidateAccessToken } = useApiAccessToken();
-  const { conversations } = useChatData();
+  const { conversations, subscribeRealtime } = useChatData();
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const mobileSidebarRef = useRef<HTMLElement>(null);
   const [desktopCollapsed, setDesktopCollapsed] = useState(
@@ -230,9 +225,29 @@ export function ChatFrame({
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [mobileOpen]);
 
+  useEffect(
+    () =>
+      subscribeRealtime((event) => {
+        if (
+          event.type !== "conversation.archived" ||
+          event.conversation_id !== activeConversationId
+        ) {
+          return;
+        }
+        setMobileOpen(false);
+        router.replace("/");
+      }),
+    [activeConversationId, router, subscribeRealtime],
+  );
+
   function navigate(id: string) {
     setMobileOpen(false);
     router.push(id ? `/c/${id}` : "/");
+  }
+
+  function leaveArchivedConversation(id: string) {
+    setMobileOpen(false);
+    if (id === activeConversationId) router.replace("/");
   }
 
   function toggleDesktop() {
@@ -256,6 +271,7 @@ export function ChatFrame({
       contentVisible={contentVisible}
       conversations={conversations}
       onClose={onClose}
+      onArchiveConversation={leaveArchivedConversation}
       onOpenAuth={setAuthMode}
       onSelectConversation={navigate}
       onSignOut={signOut}

@@ -98,7 +98,11 @@ class SqlAlchemyConversationRepository:
     async def get(self, principal: ConversationPrincipal, conversation_id: UUID) -> Conversation:
         statement = (
             select(ConversationModel)
-            .where(ConversationModel.id == conversation_id, self._owned_by(principal))
+            .where(
+                ConversationModel.id == conversation_id,
+                self._owned_by(principal),
+                ConversationModel.status == "active",
+            )
             .options(
                 selectinload(ConversationModel.messages),
                 selectinload(ConversationModel.runs),
@@ -116,6 +120,35 @@ class SqlAlchemyConversationRepository:
             None,
         )
         return self._to_conversation(conversation, conversation.messages, active_run_model)
+
+    async def update_title(
+        self,
+        principal: ConversationPrincipal,
+        conversation_id: UUID,
+        title: str,
+    ) -> ConversationSummary:
+        conversation = await self._locked_conversation(principal, conversation_id)
+        conversation.title = title
+        await self._session.flush()
+        return self._to_summary(conversation)
+
+    async def archive(
+        self,
+        principal: ConversationPrincipal,
+        conversation_id: UUID,
+    ) -> None:
+        statement = (
+            select(ConversationModel)
+            .where(ConversationModel.id == conversation_id, self._owned_by(principal))
+            .with_for_update()
+        )
+        conversation = await self._session.scalar(statement)
+        if conversation is None:
+            raise ConversationNotFoundError
+        if conversation.status == "archived":
+            return
+        conversation.status = "archived"
+        await self._session.flush()
 
     async def append_turn(
         self,
@@ -254,7 +287,11 @@ class SqlAlchemyConversationRepository:
     ) -> ConversationModel:
         statement = (
             select(ConversationModel)
-            .where(ConversationModel.id == conversation_id, self._owned_by(principal))
+            .where(
+                ConversationModel.id == conversation_id,
+                self._owned_by(principal),
+                ConversationModel.status == "active",
+            )
             .with_for_update()
         )
         conversation = await self._session.scalar(statement)

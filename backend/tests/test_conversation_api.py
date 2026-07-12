@@ -9,6 +9,7 @@ from app.domain.conversations import (
     Conversation,
     ConversationCreation,
     ConversationPrincipal,
+    ConversationSummary,
     InferenceRun,
     Message,
     MessageStatus,
@@ -105,6 +106,30 @@ class StubConversationService:
         self.received = (principal, content, selected.id)
         return creation_fixture()
 
+    async def update_title(
+        self,
+        principal: ConversationPrincipal,
+        conversation_id: UUID,
+        title: str,
+    ) -> ConversationSummary:
+        self.received = (principal, title, ModelId.HINA)
+        conversation = creation_fixture().conversation
+        return ConversationSummary(
+            id=conversation_id,
+            title=title.strip(),
+            model=conversation.model,
+            created_at=conversation.created_at,
+            updated_at=conversation.updated_at,
+            last_activity_at=conversation.last_activity_at,
+        )
+
+    async def archive(
+        self,
+        principal: ConversationPrincipal,
+        conversation_id: UUID,
+    ) -> None:
+        self.received = (principal, str(conversation_id), ModelId.HINA)
+
 
 @pytest.fixture
 def anyio_backend() -> str:
@@ -167,6 +192,55 @@ async def test_create_turn_reports_active_generation_conflict() -> None:
 
     assert response.status_code == 409
     assert response.json() == {"detail": "A response is already being generated"}
+
+
+@pytest.mark.anyio
+async def test_update_conversation_title() -> None:
+    service = StubConversationService()
+    app.dependency_overrides[get_conversation_principal] = lambda: PRINCIPAL
+    app.dependency_overrides[get_conversation_service] = lambda: service
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.patch(
+            f"/api/v1/conversations/{CONVERSATION_ID}",
+            json={"title": "  新しい名前  "},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["title"] == "新しい名前"
+    assert service.received == (PRINCIPAL, "新しい名前", ModelId.HINA)
+
+
+@pytest.mark.anyio
+async def test_update_conversation_rejects_blank_title() -> None:
+    service = StubConversationService()
+    app.dependency_overrides[get_conversation_principal] = lambda: PRINCIPAL
+    app.dependency_overrides[get_conversation_service] = lambda: service
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.patch(
+            f"/api/v1/conversations/{CONVERSATION_ID}",
+            json={"title": "   "},
+        )
+
+    assert response.status_code == 422
+    assert service.received is None
+
+
+@pytest.mark.anyio
+async def test_archive_conversation() -> None:
+    service = StubConversationService()
+    app.dependency_overrides[get_conversation_principal] = lambda: PRINCIPAL
+    app.dependency_overrides[get_conversation_service] = lambda: service
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post(
+            f"/api/v1/conversations/{CONVERSATION_ID}/archive"
+        )
+
+    assert response.status_code == 204
+    assert response.content == b""
+    assert service.received == (PRINCIPAL, str(CONVERSATION_ID), ModelId.HINA)
 
 
 @pytest.mark.anyio

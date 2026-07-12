@@ -26,8 +26,6 @@ type ConversationShellProps = {
   conversationId: string;
 };
 
-const REALTIME_RECONNECT_DELAY = 1200;
-const REALTIME_TOAST_DELAY = 1800;
 const STICK_TO_BOTTOM_THRESHOLD = 120;
 
 function mergeMessages(current: ChatMessage[], incoming: ChatMessage[]) {
@@ -70,18 +68,15 @@ function mergeMessages(current: ChatMessage[], incoming: ChatMessage[]) {
 
 export function ConversationShell(props: ConversationShellProps) {
   const { conversationId } = props;
-  const { createRealtimeSocket, createTurn, getConversation } = useChatApi();
-  const { models, patchConversation } = useChatData();
+  const { createTurn, getConversation } = useChatApi();
+  const { models, patchConversation, subscribeRealtime } = useChatData();
   const { dismissToast, showToast } = useToast();
   const scrollRef = useRef<HTMLDivElement>(null);
   const initialScrollPositionedRef = useRef(false);
   const stickToBottomRef = useRef(true);
   const mountedRef = useRef(true);
-  const cursorRef = useRef(0);
   const realtimeRevisionRef = useRef(0);
   const refreshGenerationRef = useRef(0);
-  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const realtimeToastTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const [conversation, setConversation] = useState<Conversation>();
   const [model, setModel] = useState<AvailableModel["id"]>();
   const [message, setMessage] = useState("");
@@ -103,28 +98,6 @@ export function ConversationShell(props: ConversationShellProps) {
 
   useEffect(() => {
     let cancelled = false;
-    let socket: WebSocket | undefined;
-
-    function clearRealtimeToastDelay() {
-      if (realtimeToastTimerRef.current) {
-        clearTimeout(realtimeToastTimerRef.current);
-        realtimeToastTimerRef.current = undefined;
-      }
-    }
-
-    function scheduleRealtimeToast() {
-      if (realtimeToastTimerRef.current) return;
-      realtimeToastTimerRef.current = setTimeout(() => {
-        realtimeToastTimerRef.current = undefined;
-        if (cancelled) return;
-        showToast({
-          id: "realtime-connection",
-          message: "リアルタイム接続を再試行しています。",
-          tone: "warning",
-          duration: null,
-        });
-      }, REALTIME_TOAST_DELAY);
-    }
 
     async function syncConversation(showLoading: boolean) {
       if (cancelled) return;
@@ -168,7 +141,12 @@ export function ConversationShell(props: ConversationShellProps) {
     function applyRealtime(event: RealtimeEvent) {
       if (event.conversation_id !== conversationId) return;
       realtimeRevisionRef.current += 1;
-      cursorRef.current = Math.max(cursorRef.current, event.sequence);
+      if (event.type === "conversation.updated" && event.data.title) {
+        setConversation((current) =>
+          current ? { ...current, title: event.data.title ?? current.title } : current,
+        );
+        return;
+      }
       if (event.type === "message.created") {
         void syncConversation(false);
         return;
@@ -203,63 +181,20 @@ export function ConversationShell(props: ConversationShellProps) {
       }
     }
 
-    async function connect(after?: number) {
-      try {
-        const nextSocket = await createRealtimeSocket(after);
-        if (cancelled) {
-          nextSocket.close();
-          return;
-        }
-        socket = nextSocket;
-        socket.addEventListener("message", (messageEvent) => {
-          const payload = JSON.parse(messageEvent.data as string) as
-            | RealtimeEvent
-            | { type: "ready" | "ping"; cursor?: number };
-          if (payload.type === "ready") {
-            cursorRef.current = Math.max(cursorRef.current, payload.cursor ?? 0);
-            clearRealtimeToastDelay();
-            dismissToast("realtime-connection");
-          } else if (payload.type !== "ping" && "sequence" in payload) {
-            applyRealtime(payload);
-          }
-        });
-        socket.addEventListener("close", () => {
-          if (!cancelled) {
-            scheduleRealtimeToast();
-            reconnectTimerRef.current = setTimeout(
-              () => void connect(cursorRef.current),
-              REALTIME_RECONNECT_DELAY,
-            );
-          }
-        });
-      } catch {
-        if (!cancelled) {
-          scheduleRealtimeToast();
-          reconnectTimerRef.current = setTimeout(
-            () => void connect(cursorRef.current),
-            REALTIME_RECONNECT_DELAY,
-          );
-        }
-      }
-    }
-
+    const unsubscribeRealtime = subscribeRealtime(applyRealtime);
     void syncConversation(false);
-    void connect();
     return () => {
       cancelled = true;
       refreshGenerationRef.current += 1;
-      socket?.close();
-      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
-      clearRealtimeToastDelay();
+      unsubscribeRealtime();
       dismissToast("conversation-load");
-      dismissToast("realtime-connection");
     };
   }, [
     conversationId,
-    createRealtimeSocket,
     dismissToast,
     loadConversation,
     showToast,
+    subscribeRealtime,
   ]);
 
   useLayoutEffect(() => {

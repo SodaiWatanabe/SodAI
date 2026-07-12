@@ -10,10 +10,12 @@ from app.schemas.conversation import (
     ConversationCreationResponse,
     ConversationListResponse,
     ConversationResponse,
+    ConversationSummaryResponse,
     CreateConversationRequest,
     CreateTurnRequest,
     ModelListResponse,
     RealtimeTicketResponse,
+    UpdateConversationRequest,
 )
 from app.services.conversation import (
     ConversationService,
@@ -75,6 +77,39 @@ async def read_conversation(
     except ConversationNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Conversation not found") from exc
     return ConversationResponse.model_validate(conversation, from_attributes=True)
+
+
+@router.patch(
+    "/conversations/{conversation_id}", response_model=ConversationSummaryResponse
+)
+async def update_conversation(
+    conversation_id: UUID,
+    payload: UpdateConversationRequest,
+    principal: ConversationPrincipal = Depends(get_conversation_principal),
+    service: ConversationService = Depends(get_conversation_service),
+) -> ConversationSummaryResponse:
+    try:
+        conversation = await service.update_title(principal, conversation_id, payload.title)
+    except ConversationNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Conversation not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="Conversation title cannot be blank") from exc
+    return ConversationSummaryResponse.model_validate(conversation, from_attributes=True)
+
+
+@router.post(
+    "/conversations/{conversation_id}/archive",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def archive_conversation(
+    conversation_id: UUID,
+    principal: ConversationPrincipal = Depends(get_conversation_principal),
+    service: ConversationService = Depends(get_conversation_service),
+) -> None:
+    try:
+        await service.archive(principal, conversation_id)
+    except ConversationNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Conversation not found") from exc
 
 
 @router.post(

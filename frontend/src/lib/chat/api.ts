@@ -75,6 +75,23 @@ export function createChatApi(accessToken: ApiAccessTokenSource) {
     return (await response.json()) as Conversation;
   }
 
+  async function updateConversation(
+    id: string,
+    title: string,
+  ): Promise<ConversationSummary> {
+    const response = await apiFetch(`/api/v1/conversations/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ title }),
+    });
+    return (await response.json()) as ConversationSummary;
+  }
+
+  async function archiveConversation(id: string): Promise<void> {
+    await apiFetch(`/api/v1/conversations/${id}/archive`, {
+      method: "POST",
+    });
+  }
+
   async function createTurn(
     id: string,
     input: string,
@@ -103,12 +120,14 @@ export function createChatApi(accessToken: ApiAccessTokenSource) {
   }
 
   return {
+    archiveConversation,
     createConversation,
     createRealtimeSocket,
     createTurn,
     getConversation,
     listConversations,
     listModels,
+    updateConversation,
   };
 }
 

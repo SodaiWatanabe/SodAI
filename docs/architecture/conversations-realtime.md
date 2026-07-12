@@ -43,6 +43,8 @@ hashだけを保存します。会話は必ず内部ユーザーまたは匿名�
 | `POST` | `/api/v1/conversations` | 初回のpartner発言と推論runを作成 |
 | `GET` | `/api/v1/conversations` | 所有する会話一覧 |
 | `GET` | `/api/v1/conversations/{id}` | 発言と生成中runを含む会話復元 |
+| `PATCH` | `/api/v1/conversations/{id}` | 会話名を更新 |
+| `POST` | `/api/v1/conversations/{id}/archive` | 会話をアーカイブ |
 | `POST` | `/api/v1/conversations/{id}/turns` | 次のpartner発言と推論runを作成 |
 | `GET` | `/api/v1/models` | 主体が利用できるモデルカタログ |
 | `POST` | `/api/v1/realtime/tickets` | 一度限り、30秒有効の接続ticket |
@@ -64,12 +66,18 @@ providerとrevisionを含むruntime IDを保存し、再現性と監査可能性
 `app.domain.model_catalog`の定義を起点として、API enum、対象主体、主体別デフォルト、表示情報、
 runtime解決を一貫させます。
 
+会話のアーカイブは削除ではありません。`status=archived`として永続化し、通常の一覧・復元・
+発言追加から除外します。HTTP `DELETE`を論理削除に流用しないことで、将来は設定画面向けに
+アーカイブ一覧、復元操作、本当の完全削除をそれぞれ独立した契約として追加できます。
+
 ## イベント
 
 イベントは`id`、`sequence`、`type`、`conversation_id`、`run_id`、`occurred_at`、`data`を
 共通項目とします。現在のイベントは次のとおりです。
 
 - `conversation.created`
+- `conversation.updated`
+- `conversation.archived`
 - `message.created`
 - `response.started`
 - `response.delta`
@@ -78,6 +86,8 @@ runtime解決を一貫させます。
 
 `response.delta.data.content`はその時点の累積本文です。再送やsnapshotとの競合があっても、
 クライアントは文字列を追加するのではなく累積本文で置換できるため重複しません。
+Webクライアントはアプリケーション共通層でWebSocketを1本だけ維持し、会話一覧の変更と
+表示中の生成イベントをそれぞれの購読先へ配信します。
 
 ## 次の本番化境界
 

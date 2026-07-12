@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.domain.model_catalog import ModelId
 
@@ -19,6 +19,18 @@ class CreateConversationRequest(BaseModel):
 class CreateTurnRequest(BaseModel):
     input: str = Field(min_length=1, max_length=8000)
     model: ModelId | None = Field(default=None, description=MODEL_SELECTION_DESCRIPTION)
+
+
+class UpdateConversationRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=120)
+
+    @field_validator("title")
+    @classmethod
+    def normalize_title(cls, value: str) -> str:
+        title = value.strip()
+        if not title:
+            raise ValueError("Conversation title cannot be blank")
+        return title
 
 
 class MessageResponse(BaseModel):

@@ -51,6 +51,8 @@ export type RealtimeEvent = {
   sequence: number;
   type:
     | "conversation.created"
+    | "conversation.updated"
+    | "conversation.archived"
     | "message.created"
     | "response.started"
     | "response.delta"
@@ -65,5 +67,8 @@ export type RealtimeEvent = {
     content?: string;
     title?: string;
     model?: string;
+    created_at?: string;
+    updated_at?: string;
+    last_activity_at?: string;
   };
 };

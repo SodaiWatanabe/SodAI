@@ -59,7 +59,13 @@ class ConversationService:
             "conversation.created",
             creation.conversation.id,
             creation.run.id,
-            {"title": creation.conversation.title, "model": selected.id.value},
+            {
+                "title": creation.conversation.title,
+                "model": selected.id.value,
+                "created_at": creation.conversation.created_at.isoformat(),
+                "updated_at": creation.conversation.updated_at.isoformat(),
+                "last_activity_at": creation.conversation.last_activity_at.isoformat(),
+            },
         )
         self._start_generation(principal, creation.run.id, content.strip())
         return creation
@@ -71,6 +77,48 @@ class ConversationService:
     async def get(self, principal: ConversationPrincipal, conversation_id: UUID) -> Conversation:
         async with self._session_factory() as session:
             return await SqlAlchemyConversationRepository(session).get(principal, conversation_id)
+
+    async def update_title(
+        self,
+        principal: ConversationPrincipal,
+        conversation_id: UUID,
+        title: str,
+    ) -> ConversationSummary:
+        normalized_title = title.strip()
+        if not normalized_title:
+            raise ValueError("Conversation title cannot be blank")
+        async with self._session_factory() as session:
+            conversation = await SqlAlchemyConversationRepository(session).update_title(
+                principal, conversation_id, normalized_title
+            )
+            await session.commit()
+        await realtime_hub.publish(
+            principal,
+            "conversation.updated",
+            conversation_id,
+            None,
+            {
+                "title": conversation.title,
+                "updated_at": conversation.updated_at.isoformat(),
+            },
+        )
+        return conversation
+
+    async def archive(
+        self,
+        principal: ConversationPrincipal,
+        conversation_id: UUID,
+    ) -> None:
+        async with self._session_factory() as session:
+            await SqlAlchemyConversationRepository(session).archive(principal, conversation_id)
+            await session.commit()
+        await realtime_hub.publish(
+            principal,
+            "conversation.archived",
+            conversation_id,
+            None,
+            {},
+        )
 
     async def add_turn(
         self,
@@ -97,6 +145,8 @@ class ConversationService:
             {
                 "input_message_id": str(creation.run.input_message_id),
                 "output_message_id": str(creation.run.output_message_id),
+                "model": selected.id.value,
+                "last_activity_at": creation.conversation.last_activity_at.isoformat(),
             },
         )
         self._start_generation(principal, creation.run.id, content.strip())
