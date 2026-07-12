@@ -17,8 +17,6 @@
   --primary: light-dark(#1d1d1f, #f5f5f7);
   --primary-hover: light-dark(#000000, #ffffff);
   --on-primary: light-dark(#ffffff, #1d1d1f);
-  --continue-hover: light-dark(#000000, #3a3a3c);
-  --continue-hover-text: light-dark(#ffffff, #f5f5f7);
   --focus: light-dark(#0071e3, #0a84ff);
   --border: light-dark(rgb(0 0 0 / 12%), rgb(255 255 255 / 14%));
   --field-border: light-dark(rgb(0 0 0 / 10%), rgb(255 255 255 / 14%));
@@ -88,7 +86,6 @@ button {
 }
 
 .ui-popover {
-  border: 1px solid var(--divider);
   opacity: 0;
   transform: scale(0.985);
   transform-origin: top left;
@@ -97,10 +94,6 @@ button {
     transform 140ms cubic-bezier(0.22, 1, 0.36, 1),
     display 140ms allow-discrete,
     overlay 140ms allow-discrete;
-}
-
-.chat-input {
-  border: 1px solid var(--field-border);
 }
 
 :root[data-theme="dark"] :is(.ui-popover, .chat-input) {

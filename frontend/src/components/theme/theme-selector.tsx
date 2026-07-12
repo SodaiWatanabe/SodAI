@@ -23,7 +23,7 @@ export function ThemeSelector() {
   const { preference, setPreference } = useTheme();
 
   return (
-    <div className="px-1.5 py-1">
+    <>
       <span id={labelId} className="sr-only">
         テーマ
       </span>
@@ -55,6 +55,6 @@ export function ThemeSelector() {
           );
         })}
       </div>
-    </div>
+    </>
   );
 }

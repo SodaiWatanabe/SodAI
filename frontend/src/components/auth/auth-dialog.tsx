@@ -338,7 +338,7 @@ export function AuthDialog({
                   />
                   <button
                     type="submit"
-                    className="mt-3 h-12 w-full rounded-full bg-[var(--primary)] text-sm font-medium text-[var(--on-primary)] transition hover:bg-[var(--continue-hover)] hover:text-[var(--continue-hover-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--surface)]"
+                    className="mt-3 h-12 w-full rounded-full bg-[var(--primary)] text-sm font-medium text-[var(--on-primary)] transition hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--surface)]"
                   >
                     続行
                   </button>

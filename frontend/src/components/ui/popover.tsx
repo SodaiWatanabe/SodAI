@@ -245,7 +245,7 @@ export const PopoverContent = forwardRef<
       id={contentId}
       popover="auto"
       data-placement={placement}
-      className={`ui-popover fixed inset-auto z-50 m-0 max-h-[calc(100dvh-1.5rem)] max-w-[calc(100vw-1.5rem)] overflow-y-auto rounded-2xl bg-[var(--surface-translucent)] p-1.5 text-[var(--text)] shadow-[0_16px_48px_var(--popover-shadow)] backdrop-blur-xl outline-none ${className}`}
+      className={`ui-popover fixed inset-auto z-50 m-0 max-h-[calc(100dvh-1.5rem)] max-w-[calc(100vw-1.5rem)] overflow-y-auto rounded-2xl border border-[var(--divider)] bg-[var(--surface-translucent)] p-1.5 text-[var(--text)] shadow-[0_16px_48px_var(--popover-shadow)] backdrop-blur-xl outline-none ${className}`}
       onBeforeToggle={(event) => {
         if (event.newState === "open") {
           positionContent();

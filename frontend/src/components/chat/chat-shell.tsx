@@ -364,7 +364,7 @@ export function ChatShell({
               onChange={updateMessage}
               placeholder="話しかけてください"
               spellCheck="true"
-              className="chat-input mt-6 block h-13 w-full rounded-full bg-[var(--surface)] px-6 text-[16px] text-[var(--text)] shadow-[0_6px_24px_var(--input-shadow)] outline-none placeholder:text-[var(--muted)]"
+              className="chat-input mt-6 block h-13 w-full rounded-full border border-[var(--field-border)] bg-[var(--surface)] px-6 text-[16px] text-[var(--text)] shadow-[0_6px_24px_var(--input-shadow)] outline-none placeholder:text-[var(--muted)]"
             />
           </div>
         </section>
