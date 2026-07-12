@@ -60,14 +60,14 @@ function Sidebar({
     <>
       <div className="relative flex h-12 shrink-0 items-center px-1.5">
         <span
-          className={`absolute left-[19px] whitespace-nowrap text-lg font-semibold tracking-[-0.025em] text-[var(--text)] transition-opacity ${hiddenLabel}`}
+          className={`absolute left-4 whitespace-nowrap text-lg font-semibold tracking-[-0.025em] text-[var(--text)] transition-opacity ${hiddenLabel}`}
         >
           SodAI
         </span>
         <button
           type="button"
           aria-label={compact ? "サイドバーを開く" : "サイドバーを閉じる"}
-          className="ml-auto hidden size-10 place-items-center rounded-xl text-[var(--muted)] transition-colors hover:bg-[var(--hover)] hover:text-[var(--text)] lg:grid"
+          className="ml-auto hidden place-items-center rounded-xl p-2.5 text-[var(--muted)] transition-colors hover:bg-[var(--hover)] hover:text-[var(--text)] lg:grid"
           onClick={onClose}
         >
           {compact ? (
@@ -79,7 +79,7 @@ function Sidebar({
         <button
           type="button"
           aria-label="サイドバーを閉じる"
-          className="ml-auto grid size-10 place-items-center rounded-xl text-[var(--muted)] lg:hidden"
+          className="ml-auto grid place-items-center rounded-xl p-2.5 text-[var(--muted)] lg:hidden"
           onClick={onClose}
         >
           <X className="size-5" />
@@ -90,11 +90,11 @@ function Sidebar({
         <button
           type="button"
           title="新しい会話"
-          className="flex h-10 w-full items-center rounded-xl text-left text-sm font-medium text-[var(--text)] transition-colors hover:bg-[var(--hover)]"
+          className="flex h-9 w-full items-center rounded-xl text-left text-sm font-medium text-[var(--text)] transition-colors hover:bg-[var(--hover)]"
           onClick={() => onSelectConversation("")}
         >
-          <span className="grid w-10 shrink-0 place-items-center">
-            <SquarePen className="size-[18px]" />
+          <span className="grid shrink-0 place-items-center px-2.5">
+            <SquarePen className="size-5" />
           </span>
           <span className={`whitespace-nowrap transition-opacity ${hiddenLabel}`}>
             新しい会話
@@ -103,7 +103,7 @@ function Sidebar({
 
         {contentVisible && conversations.length > 0 ? (
           <div className="mt-6">
-            <p className="mb-2 px-2 text-sm font-bold text-[var(--text)]">
+            <p className="mb-2 pl-2.5 pr-2 text-sm font-bold text-[var(--text)]">
               会話
             </p>
             <div className="space-y-0.5">
@@ -114,7 +114,7 @@ function Sidebar({
                   aria-current={
                     conversation.id === activeConversationId ? "page" : undefined
                   }
-                  className={`flex h-10 w-full items-center rounded-xl px-2 text-left text-sm font-medium transition-colors ${
+                  className={`flex h-9 w-full items-center rounded-xl pl-2.5 pr-2 text-left text-sm font-medium transition-colors ${
                     conversation.id === activeConversationId
                       ? "bg-[var(--hover)] text-[var(--text)]"
                       : "text-[var(--muted)] hover:bg-[var(--hover)] hover:text-[var(--text)]"
@@ -306,7 +306,7 @@ export function ChatFrame({
           aria-label="サイドバーを開く"
           aria-controls="mobile-conversation-sidebar"
           aria-expanded={mobileOpen}
-          className="absolute left-1.5 top-1 z-20 grid size-10 place-items-center rounded-xl text-[var(--muted)] hover:bg-[var(--hover)] lg:hidden"
+          className="absolute left-1.5 top-1 z-20 grid place-items-center rounded-xl p-2.5 text-[var(--muted)] hover:bg-[var(--hover)] lg:hidden"
           onClick={() => setMobileOpen(true)}
         >
           <Equal className="size-[21px]" />

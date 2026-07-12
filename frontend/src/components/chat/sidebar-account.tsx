@@ -35,16 +35,16 @@ function AccountAvatar({ image }: Pick<SidebarUser, "image">) {
         unoptimized
         src={image}
         alt=""
-        width={18}
-        height={18}
+        width={20}
+        height={20}
         referrerPolicy="no-referrer"
-        className="size-[18px] rounded-full object-cover"
+        className="size-5 rounded-full object-cover"
         onError={() => setImageFailed(true)}
       />
     );
   }
 
-  return <UserRound aria-hidden="true" className="size-[18px]" />;
+  return <UserRound aria-hidden="true" className="size-5" />;
 }
 
 export function SidebarAccount({
@@ -70,7 +70,7 @@ export function SidebarAccount({
         aria-label={`${displayName}のアカウントメニュー`}
         className="flex h-9 w-full items-center rounded-xl text-[var(--text)] transition-colors duration-150 hover:bg-[var(--hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)]"
       >
-        <span className="grid w-10 shrink-0 place-items-center" aria-hidden="true">
+        <span className="grid shrink-0 place-items-center px-2.5" aria-hidden="true">
           <AccountAvatar key={user.image} image={user.image} />
         </span>
         <span
@@ -88,7 +88,7 @@ export function SidebarAccount({
         className={compact ? "w-60" : ""}
       >
         <div className="flex items-center">
-          <span className="grid w-10 shrink-0 place-items-center" aria-hidden="true">
+          <span className="grid shrink-0 place-items-center px-2.5" aria-hidden="true">
             <AccountAvatar key={user.image} image={user.image} />
           </span>
           <div className="min-w-0 flex-1 py-2 pr-3">
