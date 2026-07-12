@@ -1,19 +1,19 @@
 "use client";
 
+import {
+  LogIn,
+  LogOut,
+  Menu,
+  PanelLeftClose,
+  PanelLeftOpen,
+  SquarePen,
+  UserRoundPlus,
+  X,
+} from "lucide-react";
 import { useRouter } from "next/navigation";
 import { type ChangeEvent, useEffect, useRef, useState } from "react";
 
 import { AuthDialog, type AuthMode } from "@/components/auth/auth-dialog";
-import {
-  CloseIcon,
-  LoginIcon,
-  LogoutIcon,
-  MenuIcon,
-  PanelCloseIcon,
-  PanelOpenIcon,
-  PlusIcon,
-  UserPlusIcon,
-} from "@/components/ui/icons";
 import { authClient } from "@/lib/auth/client";
 
 type ChatShellProps = {
@@ -28,7 +28,6 @@ type SidebarUser = {
 };
 
 type SidebarContentProps = {
-  autoFocusClose?: boolean;
   compact?: boolean;
   onClose: () => void;
   onCreateAccount: () => void;
@@ -40,7 +39,6 @@ type SidebarContentProps = {
 };
 
 function SidebarContent({
-  autoFocusClose = false,
   compact = false,
   onClose,
   onCreateAccount,
@@ -55,39 +53,48 @@ function SidebarContent({
 
   return (
     <>
-      <div className="flex h-16 shrink-0 items-center justify-end px-4">
+      <div
+        className={`flex h-12 shrink-0 items-center px-2.5 ${
+          compact ? "lg:justify-center" : "justify-between"
+        }`}
+      >
+        <span
+          className={`whitespace-nowrap text-[15px] font-semibold tracking-[-0.025em] text-[#1d1d1f] ${labelClass}`}
+        >
+          SodAI
+        </span>
         <button
           type="button"
           aria-label={compact ? "サイドバーを開く" : "サイドバーを閉じる"}
           aria-expanded={!compact}
-          className="hidden size-9 place-items-center rounded-xl text-[#6e6e73] transition-colors hover:bg-black/[0.05] hover:text-[#1d1d1f] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0071e3] lg:grid"
+          className="hidden size-10 place-items-center rounded-lg text-[#1d1d1f] transition-colors hover:bg-black/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0071e3] lg:grid"
           onClick={onClose}
         >
           {compact ? (
-            <PanelOpenIcon className="size-5" />
+            <PanelLeftOpen className="size-5" />
           ) : (
-            <PanelCloseIcon className="size-5" />
+            <PanelLeftClose className="size-5" />
           )}
         </button>
         <button
           type="button"
           aria-label="サイドバーを閉じる"
-          autoFocus={autoFocusClose}
-          className="grid size-9 place-items-center rounded-xl text-[#6e6e73] transition-colors hover:bg-black/[0.05] hover:text-[#1d1d1f] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0071e3] lg:hidden"
+          data-mobile-sidebar-close
+          className="grid size-10 place-items-center rounded-lg text-[#1d1d1f] transition-colors hover:bg-black/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0071e3] lg:hidden"
           onClick={onClose}
         >
-          <CloseIcon className="size-5" />
+          <X className="size-5" />
         </button>
       </div>
 
-      <nav className="px-3" aria-label="チャット">
+      <nav className="px-2.5" aria-label="チャット">
         <button
           type="button"
           title="新しいチャット"
-          className={`flex h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm font-medium text-[#1d1d1f] transition-colors hover:bg-black/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0071e3] ${buttonLayout}`}
+          className={`flex h-10 w-full items-center gap-2.5 rounded-xl px-2.5 text-left text-sm font-medium text-[#1d1d1f] transition-colors hover:bg-black/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0071e3] ${buttonLayout}`}
           onClick={onNewChat}
         >
-          <PlusIcon className="size-[19px] shrink-0" />
+          <SquarePen className="size-[18px] shrink-0" />
           <span className={`whitespace-nowrap transition-opacity ${labelClass}`}>
             新しいチャット
           </span>
@@ -96,10 +103,10 @@ function SidebarContent({
 
       <div className="flex-1" />
 
-      <div className="space-y-2 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+      <div className="space-y-1.5 px-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom))]">
         {user ? (
           <div
-            className={`flex min-h-12 items-center gap-3 rounded-2xl px-2 ${
+            className={`flex h-10 items-center gap-2.5 rounded-full px-2.5 ${
               compact ? "lg:justify-center" : ""
             }`}
           >
@@ -119,12 +126,12 @@ function SidebarContent({
               title="ログアウト"
               aria-label="ログアウト"
               disabled={signingOut}
-              className={`grid size-8 shrink-0 place-items-center rounded-xl text-[#6e6e73] transition hover:bg-black/[0.05] hover:text-[#1d1d1f] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0071e3] disabled:opacity-40 ${
+              className={`grid size-8 shrink-0 place-items-center rounded-full text-[#3a3a3c] transition hover:bg-black/[0.05] hover:text-[#1d1d1f] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0071e3] disabled:opacity-40 ${
                 compact ? "lg:hidden" : ""
               }`}
               onClick={onSignOut}
             >
-              <LogoutIcon className="size-[17px]" />
+              <LogOut className="size-[17px]" />
             </button>
           </div>
         ) : (
@@ -132,10 +139,10 @@ function SidebarContent({
             <button
               type="button"
               title="ログイン"
-              className={`flex h-11 w-full items-center gap-3 rounded-xl px-3 text-sm font-medium text-[#1d1d1f] transition-colors hover:bg-black/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0071e3] ${buttonLayout}`}
+              className={`flex h-10 w-full items-center gap-2.5 rounded-full px-2.5 text-sm font-medium text-[#1d1d1f] transition-colors hover:bg-black/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0071e3] ${buttonLayout}`}
               onClick={onLogin}
             >
-              <LoginIcon className="size-[19px] shrink-0" />
+              <LogIn className="size-[19px] shrink-0" />
               <span className={`whitespace-nowrap transition-opacity ${labelClass}`}>
                 ログイン
               </span>
@@ -143,10 +150,10 @@ function SidebarContent({
             <button
               type="button"
               title="アカウントを作成"
-              className={`flex h-11 w-full items-center gap-3 rounded-xl bg-[#1d1d1f] px-3 text-sm font-medium text-white transition-colors hover:bg-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0071e3] focus-visible:ring-offset-2 focus-visible:ring-offset-[#f5f5f7] ${buttonLayout}`}
+              className={`flex h-10 w-full items-center gap-2.5 rounded-full bg-[#1d1d1f] px-2.5 text-sm font-medium text-white transition-colors hover:bg-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0071e3] focus-visible:ring-offset-2 focus-visible:ring-offset-[#f5f5f7] ${buttonLayout}`}
               onClick={onCreateAccount}
             >
-              <UserPlusIcon className="size-[19px] shrink-0" />
+              <UserRoundPlus className="size-[19px] shrink-0" />
               <span className={`whitespace-nowrap transition-opacity ${labelClass}`}>
                 アカウントを作成
               </span>
@@ -166,7 +173,7 @@ export function ChatShell({
   const router = useRouter();
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const mobileSidebarRef = useRef<HTMLElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const messageInputRef = useRef<HTMLInputElement>(null);
   const [desktopCollapsed, setDesktopCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [authMode, setAuthMode] = useState<AuthMode | undefined>(
@@ -188,6 +195,10 @@ export function ChatShell({
     if (!mobileSidebarOpen) {
       return;
     }
+
+    requestAnimationFrame(() => {
+      mobileSidebarRef.current?.focus();
+    });
 
     function handleKeyDown(event: KeyboardEvent) {
       const sidebar = mobileSidebarRef.current;
@@ -216,7 +227,11 @@ export function ChatShell({
         return;
       }
 
-      if (event.shiftKey && document.activeElement === firstElement) {
+      if (
+        event.shiftKey &&
+        (document.activeElement === firstElement ||
+          document.activeElement === sidebar)
+      ) {
         event.preventDefault();
         lastElement.focus();
       } else if (!event.shiftKey && document.activeElement === lastElement) {
@@ -232,10 +247,7 @@ export function ChatShell({
   function startNewChat() {
     setMessage("");
     setMobileSidebarOpen(false);
-    if (textareaRef.current) {
-      textareaRef.current.style.height = "auto";
-      textareaRef.current.focus();
-    }
+    requestAnimationFrame(() => messageInputRef.current?.focus());
   }
 
   function openAuth(mode: AuthMode) {
@@ -257,10 +269,8 @@ export function ChatShell({
     router.refresh();
   }
 
-  function updateMessage(event: ChangeEvent<HTMLTextAreaElement>) {
+  function updateMessage(event: ChangeEvent<HTMLInputElement>) {
     setMessage(event.target.value);
-    event.target.style.height = "auto";
-    event.target.style.height = `${Math.min(event.target.scrollHeight, 160)}px`;
   }
 
   const sidebarProps = {
@@ -277,7 +287,7 @@ export function ChatShell({
       <aside
         aria-label="チャットサイドバー"
         className={`hidden shrink-0 flex-col overflow-y-auto border-r border-black/[0.06] bg-[#f5f5f7] transition-[width] duration-300 ease-out lg:flex ${
-          desktopCollapsed ? "w-[72px]" : "w-[264px]"
+          desktopCollapsed ? "w-[60px]" : "w-[256px]"
         }`}
       >
         <SidebarContent
@@ -287,29 +297,30 @@ export function ChatShell({
         />
       </aside>
 
-      {mobileSidebarOpen ? (
-        <>
-          <div
-            aria-hidden="true"
-            className="fixed inset-0 z-30 bg-black/20 backdrop-blur-[2px] lg:hidden"
-            onClick={closeMobileSidebar}
-          />
-          <aside
-            ref={mobileSidebarRef}
-            id="mobile-chat-sidebar"
-            role="dialog"
-            aria-label="チャットメニュー"
-            aria-modal="true"
-            className="fixed inset-y-0 left-0 z-40 flex w-[min(86vw,320px)] flex-col overflow-y-auto border-r border-black/[0.06] bg-[#f5f5f7] shadow-[20px_0_60px_rgba(0,0,0,0.12)] lg:hidden"
-          >
-            <SidebarContent
-              {...sidebarProps}
-              autoFocusClose
-              onClose={closeMobileSidebar}
-            />
-          </aside>
-        </>
-      ) : null}
+      <div
+        aria-hidden="true"
+        className={`fixed inset-0 z-30 bg-black/20 backdrop-blur-[2px] transition-opacity duration-300 ease-out lg:hidden ${
+          mobileSidebarOpen
+            ? "pointer-events-auto opacity-100"
+            : "pointer-events-none opacity-0"
+        }`}
+        onClick={closeMobileSidebar}
+      />
+      <aside
+        ref={mobileSidebarRef}
+        id="mobile-chat-sidebar"
+        role="dialog"
+        aria-label="チャットメニュー"
+        aria-hidden={!mobileSidebarOpen}
+        aria-modal={mobileSidebarOpen}
+        inert={!mobileSidebarOpen}
+        tabIndex={-1}
+        className={`fixed inset-y-0 left-0 z-40 flex w-[min(86vw,320px)] flex-col overflow-y-auto border-r border-black/[0.06] bg-[#f5f5f7] shadow-[20px_0_60px_rgba(0,0,0,0.12)] outline-none transition-transform duration-300 ease-out lg:hidden ${
+          mobileSidebarOpen ? "translate-x-0" : "-translate-x-full"
+        }`}
+      >
+        <SidebarContent {...sidebarProps} onClose={closeMobileSidebar} />
+      </aside>
 
       <main
         inert={mobileSidebarOpen}
@@ -322,33 +333,31 @@ export function ChatShell({
             aria-label="サイドバーを開く"
             aria-controls="mobile-chat-sidebar"
             aria-expanded={mobileSidebarOpen}
-            className="grid size-10 place-items-center rounded-xl text-[#3a3a3c] transition-colors hover:bg-black/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0071e3]"
+            className="grid size-10 place-items-center rounded-lg text-[#1d1d1f] transition-colors hover:bg-black/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0071e3]"
             onClick={() => setMobileSidebarOpen(true)}
           >
-            <MenuIcon className="size-[21px]" />
+            <Menu className="size-[21px]" />
           </button>
         </div>
 
         <section className="mx-auto flex w-full max-w-[720px] flex-1 flex-col justify-center px-5 pb-20 pt-24 sm:px-8 lg:pb-16 lg:pt-16">
           <div className="w-full -translate-y-[4vh]">
-            <h1 className="text-center text-[34px] font-semibold tracking-[-0.045em] text-[#1d1d1f] sm:text-[38px]">
-              SodAI
+            <h1 className="text-center text-[32px] font-semibold tracking-[-0.045em] text-[#1d1d1f] sm:text-[35px]">
+              こんにちは。
             </h1>
-            <div className="mt-7 rounded-[26px] border border-black/[0.1] bg-white p-1.5 shadow-[0_8px_30px_rgba(0,0,0,0.06)] transition focus-within:border-[#0071e3] focus-within:shadow-[0_10px_36px_rgba(0,0,0,0.09)]">
-              <label htmlFor="chat-message" className="sr-only">
-                SodAIへのメッセージ
-              </label>
-              <textarea
-                ref={textareaRef}
-                id="chat-message"
-                rows={1}
-                value={message}
-                onChange={updateMessage}
-                placeholder="話しかけてください"
-                spellCheck="true"
-                className="block min-h-12 max-h-40 w-full resize-none overflow-y-auto bg-transparent px-4 py-[13px] text-[16px] leading-6 text-[#1d1d1f] outline-none placeholder:text-[#6e6e73]"
-              />
-            </div>
+            <label htmlFor="chat-message" className="sr-only">
+              SodAIへのメッセージ
+            </label>
+            <input
+              ref={messageInputRef}
+              id="chat-message"
+              type="text"
+              value={message}
+              onChange={updateMessage}
+              placeholder="話しかけてください"
+              spellCheck="true"
+              className="mt-6 block h-12 w-full rounded-full border border-black/[0.1] bg-white px-5 text-[16px] text-[#1d1d1f] shadow-[0_6px_24px_rgba(0,0,0,0.055)] outline-none placeholder:text-[#6e6e73]"
+            />
           </div>
         </section>
       </main>

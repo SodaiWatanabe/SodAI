@@ -1,5 +1,6 @@
 "use client";
 
+import { ArrowLeft, Check, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import {
   type FormEvent,
@@ -9,7 +10,6 @@ import {
   useState,
 } from "react";
 
-import { ArrowLeftIcon, CheckIcon, CloseIcon } from "@/components/ui/icons";
 import { authClient } from "@/lib/auth/client";
 
 export type AuthMode = "login" | "register";
@@ -95,13 +95,12 @@ export function AuthDialog({
 
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    dialog.showModal();
+    if (!dialog.open) {
+      dialog.showModal();
+    }
 
     return () => {
       document.body.style.overflow = previousOverflow;
-      if (dialog.open) {
-        dialog.close();
-      }
     };
   }, []);
 
@@ -220,13 +219,13 @@ export function AuthDialog({
           disabled={pending}
           onClick={closeDialog}
         >
-          <CloseIcon className="size-[18px]" />
+          <X className="size-[18px]" />
         </button>
 
         {step === "complete" ? (
           <div role="status" className="pb-1 pt-5 text-center">
             <div className="mx-auto mb-5 grid size-12 place-items-center rounded-full bg-[#1d1d1f] text-white">
-              <CheckIcon className="size-6" />
+              <Check className="size-6" />
             </div>
             <h2 id={titleId} className="text-[22px] font-semibold tracking-[-0.03em]">
               メールを確認してください
@@ -257,7 +256,7 @@ export function AuthDialog({
                   setStep("email");
                 }}
               >
-                <ArrowLeftIcon className="size-5" />
+                <ArrowLeft className="size-5" />
               </button>
             ) : null}
 
