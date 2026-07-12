@@ -57,13 +57,16 @@ function Sidebar({
   signingOut,
   user,
 }: SidebarProps) {
-  const hiddenLabel = compact ? "lg:w-0 lg:overflow-hidden lg:opacity-0" : "";
+  const contentVisibility = contentVisible
+    ? "opacity-100 delay-100 motion-reduce:delay-0"
+    : "pointer-events-none opacity-0";
 
   return (
     <>
       <div className="relative flex h-12 shrink-0 items-center px-1.5">
         <span
-          className={`absolute left-4 whitespace-nowrap text-lg font-semibold tracking-[-0.025em] text-[var(--text)] transition-opacity ${hiddenLabel}`}
+          aria-hidden={!contentVisible}
+          className={`absolute left-4 whitespace-nowrap text-lg font-semibold tracking-[-0.025em] text-[var(--text)] transition-opacity duration-150 ${contentVisibility}`}
         >
           SodAI
         </span>
@@ -89,7 +92,10 @@ function Sidebar({
         </button>
       </div>
 
-      <nav className="min-h-0 flex-1 overflow-y-auto px-1.5 pt-2" aria-label="会話">
+      <nav
+        className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-1.5 pt-2"
+        aria-label="会話"
+      >
         <button
           type="button"
           title="新しい会話"
@@ -99,13 +105,20 @@ function Sidebar({
           <span className="grid shrink-0 place-items-center px-2.5">
             <SquarePen className="size-5" />
           </span>
-          <span className={`whitespace-nowrap transition-opacity ${hiddenLabel}`}>
+          <span
+            aria-hidden={!contentVisible}
+            className={`whitespace-nowrap transition-opacity duration-150 ${contentVisibility}`}
+          >
             新しい会話
           </span>
         </button>
 
-        {contentVisible && conversations.length > 0 ? (
-          <div className="mt-6">
+        {conversations.length > 0 ? (
+          <div
+            aria-hidden={!contentVisible}
+            inert={!contentVisible}
+            className={`mt-6 transition-opacity duration-150 ${contentVisibility}`}
+          >
             <p className="mb-2 pl-2.5 pr-2 text-sm font-bold text-[var(--text)]">
               会話
             </p>
@@ -307,7 +320,7 @@ export function ChatFrame({
         aria-modal={mobileOpen}
         inert={!mobileOpen}
         tabIndex={-1}
-        className={`fixed inset-y-0 left-0 z-40 flex w-[256px] flex-col bg-[var(--sidebar)] shadow-[12px_0_32px_var(--sidebar-shadow)] transition-transform duration-300 lg:hidden ${
+        className={`fixed inset-y-0 left-0 z-40 flex w-[256px] flex-col overflow-x-hidden bg-[var(--sidebar)] shadow-[12px_0_32px_var(--sidebar-shadow)] transition-transform duration-300 lg:hidden ${
           mobileOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >
