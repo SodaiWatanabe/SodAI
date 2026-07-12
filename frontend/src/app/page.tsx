@@ -1,3 +1,5 @@
+import { randomInt } from "node:crypto";
+
 import { connection } from "next/server";
 
 import { ChatShell } from "@/components/chat/chat-shell";
@@ -8,6 +10,17 @@ type HomeProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
 
+const greetings = [
+  "こんにちは。",
+  "お手伝いさせてください。",
+  "今日はどんな気分ですか？",
+  "またお会いしましたね。",
+  "どんな話をしましょうか。",
+  "あなたを笑顔にします。",
+  "おかえりなさい。",
+  "ようこそ。",
+] as const;
+
 export default async function Home({ searchParams }: HomeProps) {
   await connection();
   const [params, session] = await Promise.all([
@@ -15,9 +28,11 @@ export default async function Home({ searchParams }: HomeProps) {
     getCurrentSession(),
   ]);
   const authError = params.authError;
+  const greeting = greetings[randomInt(greetings.length)];
 
   return (
     <ChatShell
+      greeting={greeting}
       googleAuthEnabled={isGoogleAuthConfigured()}
       initialUser={
         session?.user

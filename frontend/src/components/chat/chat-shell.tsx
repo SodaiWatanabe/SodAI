@@ -1,13 +1,11 @@
 "use client";
 
 import {
-  LogIn,
   LogOut,
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
   SquarePen,
-  UserRoundPlus,
   X,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -17,6 +15,7 @@ import { AuthDialog, type AuthMode } from "@/components/auth/auth-dialog";
 import { authClient } from "@/lib/auth/client";
 
 type ChatShellProps = {
+  greeting: string;
   googleAuthEnabled: boolean;
   initialGoogleAuthError: boolean;
   initialUser: SidebarUser | null;
@@ -49,17 +48,19 @@ function SidebarContent({
   user,
 }: SidebarContentProps) {
   const labelClass = compact ? "hidden" : "opacity-100";
-  const buttonLayout = compact ? "lg:justify-center lg:px-0" : "";
+  const iconPositionClass = compact
+    ? "lg:translate-x-[11px]"
+    : "translate-x-0";
 
   return (
     <>
-      <div
-        className={`flex h-12 shrink-0 items-center px-2.5 ${
-          compact ? "lg:justify-center" : "justify-between"
-        }`}
-      >
+      <div className="relative flex h-12 shrink-0 items-center px-1.5">
         <span
-          className={`whitespace-nowrap text-[15px] font-semibold tracking-[-0.025em] text-[#1d1d1f] ${labelClass}`}
+          className={`absolute left-2 whitespace-nowrap text-[18px] font-semibold tracking-[-0.025em] text-[#1d1d1f] transition-opacity duration-150 ${
+            compact
+              ? "lg:pointer-events-none lg:opacity-0"
+              : "opacity-100 lg:delay-150"
+          }`}
         >
           SodAI
         </span>
@@ -67,7 +68,7 @@ function SidebarContent({
           type="button"
           aria-label={compact ? "サイドバーを開く" : "サイドバーを閉じる"}
           aria-expanded={!compact}
-          className="hidden size-10 place-items-center rounded-lg text-[#1d1d1f] transition-colors hover:bg-black/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0071e3] lg:grid"
+          className="ml-auto hidden size-10 place-items-center rounded-lg text-[#6e6e73] transition-colors hover:bg-black/[0.05] hover:text-[#3a3a3c] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0071e3] lg:grid"
           onClick={onClose}
         >
           {compact ? (
@@ -80,21 +81,23 @@ function SidebarContent({
           type="button"
           aria-label="サイドバーを閉じる"
           data-mobile-sidebar-close
-          className="grid size-10 place-items-center rounded-lg text-[#1d1d1f] transition-colors hover:bg-black/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0071e3] lg:hidden"
+          className="ml-auto grid size-10 place-items-center rounded-lg text-[#6e6e73] transition-colors hover:bg-black/[0.05] hover:text-[#3a3a3c] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0071e3] lg:hidden"
           onClick={onClose}
         >
           <X className="size-5" />
         </button>
       </div>
 
-      <nav className="px-2.5" aria-label="チャット">
+      <nav className="px-1.5" aria-label="チャット">
         <button
           type="button"
           title="新しいチャット"
-          className={`flex h-10 w-full items-center gap-2.5 rounded-xl px-2.5 text-left text-sm font-medium text-[#1d1d1f] transition-colors hover:bg-black/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0071e3] ${buttonLayout}`}
+          className="flex h-10 w-full items-center gap-2.5 rounded-xl px-0 text-left text-[14px] font-medium text-[#1d1d1f] transition-colors hover:bg-black/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0071e3]"
           onClick={onNewChat}
         >
-          <SquarePen className="size-[18px] shrink-0" />
+          <SquarePen
+            className={`size-[18px] shrink-0 transition-transform duration-300 ease-out ${iconPositionClass}`}
+          />
           <span className={`whitespace-nowrap transition-opacity ${labelClass}`}>
             新しいチャット
           </span>
@@ -103,12 +106,10 @@ function SidebarContent({
 
       <div className="flex-1" />
 
-      <div className="space-y-1.5 px-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom))]">
+      <div className="space-y-1.5 px-1.5 pb-[max(0.625rem,env(safe-area-inset-bottom))]">
         {user ? (
           <div
-            className={`flex h-10 items-center gap-2.5 rounded-full px-2.5 ${
-              compact ? "lg:justify-center" : ""
-            }`}
+            className="flex h-10 items-center gap-2.5 rounded-full px-1.5"
           >
             <span className="grid size-8 shrink-0 place-items-center rounded-full bg-[#1d1d1f] text-xs font-semibold text-white">
               {(user.name || user.email).slice(0, 1).toUpperCase()}
@@ -135,30 +136,24 @@ function SidebarContent({
             </button>
           </div>
         ) : (
-          <>
+          <div className={compact ? "lg:hidden" : "space-y-1.5"}>
             <button
               type="button"
               title="ログイン"
-              className={`flex h-10 w-full items-center gap-2.5 rounded-full px-2.5 text-sm font-medium text-[#1d1d1f] transition-colors hover:bg-black/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0071e3] ${buttonLayout}`}
+              className="flex h-10 w-full items-center justify-center rounded-full border border-black/[0.12] bg-transparent px-1.5 text-center text-[14px] font-medium text-[#1d1d1f] transition-colors hover:bg-black/[0.035] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0071e3]"
               onClick={onLogin}
             >
-              <LogIn className="size-[19px] shrink-0" />
-              <span className={`whitespace-nowrap transition-opacity ${labelClass}`}>
-                ログイン
-              </span>
+              ログイン
             </button>
             <button
               type="button"
               title="アカウントを作成"
-              className={`flex h-10 w-full items-center gap-2.5 rounded-full bg-[#1d1d1f] px-2.5 text-sm font-medium text-white transition-colors hover:bg-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0071e3] focus-visible:ring-offset-2 focus-visible:ring-offset-[#f5f5f7] ${buttonLayout}`}
+              className="flex h-10 w-full items-center justify-center rounded-full border border-black/[0.12] bg-transparent px-1.5 text-center text-[14px] font-medium text-[#1d1d1f] transition-colors hover:bg-black/[0.035] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0071e3]"
               onClick={onCreateAccount}
             >
-              <UserRoundPlus className="size-[19px] shrink-0" />
-              <span className={`whitespace-nowrap transition-opacity ${labelClass}`}>
-                アカウントを作成
-              </span>
+              アカウントを作成
             </button>
-          </>
+          </div>
         )}
       </div>
     </>
@@ -166,6 +161,7 @@ function SidebarContent({
 }
 
 export function ChatShell({
+  greeting,
   googleAuthEnabled,
   initialGoogleAuthError,
   initialUser,
@@ -287,7 +283,7 @@ export function ChatShell({
       <aside
         aria-label="チャットサイドバー"
         className={`hidden shrink-0 flex-col overflow-y-auto border-r border-black/[0.06] bg-[#f5f5f7] transition-[width] duration-300 ease-out lg:flex ${
-          desktopCollapsed ? "w-[60px]" : "w-[256px]"
+          desktopCollapsed ? "w-[52px]" : "w-[256px]"
         }`}
       >
         <SidebarContent
@@ -341,9 +337,9 @@ export function ChatShell({
         </div>
 
         <section className="mx-auto flex w-full max-w-[720px] flex-1 flex-col justify-center px-5 pb-20 pt-24 sm:px-8 lg:pb-16 lg:pt-16">
-          <div className="w-full -translate-y-[4vh]">
-            <h1 className="text-center text-[32px] font-semibold tracking-[-0.045em] text-[#1d1d1f] sm:text-[35px]">
-              こんにちは。
+          <div className="w-full -translate-y-[7vh]">
+            <h1 className="text-center text-[27px] font-normal tracking-[-0.035em] text-[#1d1d1f] sm:text-[30px]">
+              {greeting}
             </h1>
             <label htmlFor="chat-message" className="sr-only">
               SodAIへのメッセージ
@@ -356,7 +352,7 @@ export function ChatShell({
               onChange={updateMessage}
               placeholder="話しかけてください"
               spellCheck="true"
-              className="mt-6 block h-12 w-full rounded-full border border-black/[0.1] bg-white px-5 text-[16px] text-[#1d1d1f] shadow-[0_6px_24px_rgba(0,0,0,0.055)] outline-none placeholder:text-[#6e6e73]"
+              className="mt-6 block h-14 w-full rounded-full border border-black/[0.1] bg-white px-6 text-[16px] text-[#1d1d1f] shadow-[0_6px_24px_rgba(0,0,0,0.055)] outline-none placeholder:text-[#6e6e73]"
             />
           </div>
         </section>

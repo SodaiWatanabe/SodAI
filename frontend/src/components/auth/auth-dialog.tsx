@@ -237,7 +237,7 @@ export function AuthDialog({
             <button
               ref={completeButtonRef}
               type="button"
-              className="mt-7 h-12 w-full rounded-2xl bg-[#1d1d1f] text-sm font-medium text-white transition hover:bg-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0071e3] focus-visible:ring-offset-2"
+              className="mt-7 h-12 w-full rounded-full bg-[#1d1d1f] text-sm font-medium text-white transition hover:bg-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0071e3] focus-visible:ring-offset-2"
               onClick={closeDialog}
             >
               閉じる
@@ -283,7 +283,7 @@ export function AuthDialog({
             {errorMessage ? (
               <p
                 role="alert"
-                className="mt-5 rounded-xl bg-red-50 px-3 py-2.5 text-center text-xs leading-5 text-red-700"
+                className="mt-5 rounded-full bg-red-50 px-4 py-2.5 text-center text-xs leading-5 text-red-700"
               >
                 {errorMessage}
               </p>
@@ -296,7 +296,7 @@ export function AuthDialog({
                   aria-describedby={
                     googleEnabled ? undefined : `${titleId}-google-disabled`
                   }
-                  className="flex h-12 w-full items-center justify-center gap-2.5 rounded-2xl border border-black/[0.12] bg-white text-sm font-medium transition hover:bg-black/[0.025] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0071e3] disabled:cursor-not-allowed disabled:opacity-40"
+                  className="flex h-12 w-full items-center justify-center gap-2.5 rounded-full border border-black/[0.12] bg-white text-sm font-medium transition hover:bg-black/[0.025] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0071e3] disabled:cursor-not-allowed disabled:opacity-40"
                   disabled={!googleEnabled || pending}
                   onClick={continueWithGoogle}
                   title={
@@ -334,11 +334,11 @@ export function AuthDialog({
                     value={email}
                     onChange={(event) => setEmail(event.target.value)}
                     placeholder="メールアドレス"
-                    className="h-12 w-full rounded-2xl border border-black/[0.12] bg-[#f5f5f7] px-4 text-[15px] outline-none transition placeholder:text-[#6e6e73] focus:border-[#0071e3] focus:bg-white focus:ring-4 focus:ring-[#0071e3]/10"
+                    className="h-12 w-full rounded-full border border-black/[0.12] bg-transparent px-4 text-[15px] outline-none transition placeholder:text-[#6e6e73] focus:border-[#0071e3] focus:ring-4 focus:ring-[#0071e3]/10"
                   />
                   <button
                     type="submit"
-                    className="mt-3 h-12 w-full rounded-2xl bg-[#1d1d1f] text-sm font-medium text-white transition hover:bg-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0071e3] focus-visible:ring-offset-2"
+                    className="mt-3 h-12 w-full rounded-full bg-[#1d1d1f] text-sm font-medium text-white transition hover:bg-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0071e3] focus-visible:ring-offset-2"
                   >
                     続行
                   </button>
@@ -361,7 +361,7 @@ export function AuthDialog({
                       maxLength={80}
                       disabled={pending}
                       placeholder="表示名"
-                      className="h-12 w-full rounded-2xl border border-black/[0.12] bg-[#f5f5f7] px-4 text-[15px] outline-none transition placeholder:text-[#6e6e73] focus:border-[#0071e3] focus:bg-white focus:ring-4 focus:ring-[#0071e3]/10 disabled:opacity-50"
+                      className="h-12 w-full rounded-full border border-black/[0.12] bg-[#f5f5f7] px-4 text-[15px] outline-none transition placeholder:text-[#6e6e73] focus:border-[#0071e3] focus:bg-white focus:ring-4 focus:ring-[#0071e3]/10 disabled:opacity-50"
                     />
                   </div>
                 ) : null}
@@ -382,7 +382,7 @@ export function AuthDialog({
                   maxLength={128}
                   disabled={pending}
                   placeholder="パスワード"
-                  className="h-12 w-full rounded-2xl border border-black/[0.12] bg-[#f5f5f7] px-4 text-[15px] outline-none transition placeholder:text-[#6e6e73] focus:border-[#0071e3] focus:bg-white focus:ring-4 focus:ring-[#0071e3]/10 disabled:opacity-50"
+                  className="h-12 w-full rounded-full border border-black/[0.12] bg-[#f5f5f7] px-4 text-[15px] outline-none transition placeholder:text-[#6e6e73] focus:border-[#0071e3] focus:bg-white focus:ring-4 focus:ring-[#0071e3]/10 disabled:opacity-50"
                 />
                 {mode === "register" ? (
                   <p className="mt-2 px-1 text-xs text-[#6e6e73]">
@@ -392,7 +392,7 @@ export function AuthDialog({
                 <button
                   type="submit"
                   disabled={pending}
-                  className="mt-4 h-12 w-full rounded-2xl bg-[#1d1d1f] text-sm font-medium text-white transition hover:bg-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0071e3] focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-50"
+                  className="mt-4 h-12 w-full rounded-full bg-[#1d1d1f] text-sm font-medium text-white transition hover:bg-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0071e3] focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-50"
                 >
                   {pending
                     ? "処理中…"
