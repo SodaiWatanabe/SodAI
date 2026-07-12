@@ -60,7 +60,7 @@ function SidebarContent({
     <>
       <div className="relative flex h-12 shrink-0 items-center px-1.5">
         <span
-          className={`absolute left-[18px] whitespace-nowrap text-lg font-semibold tracking-[-0.025em] text-[#1d1d1f] transition-opacity duration-150 ${
+          className={`absolute left-[19px] whitespace-nowrap text-lg font-semibold tracking-[-0.025em] text-[#1d1d1f] transition-opacity duration-150 ${
             compact
               ? "lg:pointer-events-none lg:opacity-0"
               : "opacity-100 lg:delay-100 lg:motion-reduce:delay-0"
@@ -72,9 +72,7 @@ function SidebarContent({
           type="button"
           aria-label={compact ? "サイドバーを開く" : "サイドバーを閉じる"}
           aria-expanded={!compact}
-          className={`ml-auto hidden h-10 place-items-center rounded-xl text-[#6e6e73] transition-colors hover:bg-black/[0.05] hover:text-[#3a3a3c] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0071e3] lg:grid ${
-            compact ? "w-[38px]" : "w-10"
-          }`}
+          className="ml-auto hidden size-10 place-items-center rounded-xl text-[#6e6e73] transition-colors hover:bg-black/[0.05] hover:text-[#3a3a3c] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0071e3] lg:grid"
           onClick={onClose}
         >
           {compact ? (
@@ -98,10 +96,12 @@ function SidebarContent({
         <button
           type="button"
           title="新しいチャット"
-          className="flex h-9 w-full items-center gap-2.5 rounded-xl px-2.5 text-left text-sm font-medium text-[#1d1d1f] transition-colors duration-150 hover:bg-black/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0071e3]"
+          className="flex h-9 w-full items-center rounded-xl text-left text-sm font-medium text-[#1d1d1f] transition-colors duration-150 hover:bg-black/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0071e3]"
           onClick={onNewChat}
         >
-          <SquarePen className="size-[18px] shrink-0" />
+          <span className="grid w-10 shrink-0 place-items-center" aria-hidden="true">
+            <SquarePen className="size-[18px]" />
+          </span>
           <span
             className={`whitespace-nowrap transition-opacity duration-150 ${
               compact ? "lg:w-0 lg:overflow-hidden" : ""
@@ -302,8 +302,8 @@ export function ChatShell({
     <div className="flex h-[100dvh] overflow-hidden bg-white">
       <aside
         aria-label="チャットサイドバー"
-        className={`hidden shrink-0 flex-col overflow-hidden border-r border-black/[0.06] bg-[#f5f5f7] transition-[width] duration-300 ease-out lg:flex ${
-          desktopCollapsed ? "w-[51px]" : "w-[256px]"
+        className={`hidden shrink-0 flex-col overflow-hidden bg-[#f5f5f7] shadow-[inset_-1px_0_0_rgba(0,0,0,0.06)] transition-[width] duration-300 ease-out lg:flex ${
+          desktopCollapsed ? "w-[52px]" : "w-[256px]"
         }`}
       >
         <SidebarContent
@@ -332,7 +332,7 @@ export function ChatShell({
         aria-modal={mobileSidebarOpen}
         inert={!mobileSidebarOpen}
         tabIndex={-1}
-        className="fixed inset-y-0 left-0 z-40 flex w-[min(86vw,320px)] flex-col overflow-hidden border-r border-black/[0.06] bg-[#f5f5f7] shadow-[12px_0_32px_rgba(0,0,0,0.1)] outline-none transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] will-change-transform motion-reduce:transition-none lg:hidden"
+        className="fixed inset-y-0 left-0 z-40 flex w-[min(86vw,320px)] flex-col overflow-hidden bg-[#f5f5f7] shadow-[inset_-1px_0_0_rgba(0,0,0,0.06),12px_0_32px_rgba(0,0,0,0.1)] outline-none transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] will-change-transform motion-reduce:transition-none lg:hidden"
         style={{
           transform: mobileSidebarOpen
             ? "translate3d(0, 0, 0)"
