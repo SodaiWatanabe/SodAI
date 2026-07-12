@@ -30,7 +30,7 @@ export function ThemeSelector() {
       <div
         role="radiogroup"
         aria-labelledby={labelId}
-        className="grid grid-cols-3 gap-0.5 rounded-xl bg-[var(--control-background)] p-0.5"
+        className="grid grid-cols-3 gap-0.5 rounded-xl bg-[var(--control-background)] p-1"
       >
         {options.map(({ icon: Icon, label, value }) => {
           const selected = preference === value;
