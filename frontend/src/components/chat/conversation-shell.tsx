@@ -1,32 +1,30 @@
 "use client";
 
-import { ArrowUp, RotateCw, Sparkles } from "lucide-react";
+import { ArrowUp } from "lucide-react";
 import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 
-import { ChatFrame } from "@/components/chat/chat-frame";
-import type { SidebarUser } from "@/components/chat/sidebar-account";
+import { useChatData } from "@/components/chat/chat-data-provider";
+import { ChatHeader } from "@/components/chat/chat-header";
+import { ConversationViewport } from "@/components/chat/conversation-viewport";
+import { useToast } from "@/components/ui/toast-provider";
 import {
   createRealtimeSocket,
   createTurn,
   getConversation,
-  listConversations,
-  listModels,
 } from "@/lib/chat/api";
 import type {
   AvailableModel,
   ChatMessage,
   Conversation,
-  ConversationSummary,
   RealtimeEvent,
 } from "@/lib/chat/types";
 
 type ConversationShellProps = {
   conversationId: string;
-  googleAuthEnabled: boolean;
-  initialDesktopSidebarCollapsed: boolean;
-  initialGoogleAuthError: boolean;
-  initialUser: SidebarUser | null;
 };
+
+const REALTIME_RECONNECT_DELAY = 1200;
+const REALTIME_TOAST_DELAY = 1800;
 
 function mergeMessages(current: ChatMessage[], incoming: ChatMessage[]) {
   const byId = new Map(current.map((message) => [message.id, message]));
@@ -68,42 +66,111 @@ function mergeMessages(current: ChatMessage[], incoming: ChatMessage[]) {
 
 export function ConversationShell(props: ConversationShellProps) {
   const { conversationId } = props;
+  const { models, patchConversation } = useChatData();
+  const { dismissToast, showToast } = useToast();
   const scrollRef = useRef<HTMLDivElement>(null);
+  const initialScrollPositionedRef = useRef(false);
+  const mountedRef = useRef(true);
   const cursorRef = useRef(0);
+  const realtimeRevisionRef = useRef(0);
+  const refreshGenerationRef = useRef(0);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const realtimeToastTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const [conversation, setConversation] = useState<Conversation>();
-  const [conversations, setConversations] = useState<ConversationSummary[]>([]);
-  const [models, setModels] = useState<AvailableModel[]>([]);
   const [model, setModel] = useState<AvailableModel["id"]>("archive");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
-  const [error, setError] = useState<string>();
 
-  const refreshConversation = useCallback(async () => {
-    const current = await getConversation(conversationId);
-    setConversation((previous) => ({
-      ...current,
-      messages: previous?.id === current.id
-        ? mergeMessages(previous.messages, current.messages)
-        : current.messages,
-    }));
-    setModel(current.model as AvailableModel["id"]);
-    setSending(Boolean(current.active_run));
-  }, [conversationId]);
+  const loadConversation = useCallback(
+    () => getConversation(conversationId),
+    [conversationId],
+  );
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      dismissToast("message-send");
+    };
+  }, [dismissToast]);
 
   useEffect(() => {
     let cancelled = false;
     let socket: WebSocket | undefined;
 
+    function clearRealtimeToastDelay() {
+      if (realtimeToastTimerRef.current) {
+        clearTimeout(realtimeToastTimerRef.current);
+        realtimeToastTimerRef.current = undefined;
+      }
+    }
+
+    function scheduleRealtimeToast() {
+      if (realtimeToastTimerRef.current) return;
+      realtimeToastTimerRef.current = setTimeout(() => {
+        realtimeToastTimerRef.current = undefined;
+        if (cancelled) return;
+        showToast({
+          id: "realtime-connection",
+          message: "リアルタイム接続を再試行しています。",
+          tone: "warning",
+          duration: null,
+        });
+      }, REALTIME_TOAST_DELAY);
+    }
+
+    async function syncConversation(showLoading: boolean) {
+      if (cancelled) return;
+      const generation = ++refreshGenerationRef.current;
+      const realtimeRevision = realtimeRevisionRef.current;
+      if (showLoading) setLoading(true);
+      try {
+        const current = await loadConversation();
+        if (cancelled || generation !== refreshGenerationRef.current) return;
+        setConversation((previous) => ({
+          ...current,
+          messages:
+            previous?.id === current.id
+              ? mergeMessages(previous.messages, current.messages)
+              : current.messages,
+        }));
+        if (realtimeRevision === realtimeRevisionRef.current) {
+          setModel(current.model as AvailableModel["id"]);
+          setSending(Boolean(current.active_run));
+        }
+        dismissToast("conversation-load");
+      } catch {
+        if (cancelled || generation !== refreshGenerationRef.current) return;
+        showToast({
+          id: "conversation-load",
+          message: "会話を読み込めませんでした。",
+          tone: "error",
+          duration: null,
+          action: {
+            label: "再試行",
+            onClick: () => void syncConversation(true),
+          },
+        });
+      } finally {
+        if (!cancelled && generation === refreshGenerationRef.current) {
+          setLoading(false);
+        }
+      }
+    }
+
     function applyRealtime(event: RealtimeEvent) {
       if (event.conversation_id !== conversationId) return;
+      realtimeRevisionRef.current += 1;
       cursorRef.current = Math.max(cursorRef.current, event.sequence);
       if (event.type === "message.created") {
-        void refreshConversation();
+        void syncConversation(false);
         return;
       }
       if (!event.data.message_id) return;
+      if (event.type === "response.started" || event.type === "response.delta") {
+        setSending(true);
+      }
       setConversation((current) => {
         if (!current) return current;
         return {
@@ -126,7 +193,7 @@ export function ConversationShell(props: ConversationShellProps) {
       });
       if (event.type === "response.completed" || event.type === "response.failed") {
         setSending(false);
-        void refreshConversation();
+        void syncConversation(false);
       }
     }
 
@@ -144,58 +211,55 @@ export function ConversationShell(props: ConversationShellProps) {
             | { type: "ready" | "ping"; cursor?: number };
           if (payload.type === "ready") {
             cursorRef.current = Math.max(cursorRef.current, payload.cursor ?? 0);
-            setError(undefined);
+            clearRealtimeToastDelay();
+            dismissToast("realtime-connection");
           } else if (payload.type !== "ping" && "sequence" in payload) {
             applyRealtime(payload);
           }
         });
         socket.addEventListener("close", () => {
           if (!cancelled) {
+            scheduleRealtimeToast();
             reconnectTimerRef.current = setTimeout(
               () => void connect(cursorRef.current),
-              1200,
+              REALTIME_RECONNECT_DELAY,
             );
           }
         });
-        await refreshConversation();
       } catch {
         if (!cancelled) {
-          setError("リアルタイム接続を再試行しています。");
+          scheduleRealtimeToast();
           reconnectTimerRef.current = setTimeout(
             () => void connect(cursorRef.current),
-            1200,
+            REALTIME_RECONNECT_DELAY,
           );
         }
       }
     }
 
-    async function initialize() {
-      try {
-        const history = await listConversations();
-        const availableModels = await listModels();
-        if (cancelled) return;
-        setConversations(history);
-        setModels(availableModels);
-        await connect();
-      } catch {
-        if (!cancelled) setError("会話を読み込めませんでした。");
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-
-    void initialize();
+    void syncConversation(false);
+    void connect();
     return () => {
       cancelled = true;
+      refreshGenerationRef.current += 1;
       socket?.close();
       if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+      clearRealtimeToastDelay();
+      dismissToast("conversation-load");
+      dismissToast("realtime-connection");
     };
-  }, [conversationId, refreshConversation]);
+  }, [conversationId, dismissToast, loadConversation, showToast]);
 
   useEffect(() => {
     const element = scrollRef.current;
-    if (element) element.scrollTop = element.scrollHeight;
-  }, [conversation?.messages]);
+    if (!element || !conversation) return;
+    if (!initialScrollPositionedRef.current) {
+      element.scrollTop = 0;
+      initialScrollPositionedRef.current = true;
+      return;
+    }
+    element.scrollTo({ top: element.scrollHeight, behavior: "smooth" });
+  }, [conversation]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -203,9 +267,10 @@ export function ConversationShell(props: ConversationShellProps) {
     if (!input || sending) return;
     setMessage("");
     setSending(true);
-    setError(undefined);
+    dismissToast("message-send");
     try {
       const created = await createTurn(conversationId, input, model);
+      if (!mountedRef.current) return;
       setConversation((current) =>
         current
           ? {
@@ -216,119 +281,62 @@ export function ConversationShell(props: ConversationShellProps) {
             }
           : current,
       );
-      setConversations((current) =>
-        current.map((item) =>
-          item.id === conversationId
-            ? { ...item, last_activity_at: new Date().toISOString(), model }
-            : item,
-        ),
-      );
+      patchConversation(conversationId, {
+        last_activity_at: new Date().toISOString(),
+        model,
+      });
     } catch {
+      if (!mountedRef.current) return;
       setMessage(input);
       setSending(false);
-      setError("送信できませんでした。もう一度お試しください。");
+      showToast({
+        id: "message-send",
+        message: "送信できませんでした。もう一度お試しください。",
+        tone: "error",
+      });
     }
   }
 
   return (
-    <ChatFrame
-      {...props}
-      activeConversationId={conversationId}
-      conversations={conversations}
-    >
-      <header className="flex h-12 shrink-0 items-center justify-center border-b border-[var(--separator)] px-12">
-        <label className="flex items-center gap-1.5 text-[13px] font-medium text-[var(--muted)]">
-          <Sparkles className="size-3.5" />
-          <span className="sr-only">モデル</span>
-          <select
-            value={model}
-            disabled={sending}
-            onChange={(event) => setModel(event.target.value as AvailableModel["id"])}
-            className="cursor-pointer appearance-none bg-transparent pr-1 text-[var(--text)] outline-none disabled:opacity-50"
-          >
-            {(models.length ? models : [{ id: "archive", name: "Archive", description: "" }]).map(
-              (item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name}
-                </option>
-              ),
-            )}
-          </select>
-          <span className="rounded-full bg-[var(--control-background)] px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-[var(--muted)]">
-            Pseudo
-          </span>
-        </label>
-      </header>
+    <>
+      <ChatHeader
+        disabled={sending}
+        model={model}
+        models={models}
+        onModelChange={setModel}
+        showPseudoBadge
+      />
 
-      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto scroll-smooth">
-        <div className="mx-auto flex min-h-full w-full max-w-[760px] flex-col px-5 py-10 sm:px-8">
-          {loading ? (
-            <div className="grid flex-1 place-items-center text-[var(--muted)]">
-              <RotateCw className="size-4 animate-spin" />
-            </div>
-          ) : conversation ? (
-            <div className="mt-auto space-y-8">
-              {conversation.messages.map((item) => (
-                <article
-                  key={item.id}
-                  className={item.speaker === "partner" ? "flex justify-end" : "flex justify-start"}
-                >
-                  <div
-                    className={
-                      item.speaker === "partner"
-                        ? "max-w-[82%] rounded-[22px] bg-[var(--field)] px-4 py-2.5 text-[15px] leading-6 text-[var(--text)]"
-                        : "max-w-[92%] whitespace-pre-wrap text-[15px] leading-7 text-[var(--text)]"
-                    }
-                  >
-                    {item.content}
-                    {item.speaker === "sodai" && item.status === "streaming" ? (
-                      <span className="ml-1 inline-block size-1.5 animate-pulse rounded-full bg-[var(--muted)] align-middle" />
-                    ) : null}
-                    {item.status === "failed" ? (
-                      <span className="text-sm text-[var(--danger-text)]">
-                        応答を完了できませんでした。
-                      </span>
-                    ) : null}
-                  </div>
-                </article>
-              ))}
-            </div>
-          ) : (
-            <div className="grid flex-1 place-items-center text-sm text-[var(--muted)]">
-              この会話を表示できません。
-            </div>
-          )}
-        </div>
-      </div>
+      <ConversationViewport
+        conversation={conversation}
+        loading={loading}
+        scrollRef={scrollRef}
+      />
 
       <div className="shrink-0 bg-[linear-gradient(to_top,var(--canvas)_75%,transparent)] px-5 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-5 sm:px-8">
         <form
           onSubmit={submit}
-          className="relative mx-auto max-w-[760px] rounded-[26px] border border-[var(--field-border)] bg-[var(--surface)] shadow-[0_7px_26px_var(--input-shadow)]"
+          className="relative mx-auto max-w-[760px]"
         >
           <label htmlFor="conversation-message" className="sr-only">
             対話を続ける
           </label>
-          <textarea
+          <input
             id="conversation-message"
-            rows={1}
+            type="text"
             value={message}
             disabled={sending}
             placeholder="対話を続ける"
+            autoComplete="off"
+            spellCheck="true"
             onChange={(event) => setMessage(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey) {
-                event.preventDefault();
-                event.currentTarget.form?.requestSubmit();
-              }
-            }}
-            className="block max-h-40 min-h-13 w-full resize-none bg-transparent py-3.5 pl-5 pr-14 text-[15px] leading-6 outline-none placeholder:text-[var(--muted)] disabled:opacity-60"
+            className="chat-input block h-14 w-full rounded-full border border-[var(--field-border)] bg-[var(--surface)] pl-6 pr-14 text-[16px] text-[var(--text)] shadow-[0_8px_30px_var(--input-shadow)] outline-none transition-shadow placeholder:text-[var(--muted)] focus:shadow-[0_10px_38px_var(--input-shadow)]"
           />
           <button
             type="submit"
             aria-label="送信"
             disabled={!message.trim() || sending}
-            className="absolute bottom-1.5 right-1.5 grid size-10 place-items-center rounded-full bg-[var(--primary)] text-[var(--on-primary)] transition-[transform,opacity] hover:scale-[1.03] disabled:opacity-25"
+            className="absolute right-2 top-2 grid size-10 place-items-center rounded-full bg-[var(--primary)] text-[var(--on-primary)] transition-opacity disabled:opacity-25"
           >
             <ArrowUp className="size-[18px]" strokeWidth={2.2} />
           </button>
@@ -336,12 +344,7 @@ export function ConversationShell(props: ConversationShellProps) {
         <p className="mx-auto mt-2 max-w-[760px] text-center text-[10px] text-[var(--muted)]">
           疑似AIによる基盤確認用の応答です
         </p>
-        {error ? (
-          <p role="status" className="mt-1 text-center text-xs text-[var(--danger-text)]">
-            {error}
-          </p>
-        ) : null}
       </div>
-    </ChatFrame>
+    </>
   );
 }

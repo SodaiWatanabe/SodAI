@@ -2,13 +2,12 @@
 
 import {
   Equal,
-  MessageCircle,
   PanelLeftClose,
   PanelLeftOpen,
   SquarePen,
   X,
 } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import { AuthDialog, type AuthMode } from "@/components/auth/auth-dialog";
@@ -16,17 +15,16 @@ import {
   SidebarAccount,
   type SidebarUser,
 } from "@/components/chat/sidebar-account";
+import { useChatData } from "@/components/chat/chat-data-provider";
+import { ToastViewport } from "@/components/ui/toast-provider";
 import { authClient } from "@/lib/auth/client";
 import type { ConversationSummary } from "@/lib/chat/types";
 import { saveDesktopSidebarPreference } from "@/lib/preferences/sidebar";
 
 export type ChatFrameProps = {
-  activeConversationId?: string;
   children: ReactNode;
-  conversations: ConversationSummary[];
   googleAuthEnabled: boolean;
   initialDesktopSidebarCollapsed: boolean;
-  initialGoogleAuthError: boolean;
   initialUser: SidebarUser | null;
 };
 
@@ -103,8 +101,8 @@ function Sidebar({
         </button>
 
         {contentVisible && conversations.length > 0 ? (
-          <div className="mt-6 px-1">
-            <p className="mb-2 px-2 text-[11px] font-medium tracking-wide text-[var(--muted)]">
+          <div className="mt-6">
+            <p className="mb-2 px-2 text-sm font-bold text-[var(--text)]">
               会話
             </p>
             <div className="space-y-0.5">
@@ -115,14 +113,13 @@ function Sidebar({
                   aria-current={
                     conversation.id === activeConversationId ? "page" : undefined
                   }
-                  className={`group flex h-9 w-full items-center rounded-[10px] px-2 text-left text-[13px] transition-colors ${
+                  className={`flex h-10 w-full items-center rounded-xl px-2 text-left text-sm font-medium transition-colors ${
                     conversation.id === activeConversationId
                       ? "bg-[var(--hover)] text-[var(--text)]"
-                      : "text-[var(--muted)] hover:bg-[var(--hover-soft)] hover:text-[var(--text)]"
+                      : "text-[var(--muted)] hover:bg-[var(--hover)] hover:text-[var(--text)]"
                   }`}
                   onClick={() => onSelectConversation(conversation.id)}
                 >
-                  <MessageCircle className="mr-2 size-3.5 shrink-0 opacity-70" />
                   <span className="truncate">{conversation.title}</span>
                 </button>
               ))}
@@ -164,15 +161,14 @@ function Sidebar({
 }
 
 export function ChatFrame({
-  activeConversationId,
   children,
-  conversations,
   googleAuthEnabled,
   initialDesktopSidebarCollapsed,
-  initialGoogleAuthError,
   initialUser,
 }: ChatFrameProps) {
+  const pathname = usePathname();
   const router = useRouter();
+  const { conversations } = useChatData();
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const mobileSidebarRef = useRef<HTMLElement>(null);
   const [desktopCollapsed, setDesktopCollapsed] = useState(
@@ -180,7 +176,22 @@ export function ChatFrame({
   );
   const [mobileOpen, setMobileOpen] = useState(false);
   const [authMode, setAuthMode] = useState<AuthMode>();
+  const [googleAuthError, setGoogleAuthError] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
+  const activeConversationId = pathname.startsWith("/c/")
+    ? pathname.slice("/c/".length)
+    : undefined;
+
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("authError") !== "google") return;
+    requestAnimationFrame(() => {
+      setGoogleAuthError(true);
+      setAuthMode("login");
+    });
+    url.searchParams.delete("authError");
+    window.history.replaceState(window.history.state, "", url);
+  }, []);
 
   useEffect(() => {
     if (!mobileOpen) return;
@@ -285,6 +296,7 @@ export function ChatFrame({
       </aside>
 
       <main className="relative flex min-w-0 flex-1 flex-col">
+        <ToastViewport />
         <button
           ref={menuButtonRef}
           type="button"
@@ -305,11 +317,14 @@ export function ChatFrame({
           googleEnabled={googleAuthEnabled}
           mode={authMode}
           initialError={
-            initialGoogleAuthError
+            googleAuthError
               ? "Googleログインを完了できませんでした。もう一度お試しください。"
               : undefined
           }
-          onClose={() => setAuthMode(undefined)}
+          onClose={() => {
+            setAuthMode(undefined);
+            setGoogleAuthError(false);
+          }}
         />
       ) : null}
     </div>
