@@ -110,7 +110,7 @@ function SidebarContent({
 
       <div className="flex-1" />
 
-      <div className="space-y-1.5 px-1.5 pb-[max(0.625rem,env(safe-area-inset-bottom))]">
+      <div className="px-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom))]">
         {user ? (
           <SidebarAccount
             compact={compact}
@@ -348,9 +348,12 @@ export function ChatShell({
           </button>
         </header>
 
-        <section className="mx-auto flex w-full max-w-[720px] flex-1 flex-col justify-center px-5 pb-20 sm:px-8 lg:pb-16">
-          <div className="w-full -translate-y-[7vh]">
-            <h1 className="text-center text-2xl font-normal tracking-[-0.035em] text-[var(--text)] sm:text-[27px]">
+        <section className="mx-auto grid w-full max-w-[720px] flex-1 grid-rows-[1fr_auto] px-5 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-8 lg:flex lg:flex-col lg:justify-center lg:pb-16">
+          <h1 className="self-center -translate-y-[3vh] text-center text-2xl font-normal tracking-[-0.035em] text-[var(--text)] sm:text-[27px] lg:hidden">
+            {greeting}
+          </h1>
+          <div className="w-full lg:-translate-y-[7vh]">
+            <h1 className="hidden text-center text-[27px] font-normal tracking-[-0.035em] text-[var(--text)] lg:block">
               {greeting}
             </h1>
             <label htmlFor="chat-message" className="sr-only">
@@ -364,7 +367,7 @@ export function ChatShell({
               onChange={updateMessage}
               placeholder="話しかけてください"
               spellCheck="true"
-              className="chat-input mt-6 block h-13 w-full rounded-full border border-[var(--field-border)] bg-[var(--surface)] px-6 text-[16px] text-[var(--text)] shadow-[0_6px_24px_var(--input-shadow)] outline-none placeholder:text-[var(--muted)]"
+              className="chat-input block h-13 w-full rounded-full border border-[var(--field-border)] bg-[var(--surface)] px-6 text-[16px] text-[var(--text)] shadow-[0_6px_24px_var(--input-shadow)] outline-none placeholder:text-[var(--muted)] lg:mt-6"
             />
           </div>
         </section>
