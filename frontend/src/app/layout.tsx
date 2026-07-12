@@ -13,8 +13,11 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "SodAI",
-  description: "SodAI application workspace",
+  title: {
+    default: "SodAI",
+    template: "%s · SodAI",
+  },
+  description: "自分たちのデータで知性を育てる、SodAIプラットフォーム。",
 };
 
 export default function RootLayout({

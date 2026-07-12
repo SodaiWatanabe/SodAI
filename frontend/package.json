@@ -6,20 +6,29 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "auth:migrate": "jiti scripts/migrate-auth.ts",
+    "auth:migrate:check": "jiti scripts/migrate-auth.ts --check"
   },
   "dependencies": {
+    "better-auth": "1.6.23",
     "next": "16.2.10",
+    "nodemailer": "9.0.3",
+    "pg": "8.22.0",
     "react": "19.2.4",
     "react-dom": "19.2.4"
   },
   "devDependencies": {
+    "@next/env": "16.2.10",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
+    "@types/nodemailer": "8.0.1",
+    "@types/pg": "8.16.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.2.10",
+    "jiti": "2.7.0",
     "tailwindcss": "^4",
     "typescript": "^5"
   },
