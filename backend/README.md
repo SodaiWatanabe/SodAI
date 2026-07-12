@@ -27,3 +27,13 @@ Provider migration does not require changing conversation, credit, or feedback
 foreign keys: those future tables should reference `app.users.id`. A new provider
 identity must be explicitly linked to the existing SodAI UUID during migration;
 email addresses are never used as an automatic identity-linking key.
+
+## Model contract
+
+Public model IDs are opaque, immutable API identifiers. The current catalog uses
+`hina` as the guest default and `asuka-1` as the authenticated default. Omitting
+`model` resolves through the same principal-aware policy. API requests and
+`inference_runs.requested_model` store the selected public ID; the separately
+versioned `resolved_model` records the concrete provider runtime. Additions start
+in `app.domain.model_catalog` so metadata, audience rules, contextual defaults,
+and runtime resolution do not drift across endpoints.

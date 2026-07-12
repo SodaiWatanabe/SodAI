@@ -5,7 +5,7 @@ import type { AvailableModel } from "@/lib/chat/types";
 
 type ChatHeaderProps = {
   disabled?: boolean;
-  model: AvailableModel["id"];
+  model?: AvailableModel["id"];
   models: AvailableModel[];
   onModelChange: (model: AvailableModel["id"]) => void;
   showPseudoBadge?: boolean;

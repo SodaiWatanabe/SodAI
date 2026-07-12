@@ -44,13 +44,25 @@ hashだけを保存します。会話は必ず内部ユーザーまたは匿名�
 | `GET` | `/api/v1/conversations` | 所有する会話一覧 |
 | `GET` | `/api/v1/conversations/{id}` | 発言と生成中runを含む会話復元 |
 | `POST` | `/api/v1/conversations/{id}/turns` | 次のpartner発言と推論runを作成 |
-| `GET` | `/api/v1/models` | 主体が利用できるモデルalias |
+| `GET` | `/api/v1/models` | 主体が利用できるモデルカタログ |
 | `POST` | `/api/v1/realtime/tickets` | 一度限り、30秒有効の接続ticket |
 | `WS` | `/api/v1/realtime` | 会話・生成イベント |
 
-ゲストは`archive`だけ、ログインユーザーは`flagship`と`archive`を利用できます。現在はどちらも
-同じ`PseudoSodAI` providerへ解決されますが、`inference_runs.resolved_model`には実際に選ばれた
-不変バージョンを保存します。
+モデルIDは公開APIとDBで共通の、不変かつ小文字の識別子です。クライアントはIDを解析せず、
+`GET /api/v1/models`が返す`name`、`description`、`is_default`を表示と初期選択に使います。
+現在の契約は次のとおりです。
+
+| ID | 表示名 | 利用主体 | runtime ID |
+| --- | --- | --- | --- |
+| `hina` | Hina | 全主体 | `pseudo-sodai-hina-v1` |
+| `asuka-1` | Asuka 1 | ログインユーザー | `pseudo-sodai-asuka-1-v1` |
+
+ゲストのデフォルトは`hina`、ログインユーザーのデフォルトは`asuka-1`です。リクエストで
+`model`を省略した場合も、認証主体から同じ規則で選択します。APIが受け取る`model`には公開ID、
+`inference_runs.requested_model`にも実際に選択した公開IDを保存します。`resolved_model`には
+providerとrevisionを含むruntime IDを保存し、再現性と監査可能性を保ちます。モデル追加時は
+`app.domain.model_catalog`の定義を起点として、API enum、対象主体、主体別デフォルト、表示情報、
+runtime解決を一貫させます。
 
 ## イベント
 

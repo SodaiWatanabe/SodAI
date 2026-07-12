@@ -3,6 +3,8 @@ from datetime import datetime
 from enum import Enum
 from uuid import UUID
 
+from app.domain.model_catalog import ModelId
+
 
 class PrincipalKind(str, Enum):
     USER = "user"
@@ -39,7 +41,7 @@ class ConversationPrincipal:
 class ConversationSummary:
     id: UUID
     title: str
-    model: str
+    model: ModelId
     created_at: datetime
     updated_at: datetime
     last_activity_at: datetime
@@ -63,7 +65,7 @@ class InferenceRun:
     conversation_id: UUID
     input_message_id: UUID
     output_message_id: UUID
-    requested_model: str
+    requested_model: ModelId
     resolved_model: str
     status: RunStatus
     created_at: datetime
@@ -73,7 +75,7 @@ class InferenceRun:
 class Conversation:
     id: UUID
     title: str
-    model: str
+    model: ModelId
     messages: tuple[Message, ...]
     active_run: InferenceRun | None
     created_at: datetime

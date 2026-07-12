@@ -19,6 +19,7 @@ from app.domain.conversations import (
     RunStatus,
     Speaker,
 )
+from app.domain.model_catalog import ModelId
 from app.models.conversation import ConversationModel, InferenceRunModel, MessageModel
 
 
@@ -38,13 +39,13 @@ class SqlAlchemyConversationRepository:
         self,
         principal: ConversationPrincipal,
         content: str,
-        model: str,
+        model: ModelId,
         resolved_model: str,
     ) -> ConversationCreation:
         now = datetime.now(timezone.utc)
         conversation = ConversationModel(
             title=_title_from(content),
-            default_model=model,
+            default_model=model.value,
             status="active",
             last_activity_at=now,
             owner_user_id=principal.id if principal.kind is PrincipalKind.USER else None,
@@ -70,7 +71,7 @@ class SqlAlchemyConversationRepository:
             conversation_id=conversation.id,
             input_message_id=input_message.id,
             output_message_id=output_message.id,
-            requested_model=model,
+            requested_model=model.value,
             resolved_model=resolved_model,
             status=RunStatus.QUEUED.value,
             partial_output="",
@@ -121,7 +122,7 @@ class SqlAlchemyConversationRepository:
         principal: ConversationPrincipal,
         conversation_id: UUID,
         content: str,
-        model: str,
+        model: ModelId,
         resolved_model: str,
     ) -> ConversationCreation:
         conversation = await self._locked_conversation(principal, conversation_id)
@@ -152,7 +153,7 @@ class SqlAlchemyConversationRepository:
             ordinal=(last_ordinal or 0) + 2,
         )
         now = datetime.now(timezone.utc)
-        conversation.default_model = model
+        conversation.default_model = model.value
         conversation.last_activity_at = now
         self._session.add_all([input_message, output_message])
         await self._session.flush()
@@ -160,7 +161,7 @@ class SqlAlchemyConversationRepository:
             conversation_id=conversation_id,
             input_message_id=input_message.id,
             output_message_id=output_message.id,
-            requested_model=model,
+            requested_model=model.value,
             resolved_model=resolved_model,
             status=RunStatus.QUEUED.value,
             partial_output="",
@@ -272,7 +273,7 @@ class SqlAlchemyConversationRepository:
         return ConversationSummary(
             id=model.id,
             title=model.title,
-            model=model.default_model,
+            model=ModelId(model.default_model),
             created_at=model.created_at,
             updated_at=model.updated_at,
             last_activity_at=model.last_activity_at,
@@ -288,7 +289,7 @@ class SqlAlchemyConversationRepository:
         return Conversation(
             id=model.id,
             title=model.title,
-            model=model.default_model,
+            model=ModelId(model.default_model),
             messages=tuple(cls._to_message(message) for message in messages),
             active_run=cls._to_run(active_run) if active_run else None,
             created_at=model.created_at,
@@ -316,7 +317,7 @@ class SqlAlchemyConversationRepository:
             conversation_id=model.conversation_id,
             input_message_id=model.input_message_id,
             output_message_id=model.output_message_id,
-            requested_model=model.requested_model,
+            requested_model=ModelId(model.requested_model),
             resolved_model=model.resolved_model,
             status=RunStatus(model.status),
             created_at=model.created_at,

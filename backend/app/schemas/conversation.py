@@ -4,15 +4,21 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.domain.model_catalog import ModelId
+
+MODEL_SELECTION_DESCRIPTION = (
+    "Model ID. Omit to use Hina for guests or Asuka 1 for authenticated accounts."
+)
+
 
 class CreateConversationRequest(BaseModel):
     input: str = Field(min_length=1, max_length=8000)
-    model: Literal["archive", "flagship"] = "archive"
+    model: ModelId | None = Field(default=None, description=MODEL_SELECTION_DESCRIPTION)
 
 
 class CreateTurnRequest(BaseModel):
     input: str = Field(min_length=1, max_length=8000)
-    model: Literal["archive", "flagship"] = "archive"
+    model: ModelId | None = Field(default=None, description=MODEL_SELECTION_DESCRIPTION)
 
 
 class MessageResponse(BaseModel):
@@ -35,7 +41,7 @@ class RunResponse(BaseModel):
     conversation_id: UUID
     input_message_id: UUID
     output_message_id: UUID
-    requested_model: str
+    requested_model: ModelId
     resolved_model: str
     status: Literal["queued", "running", "completed", "failed"]
     created_at: datetime
@@ -46,7 +52,7 @@ class ConversationSummaryResponse(BaseModel):
 
     id: UUID
     title: str
-    model: str
+    model: ModelId
     created_at: datetime
     updated_at: datetime
     last_activity_at: datetime
@@ -67,9 +73,12 @@ class ConversationListResponse(BaseModel):
 
 
 class ModelResponse(BaseModel):
-    id: Literal["archive", "flagship"]
+    model_config = ConfigDict(from_attributes=True)
+
+    id: ModelId
     name: str
     description: str
+    is_default: bool
 
 
 class ModelListResponse(BaseModel):

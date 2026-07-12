@@ -16,9 +16,10 @@ from app.domain.conversations import (
     RunStatus,
     Speaker,
 )
+from app.domain.model_catalog import ModelId
 from app.main import app
 from app.repositories.conversations import ConversationBusyError
-from app.services.conversation import get_conversation_service
+from app.services.conversation import ConversationService, get_conversation_service
 
 PRINCIPAL = ConversationPrincipal(
     PrincipalKind.GUEST,
@@ -59,8 +60,8 @@ def creation_fixture() -> ConversationCreation:
         conversation_id=CONVERSATION_ID,
         input_message_id=INPUT_ID,
         output_message_id=OUTPUT_ID,
-        requested_model="archive",
-        resolved_model="pseudo-sodai-archive-v1",
+        requested_model=ModelId.HINA,
+        resolved_model="pseudo-sodai-hina-v1",
         status=RunStatus.QUEUED,
         created_at=NOW,
     )
@@ -68,7 +69,7 @@ def creation_fixture() -> ConversationCreation:
         conversation=Conversation(
             id=CONVERSATION_ID,
             title="こんにちは",
-            model="archive",
+            model=ModelId.HINA,
             messages=messages,
             active_run=run,
             created_at=NOW,
@@ -82,12 +83,13 @@ def creation_fixture() -> ConversationCreation:
 class StubConversationService:
     def __init__(self, *, busy: bool = False) -> None:
         self.busy = busy
-        self.received: tuple[ConversationPrincipal, str, str] | None = None
+        self.received: tuple[ConversationPrincipal, str, ModelId] | None = None
 
     async def create(
-        self, principal: ConversationPrincipal, content: str, model: str
+        self, principal: ConversationPrincipal, content: str, model: ModelId | None
     ) -> ConversationCreation:
-        self.received = (principal, content, model)
+        selected = ConversationService.select_model(principal, model)
+        self.received = (principal, content, selected.id)
         return creation_fixture()
 
     async def add_turn(
@@ -95,11 +97,12 @@ class StubConversationService:
         principal: ConversationPrincipal,
         conversation_id: UUID,
         content: str,
-        model: str,
+        model: ModelId | None,
     ) -> ConversationCreation:
         if self.busy:
             raise ConversationBusyError
-        self.received = (principal, content, model)
+        selected = ConversationService.select_model(principal, model)
+        self.received = (principal, content, selected.id)
         return creation_fixture()
 
 
@@ -123,7 +126,7 @@ async def test_create_conversation_uses_sodai_partner_vocabulary() -> None:
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         response = await client.post(
             "/api/v1/conversations",
-            json={"input": "こんにちは", "model": "archive"},
+            json={"input": "こんにちは", "model": "hina"},
         )
 
     assert response.status_code == 201
@@ -131,8 +134,24 @@ async def test_create_conversation_uses_sodai_partner_vocabulary() -> None:
         "partner",
         "sodai",
     ]
-    assert response.json()["run"]["resolved_model"] == "pseudo-sodai-archive-v1"
-    assert service.received == (PRINCIPAL, "こんにちは", "archive")
+    assert response.json()["run"]["resolved_model"] == "pseudo-sodai-hina-v1"
+    assert service.received == (PRINCIPAL, "こんにちは", ModelId.HINA)
+
+
+@pytest.mark.anyio
+async def test_create_conversation_defaults_to_hina() -> None:
+    service = StubConversationService()
+    app.dependency_overrides[get_conversation_principal] = lambda: PRINCIPAL
+    app.dependency_overrides[get_conversation_service] = lambda: service
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post(
+            "/api/v1/conversations",
+            json={"input": "こんにちは"},
+        )
+
+    assert response.status_code == 201
+    assert service.received == (PRINCIPAL, "こんにちは", ModelId.HINA)
 
 
 @pytest.mark.anyio
@@ -143,8 +162,25 @@ async def test_create_turn_reports_active_generation_conflict() -> None:
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         response = await client.post(
             f"/api/v1/conversations/{CONVERSATION_ID}/turns",
-            json={"input": "続けましょう", "model": "archive"},
+            json={"input": "続けましょう", "model": "hina"},
         )
 
     assert response.status_code == 409
     assert response.json() == {"detail": "A response is already being generated"}
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("legacy_model_id", ["archive", "flagship"])
+async def test_legacy_model_id_is_rejected(legacy_model_id: str) -> None:
+    service = StubConversationService()
+    app.dependency_overrides[get_conversation_principal] = lambda: PRINCIPAL
+    app.dependency_overrides[get_conversation_service] = lambda: service
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post(
+            "/api/v1/conversations",
+            json={"input": "こんにちは", "model": legacy_model_id},
+        )
+
+    assert response.status_code == 422
+    assert service.received is None

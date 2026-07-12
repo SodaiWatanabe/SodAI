@@ -24,7 +24,10 @@ export function ChatShell(props: ChatShellProps) {
   const [message, setMessage] = useState("");
   const [requestedModel, setRequestedModel] = useState<AvailableModel["id"]>();
   const [submitting, setSubmitting] = useState(false);
-  const model = requestedModel ?? models[0]?.id ?? "archive";
+  const model =
+    requestedModel ??
+    models.find((availableModel) => availableModel.is_default)?.id ??
+    models[0]?.id;
 
   useEffect(() => {
     mountedRef.current = true;
@@ -37,7 +40,7 @@ export function ChatShell(props: ChatShellProps) {
   async function submit(event: FormEvent) {
     event.preventDefault();
     const input = message.trim();
-    if (!input || submitting) return;
+    if (!input || !model || submitting) return;
     setSubmitting(true);
     dismissToast("conversation-create");
     try {
@@ -96,7 +99,7 @@ export function ChatShell(props: ChatShellProps) {
             <button
               type="submit"
               aria-label="送信"
-              disabled={!message.trim() || submitting}
+              disabled={!message.trim() || !model || submitting}
               className="absolute right-2 top-2 grid size-10 place-items-center rounded-full bg-[var(--primary)] text-[var(--on-primary)] transition-opacity disabled:opacity-25"
             >
               <ArrowUp className="size-[18px]" strokeWidth={2.2} />

@@ -74,7 +74,7 @@ export function ConversationShell(props: ConversationShellProps) {
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const realtimeToastTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const [conversation, setConversation] = useState<Conversation>();
-  const [model, setModel] = useState<AvailableModel["id"]>("archive");
+  const [model, setModel] = useState<AvailableModel["id"]>();
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
@@ -133,7 +133,7 @@ export function ConversationShell(props: ConversationShellProps) {
               : current.messages,
         }));
         if (realtimeRevision === realtimeRevisionRef.current) {
-          setModel(current.model as AvailableModel["id"]);
+          setModel(current.model);
           setSending(Boolean(current.active_run));
         }
         dismissToast("conversation-load");
@@ -267,7 +267,7 @@ export function ConversationShell(props: ConversationShellProps) {
   async function submit(event: FormEvent) {
     event.preventDefault();
     const input = message.trim();
-    if (!input || sending) return;
+    if (!input || !model || sending) return;
     setMessage("");
     setSending(true);
     dismissToast("message-send");
@@ -338,7 +338,7 @@ export function ConversationShell(props: ConversationShellProps) {
           <button
             type="submit"
             aria-label="送信"
-            disabled={!message.trim() || sending}
+            disabled={!message.trim() || !model || sending}
             className="absolute right-2 top-2 grid size-10 place-items-center rounded-full bg-[var(--primary)] text-[var(--on-primary)] transition-opacity disabled:opacity-25"
           >
             <ArrowUp className="size-[18px]" strokeWidth={2.2} />

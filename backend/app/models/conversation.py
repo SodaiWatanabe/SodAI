@@ -55,7 +55,7 @@ class ConversationModel(Base):
         index=True,
     )
     title: Mapped[str] = mapped_column(String(120), nullable=False)
-    default_model: Mapped[str] = mapped_column(String(64), nullable=False, default="archive")
+    default_model: Mapped[str] = mapped_column(String(64), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=sql_func.now()

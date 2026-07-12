@@ -1,7 +1,7 @@
 import asyncio
 from logging.config import fileConfig
 
-from sqlalchemy import inspect, pool
+from sqlalchemy import inspect, pool, text
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
@@ -20,6 +20,14 @@ config.set_main_option("sqlalchemy.url", get_settings().database_url.replace("%"
 target_metadata = Base.metadata
 
 
+def include_name(name: str | None, type_: str, parent_names: dict[str, str | None]) -> bool:
+    if type_ == "schema":
+        return name in {None, APPLICATION_SCHEMA}
+    if type_ == "table":
+        return parent_names["schema_qualified_table_name"] in target_metadata.tables
+    return True
+
+
 def run_migrations_offline() -> None:
     context.configure(
         url=config.get_main_option("sqlalchemy.url"),
@@ -27,6 +35,7 @@ def run_migrations_offline() -> None:
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         include_schemas=True,
+        include_name=include_name,
         version_table_schema=APPLICATION_SCHEMA,
         compare_type=True,
     )
@@ -41,10 +50,13 @@ def do_run_migrations(connection: Connection) -> None:
             "PostgreSQL schema 'app' is missing. Initialize the self-hosted "
             "infrastructure before running application migrations."
         )
+    connection.execute(text("SET LOCAL search_path TO public"))
+    connection.dialect.default_schema_name = "public"
     context.configure(
         connection=connection,
         target_metadata=target_metadata,
         include_schemas=True,
+        include_name=include_name,
         version_table_schema=APPLICATION_SCHEMA,
         compare_type=True,
     )

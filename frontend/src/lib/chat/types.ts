@@ -40,9 +40,10 @@ export type ConversationCreation = {
 };
 
 export type AvailableModel = {
-  id: "archive" | "flagship";
+  id: string;
   name: string;
   description: string;
+  is_default: boolean;
 };
 
 export type RealtimeEvent = {

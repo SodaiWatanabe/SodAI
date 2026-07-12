@@ -15,6 +15,15 @@ from app.domain.conversations import (
     ConversationSummary,
     PrincipalKind,
 )
+from app.domain.model_catalog import (
+    AvailableModel,
+    ModelAudience,
+    ModelDefinition,
+    ModelId,
+    get_default_model,
+    get_model_definition,
+    list_available_models,
+)
 from app.repositories.conversations import SqlAlchemyConversationRepository
 from app.services.pseudo_inference import PseudoSodAI
 from app.services.realtime import realtime_hub
@@ -37,12 +46,12 @@ class ConversationService:
         self._tasks: set[asyncio.Task[None]] = set()
 
     async def create(
-        self, principal: ConversationPrincipal, content: str, model: str
+        self, principal: ConversationPrincipal, content: str, model: ModelId | None
     ) -> ConversationCreation:
-        resolved = self.resolve_model(principal, model)
+        selected = self.select_model(principal, model)
         async with self._session_factory() as session:
             creation = await SqlAlchemyConversationRepository(session).create(
-                principal, content.strip(), model, resolved
+                principal, content.strip(), selected.id, selected.runtime_id
             )
             await session.commit()
         await realtime_hub.publish(
@@ -50,7 +59,7 @@ class ConversationService:
             "conversation.created",
             creation.conversation.id,
             creation.run.id,
-            {"title": creation.conversation.title, "model": model},
+            {"title": creation.conversation.title, "model": selected.id.value},
         )
         self._start_generation(principal, creation.run.id, content.strip())
         return creation
@@ -68,12 +77,16 @@ class ConversationService:
         principal: ConversationPrincipal,
         conversation_id: UUID,
         content: str,
-        model: str,
+        model: ModelId | None,
     ) -> ConversationCreation:
-        resolved = self.resolve_model(principal, model)
+        selected = self.select_model(principal, model)
         async with self._session_factory() as session:
             creation = await SqlAlchemyConversationRepository(session).append_turn(
-                principal, conversation_id, content.strip(), model, resolved
+                principal,
+                conversation_id,
+                content.strip(),
+                selected.id,
+                selected.runtime_id,
             )
             await session.commit()
         await realtime_hub.publish(
@@ -90,32 +103,28 @@ class ConversationService:
         return creation
 
     @staticmethod
-    def available_models(principal: ConversationPrincipal) -> list[dict[str, str]]:
-        models = [
-            {
-                "id": "archive",
-                "name": "Archive",
-                "description": "SodAIのアーカイブモデル。現在は疑似応答です。",
-            }
-        ]
-        if principal.kind is PrincipalKind.USER:
-            models.insert(
-                0,
-                {
-                    "id": "flagship",
-                    "name": "Flagship",
-                    "description": "ログインユーザー向けモデル。現在は疑似応答です。",
-                },
-            )
-        return models
+    def available_models(principal: ConversationPrincipal) -> list[AvailableModel]:
+        return list_available_models(ConversationService._model_audience(principal))
 
     @staticmethod
-    def resolve_model(principal: ConversationPrincipal, requested: str) -> str:
-        if requested == "flagship" and principal.kind is not PrincipalKind.USER:
+    def select_model(
+        principal: ConversationPrincipal, requested: ModelId | None
+    ) -> ModelDefinition:
+        audience = ConversationService._model_audience(principal)
+        model = (
+            get_model_definition(requested)
+            if requested is not None
+            else get_default_model(audience)
+        )
+        if model is None or audience not in model.audiences:
             raise ModelAccessError
-        if requested not in {"archive", "flagship"}:
-            raise ModelAccessError
-        return f"pseudo-sodai-{requested}-v1"
+        return model
+
+    @staticmethod
+    def _model_audience(principal: ConversationPrincipal) -> ModelAudience:
+        if principal.kind is PrincipalKind.USER:
+            return ModelAudience.AUTHENTICATED
+        return ModelAudience.GUEST
 
     def _start_generation(
         self, principal: ConversationPrincipal, run_id: UUID, content: str
