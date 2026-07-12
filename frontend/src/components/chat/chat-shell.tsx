@@ -13,10 +13,12 @@ import { type ChangeEvent, useEffect, useRef, useState } from "react";
 
 import { AuthDialog, type AuthMode } from "@/components/auth/auth-dialog";
 import { authClient } from "@/lib/auth/client";
+import { createDesktopSidebarCookie } from "@/lib/preferences/sidebar";
 
 type ChatShellProps = {
   greeting: string;
   googleAuthEnabled: boolean;
+  initialDesktopSidebarCollapsed: boolean;
   initialGoogleAuthError: boolean;
   initialUser: SidebarUser | null;
 };
@@ -183,6 +185,7 @@ function SidebarContent({
 export function ChatShell({
   greeting,
   googleAuthEnabled,
+  initialDesktopSidebarCollapsed,
   initialGoogleAuthError,
   initialUser,
 }: ChatShellProps) {
@@ -190,7 +193,9 @@ export function ChatShell({
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const mobileSidebarRef = useRef<HTMLElement>(null);
   const messageInputRef = useRef<HTMLInputElement>(null);
-  const [desktopCollapsed, setDesktopCollapsed] = useState(false);
+  const [desktopCollapsed, setDesktopCollapsed] = useState(
+    initialDesktopSidebarCollapsed,
+  );
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [authMode, setAuthMode] = useState<AuthMode | undefined>(
     initialGoogleAuthError ? "login" : undefined,
@@ -289,6 +294,15 @@ export function ChatShell({
     setMessage(event.target.value);
   }
 
+  function toggleDesktopSidebar() {
+    const nextCollapsed = !desktopCollapsed;
+    setDesktopCollapsed(nextCollapsed);
+    document.cookie = createDesktopSidebarCookie(
+      nextCollapsed ? "collapsed" : "expanded",
+      window.location.protocol === "https:",
+    );
+  }
+
   const sidebarProps = {
     onCreateAccount: () => openAuth("register"),
     onLogin: () => openAuth("login"),
@@ -310,7 +324,7 @@ export function ChatShell({
           {...sidebarProps}
           compact={desktopCollapsed}
           contentVisible={!desktopCollapsed}
-          onClose={() => setDesktopCollapsed((collapsed) => !collapsed)}
+          onClose={toggleDesktopSidebar}
         />
       </aside>
 
