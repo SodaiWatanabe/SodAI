@@ -1,8 +1,7 @@
 "use client";
 
 import {
-  LogOut,
-  Menu,
+  Equal,
   PanelLeftClose,
   PanelLeftOpen,
   SquarePen,
@@ -12,6 +11,10 @@ import { useRouter } from "next/navigation";
 import { type ChangeEvent, useEffect, useRef, useState } from "react";
 
 import { AuthDialog, type AuthMode } from "@/components/auth/auth-dialog";
+import {
+  SidebarAccount,
+  type SidebarUser,
+} from "@/components/chat/sidebar-account";
 import { authClient } from "@/lib/auth/client";
 import { createDesktopSidebarCookie } from "@/lib/preferences/sidebar";
 
@@ -21,11 +24,6 @@ type ChatShellProps = {
   initialDesktopSidebarCollapsed: boolean;
   initialGoogleAuthError: boolean;
   initialUser: SidebarUser | null;
-};
-
-type SidebarUser = {
-  email: string;
-  name: string;
 };
 
 type SidebarContentProps = {
@@ -54,10 +52,6 @@ function SidebarContent({
   const primaryLabelClass = contentVisible
     ? "opacity-100 delay-100 motion-reduce:delay-0"
     : "pointer-events-none opacity-0";
-  const secondaryLabelClass = contentVisible
-    ? "opacity-100 delay-300 motion-reduce:delay-0"
-    : "pointer-events-none opacity-0";
-
   return (
     <>
       <div className="relative flex h-12 shrink-0 items-center px-1.5">
@@ -118,37 +112,13 @@ function SidebarContent({
 
       <div className="space-y-1.5 px-1.5 pb-[max(0.625rem,env(safe-area-inset-bottom))]">
         {user ? (
-          <div
-            className="flex h-10 items-center gap-2.5 rounded-full px-1.5"
-          >
-            <span className="grid size-8 shrink-0 place-items-center rounded-full bg-[#1d1d1f] text-xs font-semibold text-white">
-              {(user.name || user.email).slice(0, 1).toUpperCase()}
-            </span>
-            <span
-              className={`min-w-0 flex-1 transition-opacity duration-150 ${
-                compact ? "lg:w-0 lg:overflow-hidden" : ""
-              } ${secondaryLabelClass}`}
-            >
-              <span className="block truncate text-xs font-medium text-[#1d1d1f]">
-                {user.name || "SodAIユーザー"}
-              </span>
-              <span className="block truncate text-[11px] text-[#6e6e73]">
-                {user.email}
-              </span>
-            </span>
-            <button
-              type="button"
-              title="ログアウト"
-              aria-label="ログアウト"
-              disabled={signingOut}
-              className={`grid size-8 shrink-0 place-items-center rounded-full text-[#3a3a3c] transition hover:bg-black/[0.05] hover:text-[#1d1d1f] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0071e3] disabled:opacity-40 ${
-                compact ? "lg:hidden" : ""
-              }`}
-              onClick={onSignOut}
-            >
-              <LogOut className="size-[17px]" />
-            </button>
-          </div>
+          <SidebarAccount
+            compact={compact}
+            contentVisible={contentVisible}
+            onSignOut={onSignOut}
+            signingOut={signingOut}
+            user={user}
+          />
         ) : (
           <div
             aria-hidden={!contentVisible}
@@ -346,7 +316,7 @@ export function ChatShell({
         aria-modal={mobileSidebarOpen}
         inert={!mobileSidebarOpen}
         tabIndex={-1}
-        className="fixed inset-y-0 left-0 z-40 flex w-[min(86vw,320px)] flex-col overflow-hidden bg-[#f5f5f7] shadow-[inset_-1px_0_0_rgba(0,0,0,0.06),12px_0_32px_rgba(0,0,0,0.1)] outline-none transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] will-change-transform motion-reduce:transition-none lg:hidden"
+        className="fixed inset-y-0 left-0 z-40 flex w-[256px] flex-col overflow-hidden bg-[#f5f5f7] shadow-[inset_-1px_0_0_rgba(0,0,0,0.06),12px_0_32px_rgba(0,0,0,0.1)] outline-none transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] will-change-transform motion-reduce:transition-none lg:hidden"
         style={{
           transform: mobileSidebarOpen
             ? "translate3d(0, 0, 0)"
@@ -374,13 +344,13 @@ export function ChatShell({
             className="grid size-10 place-items-center rounded-xl text-[#6e6e73] transition-colors hover:bg-black/[0.04] hover:text-[#3a3a3c] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0071e3] lg:hidden"
             onClick={() => setMobileSidebarOpen(true)}
           >
-            <Menu className="size-[21px]" />
+            <Equal className="size-[21px]" />
           </button>
         </header>
 
         <section className="mx-auto flex w-full max-w-[720px] flex-1 flex-col justify-center px-5 pb-20 sm:px-8 lg:pb-16">
           <div className="w-full -translate-y-[7vh]">
-            <h1 className="text-center text-[27px] font-normal tracking-[-0.035em] text-[#1d1d1f] sm:text-[30px]">
+            <h1 className="text-center text-2xl font-normal tracking-[-0.035em] text-[#1d1d1f] sm:text-[27px]">
               {greeting}
             </h1>
             <label htmlFor="chat-message" className="sr-only">

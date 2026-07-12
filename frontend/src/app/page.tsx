@@ -46,7 +46,11 @@ export default async function Home({ searchParams }: HomeProps) {
       initialDesktopSidebarCollapsed={sidebarPreference === "collapsed"}
       initialUser={
         session?.user
-          ? { email: session.user.email, name: session.user.name }
+          ? {
+              email: session.user.email,
+              image: session.user.image ?? null,
+              name: session.user.name,
+            }
           : null
       }
       initialGoogleAuthError={
