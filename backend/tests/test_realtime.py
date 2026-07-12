@@ -1,8 +1,10 @@
+import asyncio
 from uuid import UUID
 
 import pytest
 
 from app.domain.conversations import ConversationPrincipal, PrincipalKind
+from app.routers.conversations import _next_realtime_message
 from app.services.realtime import RealtimeHub, RealtimeTicketService
 
 PRINCIPAL = ConversationPrincipal(
@@ -24,6 +26,15 @@ def test_realtime_ticket_is_single_use() -> None:
 
     assert tickets.consume(ticket) == PRINCIPAL
     assert tickets.consume(ticket) is None
+
+
+@pytest.mark.anyio
+async def test_realtime_idle_connection_receives_heartbeat() -> None:
+    queue = asyncio.Queue()
+
+    message = await _next_realtime_message(queue, timeout=0)
+
+    assert message == {"type": "ping"}
 
 
 @pytest.mark.anyio

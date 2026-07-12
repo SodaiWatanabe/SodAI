@@ -20,9 +20,22 @@ from app.services.conversation import (
     ModelAccessError,
     get_conversation_service,
 )
-from app.services.realtime import realtime_hub, realtime_tickets
+from app.services.realtime import RealtimeEvent, realtime_hub, realtime_tickets
 
 router = APIRouter(tags=["conversations"])
+REALTIME_HEARTBEAT_INTERVAL = 20.0
+
+
+async def _next_realtime_message(
+    queue: asyncio.Queue[RealtimeEvent],
+    *,
+    timeout: float = REALTIME_HEARTBEAT_INTERVAL,
+) -> dict[str, object]:
+    try:
+        event = await asyncio.wait_for(queue.get(), timeout=timeout)
+    except asyncio.TimeoutError:
+        return {"type": "ping"}
+    return event.as_dict()
 
 
 @router.post(
@@ -124,11 +137,7 @@ async def realtime(
         for event in replay:
             await websocket.send_json(event.as_dict())
         while True:
-            try:
-                event = await asyncio.wait_for(queue.get(), timeout=20)
-                await websocket.send_json(event.as_dict())
-            except TimeoutError:
-                await websocket.send_json({"type": "ping"})
+            await websocket.send_json(await _next_realtime_message(queue))
     except WebSocketDisconnect:
         pass
     finally:
