@@ -60,7 +60,7 @@ function SidebarContent({
     <>
       <div className="relative flex h-12 shrink-0 items-center px-1.5">
         <span
-          className={`absolute left-[19px] whitespace-nowrap text-lg font-semibold tracking-[-0.025em] text-[#1d1d1f] transition-opacity duration-150 ${
+          className={`absolute left-[18px] whitespace-nowrap text-lg font-semibold tracking-[-0.025em] text-[#1d1d1f] transition-opacity duration-150 ${
             compact
               ? "lg:pointer-events-none lg:opacity-0"
               : "opacity-100 lg:delay-100 lg:motion-reduce:delay-0"
@@ -72,7 +72,9 @@ function SidebarContent({
           type="button"
           aria-label={compact ? "サイドバーを開く" : "サイドバーを閉じる"}
           aria-expanded={!compact}
-          className="ml-auto hidden size-10 place-items-center rounded-xl text-[#6e6e73] transition-colors hover:bg-black/[0.05] hover:text-[#3a3a3c] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0071e3] lg:grid"
+          className={`ml-auto hidden h-10 place-items-center rounded-xl text-[#6e6e73] transition-colors hover:bg-black/[0.05] hover:text-[#3a3a3c] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0071e3] lg:grid ${
+            compact ? "w-[38px]" : "w-10"
+          }`}
           onClick={onClose}
         >
           {compact ? (
@@ -96,7 +98,7 @@ function SidebarContent({
         <button
           type="button"
           title="新しいチャット"
-          className="flex h-9 w-full items-center gap-2.5 rounded-xl px-[11px] text-left text-sm font-medium text-[#1d1d1f] transition-colors duration-150 hover:bg-black/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0071e3]"
+          className="flex h-9 w-full items-center gap-2.5 rounded-xl px-2.5 text-left text-sm font-medium text-[#1d1d1f] transition-colors duration-150 hover:bg-black/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0071e3]"
           onClick={onNewChat}
         >
           <SquarePen className="size-[18px] shrink-0" />
@@ -301,7 +303,7 @@ export function ChatShell({
       <aside
         aria-label="チャットサイドバー"
         className={`hidden shrink-0 flex-col overflow-hidden border-r border-black/[0.06] bg-[#f5f5f7] transition-[width] duration-300 ease-out lg:flex ${
-          desktopCollapsed ? "w-[52px]" : "w-[256px]"
+          desktopCollapsed ? "w-[51px]" : "w-[256px]"
         }`}
       >
         <SidebarContent
@@ -378,7 +380,7 @@ export function ChatShell({
               onChange={updateMessage}
               placeholder="話しかけてください"
               spellCheck="true"
-              className="mt-6 block h-14 w-full rounded-full border border-black/[0.1] bg-white px-6 text-[16px] text-[#1d1d1f] shadow-[0_6px_24px_rgba(0,0,0,0.055)] outline-none placeholder:text-[#6e6e73]"
+              className="mt-6 block h-13 w-full rounded-full border border-black/[0.1] bg-white px-6 text-[16px] text-[#1d1d1f] shadow-[0_6px_24px_rgba(0,0,0,0.055)] outline-none placeholder:text-[#6e6e73]"
             />
           </div>
         </section>
