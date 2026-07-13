@@ -5,7 +5,7 @@ from typing import Any
 
 from redis.asyncio import Redis
 from redis.exceptions import ResponseError
-from sodai_contracts.inference import GenerationJob
+from sodai_contracts.inference import GenerationJob, InferenceNamespace
 
 ACK_AND_DELETE_SCRIPT = """
 local acknowledged = redis.call('XACK', KEYS[1], ARGV[1], ARGV[2])
@@ -31,25 +31,23 @@ class RedisInferenceBroker:
         self,
         redis: Redis,
         *,
-        job_stream: str,
-        event_stream: str,
-        event_group: str,
+        namespace: InferenceNamespace,
         event_consumer: str,
         event_claim_idle_ms: int,
     ) -> None:
         self._redis = redis
-        self.job_stream = job_stream
-        self.event_stream = event_stream
-        self.event_group = event_group
+        self.namespace = namespace
+        self.job_stream = namespace.job_stream
+        self.event_stream = namespace.event_stream
+        self.event_group = namespace.projector_group
         self.event_consumer = event_consumer
         self.event_claim_idle_ms = event_claim_idle_ms
         self._event_claim_cursor = "0-0"
 
-    async def publish_job(self, payload: str) -> str:
-        job = GenerationJob.from_json(payload)
+    async def publish_job(self, job: GenerationJob) -> str:
         return await self._redis.xadd(
-            f"{self.job_stream}:{job.model}:{job.artifact_id}",
-            {"payload": payload},
+            self.namespace.job_stream_for(job.model, job.artifact_id),
+            {"payload": job.to_json()},
             maxlen=100_000,
             approximate=True,
         )

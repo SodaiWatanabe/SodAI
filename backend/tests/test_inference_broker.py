@@ -1,6 +1,7 @@
 import asyncio
 
 import pytest
+from sodai_contracts.inference import InferenceNamespace
 
 from app.services.inference.broker import RedisInferenceBroker, StreamBacklog
 from app.services.inference.coordinator import reconciliation_is_safe
@@ -28,9 +29,7 @@ def test_reads_new_and_claimable_events_fairly() -> None:
     redis = FakeRedis()
     broker = RedisInferenceBroker(
         redis,  # type: ignore[arg-type]
-        job_stream="jobs",
-        event_stream="events",
-        event_group="group",
+        namespace=InferenceNamespace("test:inference"),
         event_consumer="consumer",
         event_claim_idle_ms=2_000,
     )
@@ -51,16 +50,19 @@ def test_acknowledging_an_event_also_removes_its_payload() -> None:
     redis = FakeRedis()
     broker = RedisInferenceBroker(
         redis,  # type: ignore[arg-type]
-        job_stream="jobs",
-        event_stream="events",
-        event_group="group",
+        namespace=InferenceNamespace("test:inference"),
         event_consumer="consumer",
         event_claim_idle_ms=2_000,
     )
 
     asyncio.run(broker.acknowledge_event("20-0"))
 
-    assert redis.eval_args[1:] == (1, "events", "group", "20-0")
+    assert redis.eval_args[1:] == (
+        1,
+        "test:inference:events:v2",
+        "test-inference-projector-v2",
+        "20-0",
+    )
 
 
 @pytest.mark.parametrize(

@@ -8,6 +8,7 @@ from pathlib import Path
 from sodai_contracts.inference import (
     INFERENCE_ATTEMPT_LOCK_SECONDS,
     INFERENCE_JOB_CLAIM_IDLE_MS,
+    InferenceNamespace,
 )
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
@@ -21,9 +22,7 @@ class Settings:
     device: str
     consumer_name: str
     artifact_id: str | None = None
-    job_stream: str = "sodai:inference:jobs:v2"
-    event_stream: str = "sodai:inference:events:v2"
-    worker_group: str = "sodai-inference-workers-v2"
+    inference_namespace: str = "sodai:inference"
     job_claim_idle_ms: int = INFERENCE_JOB_CLAIM_IDLE_MS
     run_lock_seconds: int = INFERENCE_ATTEMPT_LOCK_SECONDS
 
@@ -42,4 +41,9 @@ class Settings:
                 "INFERENCE_CONSUMER_NAME", f"{socket.gethostname()}-{os.getpid()}"
             ),
             artifact_id=os.getenv("HINA_ARTIFACT_ID") or None,
+            inference_namespace=os.getenv("INFERENCE_NAMESPACE", "sodai:inference"),
         )
+
+    @property
+    def inference_keys(self) -> InferenceNamespace:
+        return InferenceNamespace(self.inference_namespace)

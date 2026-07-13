@@ -80,7 +80,7 @@ async def _activate_ready_artifact(artifact_id: str, model_root: Path | None) ->
         decode_responses=True,
     )
     try:
-        ready_key = f"sodai:inference:worker:ready:hina:{artifact_id}"
+        ready_key = settings.inference_keys.worker_readiness("hina", artifact_id)
         if await redis.get(ready_key) is None:
             raise RuntimeError(f"Hina worker is not ready for artifact {artifact_id}")
     finally:

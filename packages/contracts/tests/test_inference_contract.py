@@ -1,3 +1,5 @@
+import json
+import logging
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
@@ -8,10 +10,26 @@ from sodai_contracts.inference import (
     GenerationEventType,
     GenerationJob,
     GenerationTurn,
+    InferenceCorrelation,
+    InferenceNamespace,
     InferenceSpeaker,
     MAX_GENERATION_INPUT_BYTES,
     MAX_GENERATION_TURNS,
+    log_inference_event,
 )
+
+
+def test_inference_namespace_preserves_production_keys_and_isolates_test_runs() -> None:
+    production = InferenceNamespace()
+    isolated = InferenceNamespace(f"sodai:e2e:{uuid4().hex}:inference")
+
+    assert production.job_stream == "sodai:inference:jobs:v2"
+    assert production.event_stream == "sodai:inference:events:v2"
+    assert production.projector_group == "sodai-inference-projector-v2"
+    assert production.worker_group == "sodai-inference-workers-v2"
+    assert isolated.job_stream != production.job_stream
+    assert isolated.attempt_lock(uuid4()).startswith(isolated.prefix)
+    assert isolated.worker_readiness("hina", "artifact").startswith(isolated.prefix)
 
 
 def test_generation_job_round_trip_preserves_partner_self_vocabulary() -> None:
@@ -101,3 +119,31 @@ def test_generation_event_round_trip_preserves_completion_metadata() -> None:
     )
 
     assert GenerationEvent.from_json(event.to_json()) == event
+
+
+def test_inference_logs_are_correlated_without_prompt_content(caplog) -> None:
+    job = GenerationJob.create(
+        execution_id=uuid4(),
+        response_request_id=uuid4(),
+        attempt_id=uuid4(),
+        thread_id=uuid4(),
+        answerer_actor_id=uuid4(),
+        model="hina",
+        artifact_id="8f42c9",
+        turns=(GenerationTurn(InferenceSpeaker.PARTNER, "秘密のプロンプト"),),
+        deadline=datetime.now(timezone.utc) + timedelta(minutes=5),
+    )
+
+    with caplog.at_level(logging.INFO, logger="test.inference"):
+        log_inference_event(
+            logging.getLogger("test.inference"),
+            logging.INFO,
+            "generation_job_claimed",
+            InferenceCorrelation.from_job(job),
+        )
+
+    payload = json.loads(caplog.records[-1].message)
+    assert payload["execution_id"] == str(job.execution_id)
+    assert payload["response_request_id"] == str(job.response_request_id)
+    assert payload["job_id"] == str(job.id)
+    assert "秘密のプロンプト" not in caplog.records[-1].message

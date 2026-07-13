@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
+from hashlib import sha256
 from uuid import UUID
 
 from sodai_contracts.inference import GenerationJob
@@ -20,9 +21,12 @@ from app.domain.answerers import (
     list_available_answerers,
 )
 from app.domain.principals import Principal, PrincipalKind
-from app.domain.responses import ResponseCreation
+from app.domain.responses import Execution, ResponseCreation, ResponseRequest
 from app.domain.threads import SpaceSummary, Thread, ThreadSummary
-from app.repositories.threads import SqlAlchemyThreadRepository
+from app.repositories.threads import (
+    GenerationCapacityExceededError,
+    SqlAlchemyThreadRepository,
+)
 from app.services.inference.asuka import ASUKA_PSEUDO_ARTIFACT_ID
 from app.services.inference.deployment import ModelDeploymentError, ModelDeploymentRegistry
 from app.services.realtime import realtime_hub
@@ -73,7 +77,14 @@ class ThreadService:
                 artifact_id=artifact_id,
                 deadline_at=deadline,
             )
-            await self._add_generation_job(repository, creation, answerer, artifact_id, deadline)
+            await self._enqueue_generation(
+                repository,
+                creation.thread,
+                creation.response,
+                answerer,
+                artifact_id,
+                deadline,
+            )
             await session.commit()
         await realtime_hub.publish(
             principal,
@@ -106,18 +117,29 @@ class ThreadService:
         async with self._session_factory() as session:
             repository = SqlAlchemyThreadRepository(session)
             context = await repository.ensure_personal_context(principal)
-            await self._reserve_capacity(repository, principal, answerer)
-            creation = await repository.append_response(
-                principal,
-                thread_id,
-                context.actor.id,
-                content.strip(),
+            try:
+                creation = await repository.append_response(
+                    principal,
+                    thread_id,
+                    context.actor.id,
+                    content.strip(),
+                    answerer,
+                    execution_target=execution_target,
+                    artifact_id=artifact_id,
+                    deadline_at=deadline,
+                    model_limit=self._settings.inference_model_active_limit,
+                    guest_model_limit=self._settings.inference_guest_model_active_limit,
+                )
+            except GenerationCapacityExceededError as error:
+                raise GenerationCapacityError from error
+            await self._enqueue_generation(
+                repository,
+                creation.thread,
+                creation.response,
                 answerer,
-                execution_target=execution_target,
-                artifact_id=artifact_id,
-                deadline_at=deadline,
+                artifact_id,
+                deadline,
             )
-            await self._add_generation_job(repository, creation, answerer, artifact_id, deadline)
             await session.commit()
         await realtime_hub.publish(
             principal,
@@ -134,6 +156,60 @@ class ThreadService:
             },
         )
         return creation
+
+    async def retry(
+        self,
+        principal: Principal,
+        response_request_id: UUID,
+        idempotency_key: str,
+    ) -> Execution:
+        deadline = self._generation_deadline()
+        key_hash = sha256(idempotency_key.encode("utf-8")).hexdigest()
+        async with self._session_factory() as session:
+            repository = SqlAlchemyThreadRepository(session)
+            try:
+                retry = await repository.retry_execution(
+                    principal,
+                    response_request_id,
+                    key_hash,
+                    deadline_at=deadline,
+                    model_limit=self._settings.inference_model_active_limit,
+                    guest_model_limit=self._settings.inference_guest_model_active_limit,
+                )
+            except GenerationCapacityExceededError as error:
+                raise GenerationCapacityError from error
+            if retry.replayed:
+                await session.commit()
+                return retry.execution
+
+            answerer = get_answerer(retry.response.requested_answerer)
+            if answerer is None:
+                raise AnswererUnavailableError
+            self._validate_retry_artifact(answerer, retry.execution.artifact_id)
+            await self._enqueue_generation(
+                repository,
+                retry.thread,
+                retry.response,
+                answerer,
+                retry.execution.artifact_id,
+                deadline,
+            )
+            await session.commit()
+        await realtime_hub.publish(
+            principal,
+            event_type="response.queued",
+            space_id=retry.thread.space_id,
+            thread_id=retry.thread.id,
+            thread_revision=retry.thread.revision,
+            response_request_id=retry.response.id,
+            execution_id=retry.execution.id,
+            data={
+                "attempt_no": retry.execution.attempt_no,
+                "target_actor_id": str(retry.response.target_actor.id),
+                "last_activity_at": retry.thread.last_activity_at.isoformat(),
+            },
+        )
+        return retry.execution
 
     async def list_spaces(self, principal: Principal) -> list[SpaceSummary]:
         async with self._session_factory() as session:
@@ -190,21 +266,21 @@ class ThreadService:
             data={},
         )
 
-    async def _add_generation_job(
+    async def _enqueue_generation(
         self,
         repository: SqlAlchemyThreadRepository,
-        creation: ResponseCreation,
+        thread: Thread,
+        response: ResponseRequest,
         answerer: AnswererDefinition,
         artifact_id: str,
         deadline: datetime,
     ) -> None:
-        response = creation.response
         execution = response.execution
         job = GenerationJob.create(
             execution_id=execution.id,
             response_request_id=response.id,
             attempt_id=execution.attempt_id,
-            thread_id=creation.thread.id,
+            thread_id=thread.id,
             answerer_actor_id=response.target_actor.id,
             model=answerer.runtime_name,
             artifact_id=artifact_id,
@@ -212,6 +288,18 @@ class ThreadService:
             deadline=deadline,
         )
         await repository.add_generation_outbox(execution.id, job.to_json())
+
+    def _validate_retry_artifact(
+        self, answerer: AnswererDefinition, artifact_id: str
+    ) -> None:
+        if answerer.runtime_kind is RuntimeKind.PSEUDO_MODEL:
+            if artifact_id != ASUKA_PSEUDO_ARTIFACT_ID:
+                raise AnswererUnavailableError
+            return
+        try:
+            self._deployments.resolve_artifact(answerer.runtime_name, artifact_id)
+        except ModelDeploymentError as error:
+            raise AnswererUnavailableError from error
 
     async def _reserve_capacity(
         self,
@@ -224,8 +312,8 @@ class ThreadService:
         admitted = await repository.reserve_generation_capacity(
             principal,
             answerer.id,
-            global_limit=self._settings.inference_global_active_limit,
-            guest_limit=self._settings.inference_guest_active_limit,
+            model_limit=self._settings.inference_model_active_limit,
+            guest_model_limit=self._settings.inference_guest_model_active_limit,
         )
         if not admitted:
             raise GenerationCapacityError

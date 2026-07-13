@@ -7,6 +7,7 @@ from sodai_contracts.inference import (
     GenerationEventType,
     GenerationJob,
     GenerationTurn,
+    InferenceNamespace,
     InferenceSpeaker,
 )
 
@@ -21,10 +22,11 @@ class RecordingRedis:
 
     async def eval(self, script, key_count, *values):
         assert script == PUBLISH_EVENT_SCRIPT
-        assert key_count == 3
-        assert values[0] == "events"
-        self.payloads.append(values[3])
-        self.progress.append(values[4])
+        assert key_count == 4
+        assert values[0] == "test:inference:events:v2"
+        assert values[3] == "test:inference:worker:ready:asuka-1:pseudo-v1"
+        self.payloads.append(values[4])
+        self.progress.append(values[5])
         return "1-0"
 
 
@@ -36,14 +38,13 @@ def anyio_backend() -> str:
 @pytest.mark.anyio
 async def test_asuka_emits_the_shared_generation_event_contract() -> None:
     redis = RecordingRedis()
+    namespace = InferenceNamespace("test:inference")
     generator = AsukaPseudoGenerator()
     generator.chunk_interval_seconds = 0
     worker = PseudoGenerationWorker(
         redis,  # type: ignore[arg-type]
         generator,
-        job_stream="jobs",
-        event_stream="events",
-        worker_group="workers",
+        namespace=namespace,
         consumer_name="test",
     )
     job = GenerationJob.create(

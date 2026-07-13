@@ -7,7 +7,13 @@ import socket
 from datetime import datetime, timedelta, timezone
 
 from redis.asyncio import Redis
-from sodai_contracts.inference import GenerationEvent, GenerationEventType
+from sodai_contracts.inference import (
+    GenerationEvent,
+    GenerationEventType,
+    GenerationJob,
+    InferenceCorrelation,
+    log_inference_event,
+)
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import Settings, get_settings
@@ -71,13 +77,31 @@ class GenerationCoordinator:
             await repository.discard_terminal_outbox()
             pending = await repository.pending_outbox()
             for message in pending:
+                job = None
                 try:
-                    await self._broker.publish_job(message.payload)
+                    job = GenerationJob.from_json(message.payload)
+                    stream_id = await self._broker.publish_job(job)
                 except Exception as error:
                     await repository.mark_outbox_failed(message.id, str(error))
                     await session.commit()
+                    log_inference_event(
+                        logger,
+                        logging.ERROR,
+                        "generation_job_dispatch_failed",
+                        InferenceCorrelation.from_job(job) if job is not None else None,
+                        exc_info=True,
+                        execution_id=(str(message.execution_id) if job is None else None),
+                        error_type=type(error).__name__,
+                    )
                     raise
                 await repository.mark_outbox_published(message.id)
+                log_inference_event(
+                    logger,
+                    logging.INFO,
+                    "generation_job_dispatched",
+                    InferenceCorrelation.from_job(job),
+                    stream_id=stream_id,
+                )
             await session.commit()
             return len(pending)
 
@@ -102,9 +126,37 @@ class GenerationCoordinator:
             await self._broker.acknowledge_event(message_id)
             self._deferred_messages.discard(message_id)
             return
-        async with self._session_factory() as session:
-            result = await SqlAlchemyThreadRepository(session).project_generation_event(event)
-            await session.commit()
+        try:
+            async with self._session_factory() as session:
+                result = await SqlAlchemyThreadRepository(session).project_generation_event(
+                    event
+                )
+                await session.commit()
+        except Exception as error:
+            log_inference_event(
+                logger,
+                logging.ERROR,
+                "generation_event_projection_failed",
+                InferenceCorrelation.from_event(event),
+                exc_info=True,
+                stream_id=message_id,
+                event_type=event.type.value,
+                sequence=event.sequence,
+                error_type=type(error).__name__,
+            )
+            raise
+        log_inference_event(
+            logger,
+            logging.DEBUG
+            if event.type in {GenerationEventType.DELTA, GenerationEventType.HEARTBEAT}
+            else logging.INFO,
+            "generation_event_projected",
+            InferenceCorrelation.from_event(event),
+            stream_id=message_id,
+            event_type=event.type.value,
+            sequence=event.sequence,
+            disposition=result.disposition.value,
+        )
         if result.disposition is EventDisposition.DEFER:
             self._deferred_messages.add(message_id)
             return
@@ -140,6 +192,19 @@ class GenerationCoordinator:
             )
             await session.commit()
         for projection in projections:
+            log_inference_event(
+                logger,
+                logging.WARNING,
+                "generation_execution_expired",
+                InferenceCorrelation(
+                    execution_id=projection.execution_id,
+                    response_request_id=projection.response_request_id,
+                    attempt_id=projection.attempt_id,
+                    thread_id=projection.thread_id,
+                ),
+                attempt_no=projection.attempt_no,
+                error_code=projection.error_code,
+            )
             await self._publish_projection(
                 projection,
                 event_type="response.failed",
@@ -213,9 +278,7 @@ def create_generation_coordinator(settings: Settings | None = None) -> Generatio
     )
     broker = RedisInferenceBroker(
         redis,
-        job_stream=settings.inference_job_stream,
-        event_stream=settings.inference_event_stream,
-        event_group=settings.inference_event_group,
+        namespace=settings.inference_keys,
         event_consumer=f"{socket.gethostname()}-{os.getpid()}-api",
         event_claim_idle_ms=settings.inference_event_claim_idle_ms,
     )

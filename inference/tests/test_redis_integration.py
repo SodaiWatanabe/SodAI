@@ -11,6 +11,8 @@ from sodai_contracts.inference import (
     GenerationEventType,
     GenerationJob,
     GenerationTurn,
+    InferenceCorrelation,
+    InferenceNamespace,
     InferenceSpeaker,
 )
 
@@ -38,9 +40,7 @@ async def test_event_publish_and_job_ack_are_atomic_in_redis() -> None:
         redis_password=os.getenv("REDIS_PASSWORD") or None,
         device="cpu",
         consumer_name="integration-consumer",
-        job_stream=f"test:jobs:{suffix}",
-        event_stream=f"test:events:{suffix}",
-        worker_group=f"test:workers:{suffix}",
+        inference_namespace=InferenceNamespace(f"test:{suffix}:inference").prefix,
     )
     redis = Redis.from_url(
         settings.redis_url,
@@ -59,8 +59,8 @@ async def test_event_publish_and_job_ack_are_atomic_in_redis() -> None:
         turns=(GenerationTurn(InferenceSpeaker.PARTNER, "統合テスト"),),
         deadline=datetime.now(timezone.utc) + timedelta(minutes=5),
     )
-    lock_key = f"sodai:inference:attempt:{job.attempt_id}"
-    progress_key = f"{lock_key}:progress"
+    lock_key = settings.inference_keys.attempt_lock(job.attempt_id)
+    progress_key = settings.inference_keys.attempt_progress(job.attempt_id)
     try:
         await redis.set(lock_key, settings.consumer_name, ex=60)
         event = GenerationEvent.create(
@@ -71,14 +71,14 @@ async def test_event_publish_and_job_ack_are_atomic_in_redis() -> None:
             thread_id=job.thread_id,
             resolved_model="hina@integration",
         )
-        await worker._publish(event, progress_key)
-        assert await redis.xlen(settings.event_stream) == 1
+        await worker._publish(event, progress_key, InferenceCorrelation.from_job(job))
+        assert await redis.xlen(settings.inference_keys.event_stream) == 1
         assert await redis.get(progress_key) is not None
 
         await worker._ensure_group()
         message_id = await redis.xadd(worker._job_stream, {"payload": job.to_json()})
         await redis.xreadgroup(
-            groupname=settings.worker_group,
+            groupname=settings.inference_keys.worker_group,
             consumername=settings.consumer_name,
             streams={worker._job_stream: ">"},
             count=1,
@@ -86,5 +86,10 @@ async def test_event_publish_and_job_ack_are_atomic_in_redis() -> None:
         await worker._ack(message_id)
         assert await redis.xlen(worker._job_stream) == 0
     finally:
-        await redis.delete(settings.event_stream, worker._job_stream, lock_key, progress_key)
+        await redis.delete(
+            settings.inference_keys.event_stream,
+            worker._job_stream,
+            lock_key,
+            progress_key,
+        )
         await redis.aclose()

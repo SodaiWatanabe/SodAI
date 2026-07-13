@@ -3,7 +3,10 @@ from pathlib import Path
 
 from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from sodai_contracts.inference import MIN_INFERENCE_JOB_TIMEOUT_SECONDS
+from sodai_contracts.inference import (
+    MIN_INFERENCE_JOB_TIMEOUT_SECONDS,
+    InferenceNamespace,
+)
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 REPOSITORY_ROOT = BACKEND_ROOT.parent
@@ -23,17 +26,16 @@ class Settings(BaseSettings):
         default=REPOSITORY_ROOT / "var" / "models",
         validation_alias=AliasChoices("SODAI_MODEL_ROOT", "model_root"),
     )
-    inference_job_stream: str = "sodai:inference:jobs:v2"
-    inference_event_stream: str = "sodai:inference:events:v2"
-    inference_event_group: str = "sodai-inference-projector-v2"
-    inference_worker_group: str = "sodai-inference-workers-v2"
+    inference_namespace: str = "sodai:inference"
     inference_event_claim_idle_ms: int = Field(default=2_000, ge=500, le=60_000)
     inference_job_timeout_seconds: int = Field(
         default=300, ge=MIN_INFERENCE_JOB_TIMEOUT_SECONDS, le=3600
     )
-    inference_global_active_limit: int = Field(default=32, ge=1, le=10_000)
-    inference_guest_active_limit: int = Field(default=1, ge=1, le=100)
+    inference_model_active_limit: int = Field(default=32, ge=1, le=10_000)
+    inference_guest_model_active_limit: int = Field(default=1, ge=1, le=100)
     inference_reconciliation_interval_seconds: float = Field(default=5, gt=0, le=60)
+    inference_status_timeout_seconds: float = Field(default=1, gt=0, le=10)
+    inference_status_cache_seconds: float = Field(default=2, ge=0, le=30)
 
     auth_issuer: str = "http://localhost:3000"
     auth_audience: str = "http://localhost:3000"
@@ -71,6 +73,15 @@ class Settings(BaseSettings):
         if not value.startswith(("redis://", "rediss://")):
             raise ValueError("REDIS_URL must use redis:// or rediss://")
         return value
+
+    @field_validator("inference_namespace")
+    @classmethod
+    def validate_inference_namespace(cls, value: str) -> str:
+        return InferenceNamespace(value.strip()).prefix
+
+    @property
+    def inference_keys(self) -> InferenceNamespace:
+        return InferenceNamespace(self.inference_namespace)
 
     @field_validator("model_root")
     @classmethod

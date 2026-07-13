@@ -28,9 +28,11 @@ class Execution:
     answerer: AnswererId
     target: str
     status: ResponseStatus
+    attempt_no: int
     attempt_id: UUID
     partial_output: str
     resolved_model: str | None
+    artifact_id: str
     error_code: str | None
     created_at: datetime
 
@@ -51,3 +53,11 @@ class ResponseRequest:
 class ResponseCreation:
     thread: Thread
     response: ResponseRequest
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutionRetry:
+    thread: Thread
+    response: ResponseRequest
+    execution: Execution
+    replayed: bool

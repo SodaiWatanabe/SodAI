@@ -64,6 +64,7 @@ class ExecutionResponse(BaseModel):
     answerer: AnswererId
     target: str
     status: Literal["queued", "running", "completed", "failed"]
+    attempt_no: int
     attempt_id: UUID
     partial_output: str
     resolved_model: str | None

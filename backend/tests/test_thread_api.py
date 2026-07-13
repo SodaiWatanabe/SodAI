@@ -38,9 +38,11 @@ def creation_fixture() -> ResponseCreation:
         answerer=AnswererId.HINA,
         target="local:hina",
         status=ResponseStatus.QUEUED,
+        attempt_no=1,
         attempt_id=UUID("018f96d4-7c48-7c27-a71f-591e3cb87491"),
         partial_output="",
         resolved_model=None,
+        artifact_id="0123456789abcdef",
         error_code=None,
         created_at=NOW,
     )
@@ -102,6 +104,17 @@ class StubThreadService:
         self.received = (principal, content, answerer)
         assert thread_id == THREAD_ID
         return creation_fixture()
+
+    async def retry(
+        self,
+        principal: Principal,
+        response_request_id: UUID,
+        idempotency_key: str,
+    ) -> Execution:
+        assert principal == PRINCIPAL
+        assert response_request_id == REQUEST_ID
+        assert idempotency_key == "retry-once"
+        return creation_fixture().response.execution
 
     async def list(self, principal: Principal) -> list[ThreadSummary]:
         assert principal == PRINCIPAL
@@ -185,6 +198,27 @@ async def test_response_request_rejects_blank_input_at_the_api_boundary() -> Non
 
     assert response.status_code == 422
     assert service.received is None
+
+
+@pytest.mark.anyio
+async def test_response_execution_retry_requires_an_idempotency_key() -> None:
+    service = StubThreadService()
+    app.dependency_overrides[get_principal] = lambda: PRINCIPAL
+    app.dependency_overrides[get_thread_service] = lambda: service
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        missing = await client.post(
+            f"/api/v1/response-requests/{REQUEST_ID}/executions"
+        )
+        retried = await client.post(
+            f"/api/v1/response-requests/{REQUEST_ID}/executions",
+            headers={"Idempotency-Key": " retry-once "},
+        )
+
+    assert missing.status_code == 422
+    assert retried.status_code == 202
+    assert retried.json()["id"] == str(EXECUTION_ID)
+    assert retried.json()["attempt_no"] == 1
 
 
 @pytest.mark.anyio

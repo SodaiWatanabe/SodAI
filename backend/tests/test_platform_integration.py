@@ -5,8 +5,13 @@ from uuid import uuid4
 
 import pytest
 from redis.asyncio import Redis
-from sodai_contracts.inference import FinishReason, GenerationEvent, GenerationEventType
-from sqlalchemy import delete, select
+from sodai_contracts.inference import (
+    FinishReason,
+    GenerationEvent,
+    GenerationEventType,
+    InferenceNamespace,
+)
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import DBAPIError
 
 from app.core.config import get_settings
@@ -18,15 +23,25 @@ from app.models.account import UserModel
 from app.models.platform import (
     ActorModel,
     EntryTextContentModel,
+    ExecutionModel,
     GuestSessionModel,
     OutboxEventModel,
+    ResponseContextItemModel,
+    ResponseRequestModel,
+    ThreadEntryModel,
 )
-from app.repositories.threads import SqlAlchemyThreadRepository
+from app.repositories.threads import (
+    ResponseNotRetryableError,
+    ResponseRequestNotFoundError,
+    SqlAlchemyThreadRepository,
+    ThreadBusyError,
+)
 from app.services.inference.asuka import AsukaPseudoGenerator
 from app.services.inference.broker import RedisInferenceBroker
 from app.services.inference.coordinator import GenerationCoordinator
 from app.services.inference.deployment import ModelDeploymentRegistry
 from app.services.inference.pseudo_worker import PseudoGenerationWorker
+from app.services.realtime import realtime_hub
 from app.services.thread import ThreadService
 
 pytestmark = pytest.mark.skipif(
@@ -79,7 +94,6 @@ async def test_generation_projection_creates_one_immutable_result_entry() -> Non
                 creation.response.execution.id, '{"test":"terminal-discard"}'
             )
             await session.commit()
-
         execution = creation.response.execution
         async with factory() as session:
             mismatched = await SqlAlchemyThreadRepository(session).project_generation_event(
@@ -168,15 +182,285 @@ async def test_generation_projection_creates_one_immutable_result_entry() -> Non
 
 
 @pytest.mark.anyio
+async def test_failed_response_retry_is_idempotent_and_preserves_context() -> None:
+    settings = get_settings()
+    factory = get_session_factory()
+    principal = Principal(PrincipalKind.USER, uuid4())
+    other_principal = Principal(PrincipalKind.USER, uuid4())
+    service = ThreadService(factory, ModelDeploymentRegistry(settings.model_root), settings)
+
+    async with factory() as session:
+        session.add_all(
+            [
+                UserModel(id=principal.id, display_name="Retry owner"),
+                UserModel(id=other_principal.id, display_name="Other owner"),
+            ]
+        )
+        await session.commit()
+
+    queue = None
+    try:
+        async with factory() as session:
+            repository = SqlAlchemyThreadRepository(session)
+            context = await repository.ensure_personal_context(principal)
+            creation = await repository.create_thread_response(
+                principal,
+                context,
+                "失敗した応答を再試行して",
+                get_answerer(AnswererId.ASUKA_1),
+                execution_target="pseudo:asuka-1",
+                artifact_id="pseudo-v1",
+                deadline_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+            )
+            await session.commit()
+
+        first = creation.response.execution
+        events = (
+            GenerationEvent.create(
+                GenerationEventType.STARTED,
+                execution_id=first.id,
+                attempt_id=first.attempt_id,
+                sequence=0,
+                thread_id=creation.thread.id,
+                resolved_model="asuka-1@pseudo-v1",
+            ),
+            GenerationEvent.create(
+                GenerationEventType.FAILED,
+                execution_id=first.id,
+                attempt_id=first.attempt_id,
+                sequence=1,
+                thread_id=creation.thread.id,
+                error_code="test_failure",
+            ),
+        )
+        for event in events:
+            async with factory() as session:
+                result = await SqlAlchemyThreadRepository(session).project_generation_event(event)
+                await session.commit()
+                assert result.disposition is EventDisposition.APPLY
+
+        async with factory() as session:
+            request = await session.get(ResponseRequestModel, creation.response.id)
+            assert request is not None
+            first_started_at = request.started_at
+            with pytest.raises(ResponseRequestNotFoundError):
+                await SqlAlchemyThreadRepository(session).retry_execution(
+                    other_principal,
+                    creation.response.id,
+                    "0" * 64,
+                    deadline_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+                    model_limit=32,
+                    guest_model_limit=1,
+                )
+
+        queue, _ = realtime_hub.subscribe(principal, realtime_hub.cursor)
+        second, replay = await asyncio.gather(
+            service.retry(principal, creation.response.id, "retry-second"),
+            service.retry(principal, creation.response.id, "retry-second"),
+        )
+        assert replay.id == second.id
+        queued_event = await asyncio.wait_for(queue.get(), timeout=1)
+        assert queued_event.type == "response.queued"
+        assert queued_event.execution_id == second.id
+        assert queued_event.data["attempt_no"] == 2
+
+        with pytest.raises(ResponseNotRetryableError):
+            await service.retry(principal, creation.response.id, "different-key")
+
+        async with factory() as session:
+            executions = (
+                await session.scalars(
+                    select(ExecutionModel)
+                    .where(ExecutionModel.response_request_id == creation.response.id)
+                    .order_by(ExecutionModel.attempt_no)
+                )
+            ).all()
+            request = await session.get(ResponseRequestModel, creation.response.id)
+            entry_count = await session.scalar(
+                select(func.count())
+                .select_from(ThreadEntryModel)
+                .where(ThreadEntryModel.thread_id == creation.thread.id)
+            )
+            context_count = await session.scalar(
+                select(func.count())
+                .select_from(ResponseContextItemModel)
+                .where(ResponseContextItemModel.response_request_id == creation.response.id)
+            )
+            outbox_count = await session.scalar(
+                select(func.count())
+                .select_from(OutboxEventModel)
+                .where(OutboxEventModel.aggregate_id == second.id)
+            )
+        assert [execution.attempt_no for execution in executions] == [1, 2]
+        assert executions[1].idempotency_key_hash not in {None, "retry-second"}
+        assert request is not None
+        assert request.started_at == first_started_at
+        assert request.finished_at is None
+        assert entry_count == 1
+        assert context_count == 1
+        assert outbox_count == 1
+
+        async with factory() as session:
+            delayed = await SqlAlchemyThreadRepository(session).project_generation_event(
+                GenerationEvent.create(
+                    GenerationEventType.DELTA,
+                    execution_id=first.id,
+                    attempt_id=first.attempt_id,
+                    sequence=2,
+                    thread_id=creation.thread.id,
+                    delta="古い試行",
+                )
+            )
+            await session.commit()
+        assert delayed.disposition is EventDisposition.IGNORE
+
+        async with factory() as session:
+            result = await SqlAlchemyThreadRepository(session).project_generation_event(
+                GenerationEvent.create(
+                    GenerationEventType.FAILED,
+                    execution_id=second.id,
+                    attempt_id=second.attempt_id,
+                    sequence=0,
+                    thread_id=creation.thread.id,
+                    error_code="second_failure",
+                )
+            )
+            await session.commit()
+        assert result.disposition is EventDisposition.APPLY
+
+        third = await service.retry(principal, creation.response.id, "retry-third")
+        assert third.attempt_no == 3
+        thread = await service.get(principal, creation.thread.id)
+        assert thread.latest_response is not None
+        assert thread.latest_response.execution.id == third.id
+
+        terminal_events = (
+            GenerationEvent.create(
+                GenerationEventType.STARTED,
+                execution_id=third.id,
+                attempt_id=third.attempt_id,
+                sequence=0,
+                thread_id=creation.thread.id,
+                resolved_model="asuka-1@pseudo-v1",
+            ),
+            GenerationEvent.create(
+                GenerationEventType.COMPLETED,
+                execution_id=third.id,
+                attempt_id=third.attempt_id,
+                sequence=1,
+                thread_id=creation.thread.id,
+                content="再試行が完了しました。",
+                finish_reason=FinishReason.STOP,
+            ),
+        )
+        for event in terminal_events:
+            async with factory() as session:
+                result = await SqlAlchemyThreadRepository(session).project_generation_event(event)
+                await session.commit()
+                assert result.disposition is EventDisposition.APPLY
+        with pytest.raises(ResponseNotRetryableError):
+            await service.retry(principal, creation.response.id, "after-completion")
+        await service.archive(principal, creation.thread.id)
+        with pytest.raises(ResponseRequestNotFoundError):
+            await service.retry(principal, creation.response.id, "after-archive")
+    finally:
+        if queue is not None:
+            realtime_hub.unsubscribe(principal, queue)
+        async with factory() as session:
+            actors = (
+                await session.scalars(
+                    select(ActorModel).where(
+                        ActorModel.owner_user_id.in_([principal.id, other_principal.id])
+                    )
+                )
+            ).all()
+            for user_id in (principal.id, other_principal.id):
+                user = await session.get(UserModel, user_id)
+                if user is not None:
+                    await session.delete(user)
+            await session.flush()
+            for actor in actors:
+                await session.delete(actor)
+            await session.commit()
+
+
+@pytest.mark.anyio
+async def test_append_and_retry_serialize_without_deadlock() -> None:
+    settings = get_settings()
+    factory = get_session_factory()
+    principal = Principal(PrincipalKind.USER, uuid4())
+    service = ThreadService(factory, ModelDeploymentRegistry(settings.model_root), settings)
+
+    async with factory() as session:
+        session.add(UserModel(id=principal.id, display_name="Concurrency owner"))
+        await session.commit()
+
+    try:
+        async with factory() as session:
+            repository = SqlAlchemyThreadRepository(session)
+            context = await repository.ensure_personal_context(principal)
+            creation = await repository.create_thread_response(
+                principal,
+                context,
+                "競合を検証して",
+                get_answerer(AnswererId.ASUKA_1),
+                execution_target="pseudo:asuka-1",
+                artifact_id="pseudo-v1",
+                deadline_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+            )
+            await session.commit()
+        execution = creation.response.execution
+        async with factory() as session:
+            await SqlAlchemyThreadRepository(session).project_generation_event(
+                GenerationEvent.create(
+                    GenerationEventType.FAILED,
+                    execution_id=execution.id,
+                    attempt_id=execution.attempt_id,
+                    sequence=0,
+                    thread_id=creation.thread.id,
+                    error_code="test_failure",
+                )
+            )
+            await session.commit()
+
+        results = await asyncio.wait_for(
+            asyncio.gather(
+                service.retry(principal, creation.response.id, "concurrent-retry"),
+                service.append(
+                    principal,
+                    creation.thread.id,
+                    "新しい入力",
+                    AnswererId.ASUKA_1,
+                ),
+                return_exceptions=True,
+            ),
+            timeout=3,
+        )
+        successes = [result for result in results if not isinstance(result, Exception)]
+        failures = [result for result in results if isinstance(result, Exception)]
+        assert len(successes) == 1
+        assert len(failures) == 1
+        assert isinstance(failures[0], (ResponseNotRetryableError, ThreadBusyError))
+    finally:
+        async with factory() as session:
+            actor = await session.scalar(
+                select(ActorModel).where(ActorModel.owner_user_id == principal.id)
+            )
+            user = await session.get(UserModel, principal.id)
+            if user is not None:
+                await session.delete(user)
+                await session.flush()
+            if actor is not None:
+                await session.delete(actor)
+            await session.commit()
+
+
+@pytest.mark.anyio
 async def test_asuka_completes_through_the_shared_generation_pipeline() -> None:
     settings = get_settings()
     factory = get_session_factory()
     principal = Principal(PrincipalKind.USER, uuid4())
-    namespace = f"sodai:test:{uuid4().hex}"
-    job_stream = f"{namespace}:jobs"
-    event_stream = f"{namespace}:events"
-    event_group = f"{namespace}:projector"
-    worker_group = f"{namespace}:workers"
+    namespace = InferenceNamespace(f"sodai:test:{uuid4().hex}:inference")
     broker_redis = Redis.from_url(
         settings.redis_url,
         password=settings.redis_password,
@@ -196,9 +480,7 @@ async def test_asuka_completes_through_the_shared_generation_pipeline() -> None:
         factory,
         RedisInferenceBroker(
             broker_redis,
-            job_stream=job_stream,
-            event_stream=event_stream,
-            event_group=event_group,
+            namespace=namespace,
             event_consumer="integration-projector",
             event_claim_idle_ms=500,
         ),
@@ -207,9 +489,7 @@ async def test_asuka_completes_through_the_shared_generation_pipeline() -> None:
     worker = PseudoGenerationWorker(
         worker_redis,
         AsukaPseudoGenerator(),
-        job_stream=job_stream,
-        event_stream=event_stream,
-        worker_group=worker_group,
+        namespace=namespace,
         consumer_name="integration-asuka",
     )
     service = ThreadService(factory, ModelDeploymentRegistry(settings.model_root), settings)
@@ -245,10 +525,13 @@ async def test_asuka_completes_through_the_shared_generation_pipeline() -> None:
     finally:
         await worker.stop()
         await coordinator.stop()
-        keys = [event_stream, f"{job_stream}:asuka-1:{worker.artifact_id}"]
+        keys = [
+            namespace.event_stream,
+            namespace.job_stream_for("asuka-1", worker.artifact_id),
+        ]
         if execution_attempt_id is not None:
-            keys.append(f"sodai:inference:attempt:{execution_attempt_id}")
-            keys.append(f"sodai:inference:attempt:{execution_attempt_id}:progress")
+            keys.append(namespace.attempt_lock(execution_attempt_id))
+            keys.append(namespace.attempt_progress(execution_attempt_id))
         await cleanup_redis.delete(*keys)
         await cleanup_redis.aclose()
         async with factory() as session:

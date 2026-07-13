@@ -1,14 +1,21 @@
+from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 
 from app.auth.principal import get_principal
 from app.domain.principals import Principal
-from app.repositories.threads import ThreadBusyError, ThreadNotFoundError
+from app.repositories.threads import (
+    ResponseNotRetryableError,
+    ResponseRequestNotFoundError,
+    ThreadBusyError,
+    ThreadNotFoundError,
+)
 from app.schemas.thread import (
     AnswererListResponse,
     CreateResponseRequest,
     CreateThreadRequest,
+    ExecutionResponse,
     ResponseCreationResponse,
     SpaceListResponse,
     ThreadListResponse,
@@ -54,6 +61,36 @@ async def create_thread(
     except GenerationCapacityError as exc:
         raise HTTPException(status_code=429, detail="Generation capacity is exhausted") from exc
     return ResponseCreationResponse.model_validate(creation, from_attributes=True)
+
+
+@router.post(
+    "/response-requests/{response_request_id}/executions",
+    response_model=ExecutionResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def retry_response_execution(
+    response_request_id: UUID,
+    idempotency_key: Annotated[
+        str,
+        Header(alias="Idempotency-Key", min_length=1, max_length=128),
+    ],
+    principal: Principal = Depends(get_principal),
+    service: ThreadService = Depends(get_thread_service),
+) -> ExecutionResponse:
+    normalized_key = idempotency_key.strip()
+    if not normalized_key:
+        raise HTTPException(status_code=422, detail="Idempotency-Key cannot be blank")
+    try:
+        execution = await service.retry(principal, response_request_id, normalized_key)
+    except ResponseRequestNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Response request not found") from exc
+    except ResponseNotRetryableError as exc:
+        raise HTTPException(status_code=409, detail="Response request cannot be retried") from exc
+    except AnswererUnavailableError as exc:
+        raise HTTPException(status_code=503, detail="Answerer is temporarily unavailable") from exc
+    except GenerationCapacityError as exc:
+        raise HTTPException(status_code=429, detail="Generation capacity is exhausted") from exc
+    return ExecutionResponse.model_validate(execution, from_attributes=True)
 
 
 @router.get("/threads", response_model=ThreadListResponse)

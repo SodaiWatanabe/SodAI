@@ -14,6 +14,8 @@ from sodai_contracts.inference import (
     GenerationEvent,
     GenerationEventType,
     GenerationJob,
+    InferenceCorrelation,
+    log_inference_event,
 )
 
 from sodai_inference.config import Settings
@@ -31,6 +33,7 @@ local event_id = redis.call(
 )
 redis.call('SET', KEYS[2], ARGV[2], 'EX', 86400)
 redis.call('EXPIRE', KEYS[3], ARGV[4])
+redis.call('SET', KEYS[4], ARGV[3], 'EX', 30)
 return event_id
 """
 
@@ -67,22 +70,44 @@ class InferenceWorker:
         self._settings = settings
         self._redis = redis
         self._hina = hina
-        self._job_stream = f"{settings.job_stream}:{hina.model_name}:{hina.manifest.artifact_id}"
+        self._namespace = settings.inference_keys
+        self._job_stream = self._namespace.job_stream_for(
+            hina.model_name, hina.manifest.artifact_id
+        )
         self._job_claim_cursor = "0-0"
 
     async def run(self) -> None:
         await self._ensure_group()
         await self._announce_readiness()
         logger.info("Hina worker ready with %s", self._hina.resolved_model)
+        readiness_task = asyncio.create_task(
+            self._readiness_loop(), name="hina-readiness-lease"
+        )
+        try:
+            while True:
+                messages = await self._next_jobs()
+                for message_id, fields in messages:
+                    await self._process(message_id, fields)
+        finally:
+            readiness_task.cancel()
+            await asyncio.gather(readiness_task, return_exceptions=True)
+
+    async def _readiness_loop(self) -> None:
         while True:
-            await self._announce_readiness()
-            messages = await self._next_jobs()
-            for message_id, fields in messages:
-                await self._process(message_id, fields)
+            try:
+                await asyncio.sleep(10)
+                await self._announce_readiness()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("Hina readiness lease refresh failed")
+                await asyncio.sleep(1)
 
     async def _announce_readiness(self) -> None:
         await self._redis.set(
-            f"sodai:inference:worker:ready:{self._hina.model_name}:{self._hina.manifest.artifact_id}",
+            self._namespace.worker_readiness(
+                self._hina.model_name, self._hina.manifest.artifact_id
+            ),
             self._settings.consumer_name,
             ex=30,
         )
@@ -90,7 +115,7 @@ class InferenceWorker:
     async def _next_jobs(self) -> list[tuple[str, dict[str, Any]]]:
         claimed = await self._redis.xautoclaim(
             self._job_stream,
-            self._settings.worker_group,
+            self._namespace.worker_group,
             self._settings.consumer_name,
             min_idle_time=self._settings.job_claim_idle_ms,
             start_id=self._job_claim_cursor,
@@ -101,7 +126,7 @@ class InferenceWorker:
         if len(claimed) > 1 and claimed[1]:
             return claimed[1]
         streams = await self._redis.xreadgroup(
-            groupname=self._settings.worker_group,
+            groupname=self._namespace.worker_group,
             consumername=self._settings.consumer_name,
             streams={self._job_stream: ">"},
             count=1,
@@ -113,7 +138,7 @@ class InferenceWorker:
         try:
             await self._redis.xgroup_create(
                 self._job_stream,
-                self._settings.worker_group,
+                self._namespace.worker_group,
                 id="0-0",
                 mkstream=True,
             )
@@ -134,8 +159,22 @@ class InferenceWorker:
             logger.exception("Discarding invalid inference job %s", message_id)
             await self._ack(message_id)
             return
-        lock_key = f"sodai:inference:attempt:{job.attempt_id}"
-        progress_key = f"{lock_key}:progress"
+        correlation = InferenceCorrelation.from_job(job)
+        if (
+            job.model != self._hina.model_name
+            or job.artifact_id != self._hina.manifest.artifact_id
+        ):
+            log_inference_event(
+                logger,
+                logging.ERROR,
+                "generation_job_misrouted",
+                correlation,
+                stream_id=message_id,
+            )
+            await self._ack(message_id)
+            return
+        lock_key = self._namespace.attempt_lock(job.attempt_id)
+        progress_key = self._namespace.attempt_progress(job.attempt_id)
         acquired = await self._redis.set(
             lock_key,
             self._settings.consumer_name,
@@ -146,9 +185,24 @@ class InferenceWorker:
             state = await self._redis.get(lock_key)
             if state == "done":
                 await self._ack(message_id)
+            log_inference_event(
+                logger,
+                logging.DEBUG,
+                "generation_job_lock_unavailable",
+                correlation,
+                stream_id=message_id,
+                lock_state=state,
+            )
             return
 
         try:
+            log_inference_event(
+                logger,
+                logging.INFO,
+                "generation_job_claimed",
+                correlation,
+                stream_id=message_id,
+            )
             progress = await self._read_progress(progress_key)
             if not progress.terminal:
                 await self._generate(job, resume_after_sequence=progress.sequence)
@@ -163,8 +217,24 @@ class InferenceWorker:
             if marked_done != 1:
                 raise RuntimeError("inference attempt lock was lost before completion")
             await self._ack(message_id)
-        except Exception:
-            logger.exception("Inference transport failed for execution %s", job.execution_id)
+        except asyncio.CancelledError:
+            await self._redis.eval(
+                COMPARE_AND_DELETE_SCRIPT,
+                1,
+                lock_key,
+                self._settings.consumer_name,
+            )
+            raise
+        except Exception as error:
+            log_inference_event(
+                logger,
+                logging.ERROR,
+                "generation_job_transport_failed",
+                correlation,
+                exc_info=True,
+                stream_id=message_id,
+                error_type=type(error).__name__,
+            )
             await self._redis.eval(
                 COMPARE_AND_DELETE_SCRIPT,
                 1,
@@ -174,12 +244,13 @@ class InferenceWorker:
 
     async def _generate(self, job: GenerationJob, *, resume_after_sequence: int = -1) -> None:
         sequence = 0
-        progress_key = f"sodai:inference:attempt:{job.attempt_id}:progress"
+        progress_key = self._namespace.attempt_progress(job.attempt_id)
+        correlation = InferenceCorrelation.from_job(job)
 
         async def emit(event: GenerationEvent) -> None:
             if event.sequence <= resume_after_sequence:
                 return
-            await self._publish(event, progress_key)
+            await self._publish(event, progress_key, correlation)
 
         if resume_after_sequence < 0 and datetime.now(timezone.utc) >= job.deadline:
             await emit(self._failed_event(job, sequence))
@@ -187,8 +258,15 @@ class InferenceWorker:
 
         try:
             prompt_ids = self._hina.build_prompt(job)
-        except Exception:
-            logger.exception("Hina prompt construction failed for execution %s", job.execution_id)
+        except Exception as error:
+            log_inference_event(
+                logger,
+                logging.ERROR,
+                "generation_prompt_failed",
+                correlation,
+                exc_info=True,
+                error_type=type(error).__name__,
+            )
             await emit(self._failed_event(job, sequence))
             return
 
@@ -210,14 +288,23 @@ class InferenceWorker:
             try:
                 step = next(steps)
             except StopIteration:
-                logger.error(
-                    "Hina generation ended without a terminal step for execution %s",
-                    job.execution_id,
+                log_inference_event(
+                    logger,
+                    logging.ERROR,
+                    "generation_ended_without_terminal_step",
+                    correlation,
                 )
                 await emit(self._failed_event(job, sequence + 1))
                 return
-            except Exception:
-                logger.exception("Hina generation failed for execution %s", job.execution_id)
+            except Exception as error:
+                log_inference_event(
+                    logger,
+                    logging.ERROR,
+                    "generation_model_failed",
+                    correlation,
+                    exc_info=True,
+                    error_type=type(error).__name__,
+                )
                 await emit(self._failed_event(job, sequence + 1))
                 return
 
@@ -281,7 +368,12 @@ class InferenceWorker:
             error_code="hina_generation_failed",
         )
 
-    async def _publish(self, event: GenerationEvent, progress_key: str) -> None:
+    async def _publish(
+        self,
+        event: GenerationEvent,
+        progress_key: str,
+        correlation: InferenceCorrelation,
+    ) -> None:
         progress = json.dumps(
             {
                 "sequence": event.sequence,
@@ -292,14 +384,29 @@ class InferenceWorker:
         )
         await self._redis.eval(
             PUBLISH_EVENT_SCRIPT,
-            3,
-            self._settings.event_stream,
+            4,
+            self._namespace.event_stream,
             progress_key,
             progress_key.removesuffix(":progress"),
+            self._namespace.worker_readiness(
+                self._hina.model_name, self._hina.manifest.artifact_id
+            ),
             event.to_json(),
             progress,
             self._settings.consumer_name,
             self._settings.run_lock_seconds,
+        )
+        log_inference_event(
+            logger,
+            logging.DEBUG
+            if event.type in {GenerationEventType.DELTA, GenerationEventType.HEARTBEAT}
+            else logging.INFO,
+            "generation_event_published",
+            correlation,
+            event_type=event.type.value,
+            sequence=event.sequence,
+            output_tokens=event.output_tokens,
+            error_code=event.error_code,
         )
 
     async def _read_progress(self, progress_key: str) -> AttemptProgress:
@@ -318,7 +425,7 @@ class InferenceWorker:
             ACK_AND_DELETE_SCRIPT,
             1,
             self._job_stream,
-            self._settings.worker_group,
+            self._namespace.worker_group,
             message_id,
         )
 

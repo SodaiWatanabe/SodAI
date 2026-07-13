@@ -38,6 +38,12 @@ class ModelDeploymentRegistry:
             or fullmatch(r"[0-9a-f]{16}", artifact_id) is None
         ):
             raise ModelDeploymentError(f"deployment is invalid for {model}")
+        return self.resolve_artifact(model, artifact_id)
+
+    def resolve_artifact(self, model: str, artifact_id: str) -> ModelDeployment:
+        if fullmatch(r"[0-9a-f]{16}", artifact_id) is None:
+            raise ModelDeploymentError(f"artifact id is invalid for {model}")
+        path = self._model_root / model / "deployment.json"
         artifact_path = (path.parent / artifact_id).resolve()
         if artifact_path.parent != path.parent.resolve():
             raise ModelDeploymentError(f"deployment escapes model root for {model}")

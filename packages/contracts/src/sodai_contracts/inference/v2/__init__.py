@@ -12,6 +12,11 @@ from sodai_contracts.inference.v2.messages import (
     MAX_GENERATION_TURNS,
     MIN_INFERENCE_JOB_TIMEOUT_SECONDS,
 )
+from sodai_contracts.inference.v2.namespace import InferenceNamespace
+from sodai_contracts.inference.v2.observability import (
+    InferenceCorrelation,
+    log_inference_event,
+)
 
 __all__ = [
     "FinishReason",
@@ -21,9 +26,12 @@ __all__ = [
     "GenerationOptions",
     "GenerationTurn",
     "InferenceSpeaker",
+    "InferenceCorrelation",
+    "InferenceNamespace",
     "INFERENCE_ATTEMPT_LOCK_SECONDS",
     "INFERENCE_JOB_CLAIM_IDLE_MS",
     "MAX_GENERATION_INPUT_BYTES",
     "MAX_GENERATION_TURNS",
     "MIN_INFERENCE_JOB_TIMEOUT_SECONDS",
+    "log_inference_event",
 ]

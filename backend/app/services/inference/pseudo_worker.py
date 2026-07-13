@@ -18,6 +18,9 @@ from sodai_contracts.inference import (
     GenerationEvent,
     GenerationEventType,
     GenerationJob,
+    InferenceCorrelation,
+    InferenceNamespace,
+    log_inference_event,
 )
 
 from app.core.config import Settings, get_settings
@@ -38,6 +41,7 @@ local event_id = redis.call(
 )
 redis.call('SET', KEYS[2], ARGV[2], 'EX', 86400)
 redis.call('EXPIRE', KEYS[3], ARGV[4])
+redis.call('SET', KEYS[4], ARGV[3], 'EX', 30)
 return event_id
 """
 
@@ -80,33 +84,39 @@ class PseudoGenerationWorker:
         redis: Redis,
         generator: AsukaPseudoGenerator,
         *,
-        job_stream: str,
-        event_stream: str,
-        worker_group: str,
+        namespace: InferenceNamespace,
         consumer_name: str,
         job_claim_idle_ms: int = INFERENCE_JOB_CLAIM_IDLE_MS,
         run_lock_seconds: int = INFERENCE_ATTEMPT_LOCK_SECONDS,
     ) -> None:
         self._redis = redis
         self._generator = generator
-        self._job_stream = f"{job_stream}:{self.model}:{self.artifact_id}"
-        self._event_stream = event_stream
-        self._worker_group = worker_group
+        self._namespace = namespace
+        self._job_stream = namespace.job_stream_for(self.model, self.artifact_id)
+        self._event_stream = namespace.event_stream
+        self._worker_group = namespace.worker_group
         self._consumer_name = consumer_name
         self._job_claim_idle_ms = job_claim_idle_ms
         self._run_lock_seconds = run_lock_seconds
         self._claim_cursor = "0-0"
         self._task: asyncio.Task[None] | None = None
+        self._readiness_task: asyncio.Task[None] | None = None
 
     def start(self) -> None:
         if self._task is None:
             self._task = asyncio.create_task(self._run(), name="asuka-pseudo-worker")
+            self._readiness_task = asyncio.create_task(
+                self._readiness_loop(), name="asuka-readiness-lease"
+            )
 
     async def stop(self) -> None:
-        if self._task is not None:
-            self._task.cancel()
-            await asyncio.gather(self._task, return_exceptions=True)
-            self._task = None
+        tasks = [task for task in (self._task, self._readiness_task) if task is not None]
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        self._task = None
+        self._readiness_task = None
         await self._redis.aclose()
 
     async def _run(self) -> None:
@@ -120,6 +130,24 @@ class PseudoGenerationWorker:
             except Exception:
                 logger.exception("Asuka pseudo worker failed")
                 await asyncio.sleep(1)
+
+    async def _readiness_loop(self) -> None:
+        while True:
+            try:
+                await self._announce_readiness()
+                await asyncio.sleep(10)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("Asuka readiness lease refresh failed")
+                await asyncio.sleep(1)
+
+    async def _announce_readiness(self) -> None:
+        await self._redis.set(
+            self._namespace.worker_readiness(self.model, self.artifact_id),
+            self._consumer_name,
+            ex=30,
+        )
 
     async def _next_jobs(self) -> list[tuple[str, dict[str, Any]]]:
         claimed = await self._redis.xautoclaim(
@@ -164,12 +192,19 @@ class PseudoGenerationWorker:
             await self._ack(message_id)
             return
         if job.model != self.model or job.artifact_id != self.artifact_id:
-            logger.error("Discarding misrouted Asuka job %s", message_id)
+            log_inference_event(
+                logger,
+                logging.ERROR,
+                "generation_job_misrouted",
+                InferenceCorrelation.from_job(job),
+                stream_id=message_id,
+            )
             await self._ack(message_id)
             return
 
-        lock_key = f"sodai:inference:attempt:{job.attempt_id}"
-        progress_key = f"{lock_key}:progress"
+        correlation = InferenceCorrelation.from_job(job)
+        lock_key = self._namespace.attempt_lock(job.attempt_id)
+        progress_key = self._namespace.attempt_progress(job.attempt_id)
         acquired = await self._redis.set(
             lock_key,
             self._consumer_name,
@@ -177,10 +212,26 @@ class PseudoGenerationWorker:
             nx=True,
         )
         if not acquired:
-            if await self._redis.get(lock_key) == "done":
+            state = await self._redis.get(lock_key)
+            if state == "done":
                 await self._ack(message_id)
+            log_inference_event(
+                logger,
+                logging.DEBUG,
+                "generation_job_lock_unavailable",
+                correlation,
+                stream_id=message_id,
+                lock_state=state,
+            )
             return
         try:
+            log_inference_event(
+                logger,
+                logging.INFO,
+                "generation_job_claimed",
+                correlation,
+                stream_id=message_id,
+            )
             progress = await self._read_progress(progress_key)
             if not progress.terminal:
                 await self._generate(job, resume_after_sequence=progress.sequence)
@@ -198,18 +249,27 @@ class PseudoGenerationWorker:
         except asyncio.CancelledError:
             await self._release_lock(lock_key)
             raise
-        except Exception:
+        except Exception as error:
             await self._release_lock(lock_key)
-            logger.exception("Asuka execution %s failed", job.execution_id)
+            log_inference_event(
+                logger,
+                logging.ERROR,
+                "generation_job_transport_failed",
+                correlation,
+                exc_info=True,
+                stream_id=message_id,
+                error_type=type(error).__name__,
+            )
 
     async def _generate(self, job: GenerationJob, *, resume_after_sequence: int = -1) -> None:
         sequence = 0
-        progress_key = f"sodai:inference:attempt:{job.attempt_id}:progress"
+        progress_key = self._namespace.attempt_progress(job.attempt_id)
+        correlation = InferenceCorrelation.from_job(job)
 
         async def emit(event: GenerationEvent) -> None:
             if event.sequence <= resume_after_sequence:
                 return
-            await self._publish(event, progress_key)
+            await self._publish(event, progress_key, correlation)
 
         if resume_after_sequence < 0 and datetime.now(timezone.utc) >= job.deadline:
             await emit(self._failed(job, sequence, "generation_timeout"))
@@ -239,7 +299,15 @@ class PseudoGenerationWorker:
                         delta=delta,
                     )
                 )
-        except Exception:
+        except Exception as error:
+            log_inference_event(
+                logger,
+                logging.ERROR,
+                "generation_model_failed",
+                correlation,
+                exc_info=True,
+                error_type=type(error).__name__,
+            )
             await emit(self._failed(job, sequence + 1, "asuka_generation_failed"))
             return
         sequence += 1
@@ -267,7 +335,12 @@ class PseudoGenerationWorker:
             error_code=error_code,
         )
 
-    async def _publish(self, event: GenerationEvent, progress_key: str) -> None:
+    async def _publish(
+        self,
+        event: GenerationEvent,
+        progress_key: str,
+        correlation: InferenceCorrelation,
+    ) -> None:
         progress = json.dumps(
             {
                 "sequence": event.sequence,
@@ -278,14 +351,27 @@ class PseudoGenerationWorker:
         )
         await self._redis.eval(
             PUBLISH_EVENT_SCRIPT,
-            3,
+            4,
             self._event_stream,
             progress_key,
             progress_key.removesuffix(":progress"),
+            self._namespace.worker_readiness(self.model, self.artifact_id),
             event.to_json(),
             progress,
             self._consumer_name,
             self._run_lock_seconds,
+        )
+        log_inference_event(
+            logger,
+            logging.DEBUG
+            if event.type in {GenerationEventType.DELTA, GenerationEventType.HEARTBEAT}
+            else logging.INFO,
+            "generation_event_published",
+            correlation,
+            event_type=event.type.value,
+            sequence=event.sequence,
+            output_tokens=event.output_tokens,
+            error_code=event.error_code,
         )
 
     async def _read_progress(self, progress_key: str) -> AttemptProgress:
@@ -329,8 +415,6 @@ def create_pseudo_generation_worker(
     return PseudoGenerationWorker(
         redis,
         AsukaPseudoGenerator(),
-        job_stream=settings.inference_job_stream,
-        event_stream=settings.inference_event_stream,
-        worker_group=settings.inference_worker_group,
+        namespace=settings.inference_keys,
         consumer_name=f"{socket.gethostname()}-{os.getpid()}-asuka",
     )

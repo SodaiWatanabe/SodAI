@@ -10,6 +10,7 @@ from sodai_contracts.inference import (
     GenerationEventType,
     GenerationJob,
     GenerationTurn,
+    InferenceCorrelation,
     InferenceSpeaker,
 )
 
@@ -47,7 +48,12 @@ class RecordingWorker(InferenceWorker):
         self.events: list[GenerationEvent] = []
         self.fail_at = fail_at
 
-    async def _publish(self, event: GenerationEvent, progress_key: str) -> None:
+    async def _publish(
+        self,
+        event: GenerationEvent,
+        progress_key: str,
+        correlation: InferenceCorrelation,
+    ) -> None:
         self.events.append(event)
         if event.sequence == self.fail_at:
             raise ConnectionError("Redis is unavailable")
@@ -156,4 +162,9 @@ async def test_acknowledging_a_job_also_removes_its_payload() -> None:
 
     await worker._ack("30-0")
 
-    assert redis.eval_args[1:] == (1, worker._job_stream, settings.worker_group, "30-0")
+    assert redis.eval_args[1:] == (
+        1,
+        worker._job_stream,
+        settings.inference_keys.worker_group,
+        "30-0",
+    )

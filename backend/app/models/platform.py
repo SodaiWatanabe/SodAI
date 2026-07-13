@@ -300,7 +300,7 @@ class ResponseRequestModel(Base):
     __table_args__ = (
         CheckConstraint("status IN ('queued', 'running', 'completed', 'failed')", name="status"),
         CheckConstraint(
-            "(status = 'queued' AND started_at IS NULL AND finished_at IS NULL) OR "
+            "(status = 'queued' AND finished_at IS NULL) OR "
             "(status = 'running' AND started_at IS NOT NULL AND finished_at IS NULL) OR "
             "(status IN ('completed', 'failed') AND finished_at IS NOT NULL)",
             name="state",
@@ -378,6 +378,11 @@ class ExecutionModel(Base):
     __tablename__ = "executions"
     __table_args__ = (
         CheckConstraint("status IN ('queued', 'running', 'completed', 'failed')", name="status"),
+        CheckConstraint("attempt_no >= 1", name="attempt_no"),
+        CheckConstraint(
+            "idempotency_key_hash IS NULL OR length(idempotency_key_hash) = 64",
+            name="idempotency_key_hash",
+        ),
         CheckConstraint(
             "(status = 'queued' AND started_at IS NULL AND finished_at IS NULL "
             "AND result_entry_id IS NULL AND error_code IS NULL) OR "
@@ -413,11 +418,22 @@ class ExecutionModel(Base):
         ),
         UniqueConstraint("result_entry_id", name="uq_executions_result_entry_id"),
         UniqueConstraint("response_request_id", "attempt_no", name="uq_executions_request_attempt"),
+        UniqueConstraint(
+            "response_request_id",
+            "idempotency_key_hash",
+            name="uq_executions_request_idempotency",
+        ),
         Index(
             "uq_executions_active_request",
             "response_request_id",
             unique=True,
             postgresql_where=text("status IN ('queued', 'running')"),
+        ),
+        Index(
+            "uq_executions_completed_request",
+            "response_request_id",
+            unique=True,
+            postgresql_where=text("status = 'completed'"),
         ),
         Index("ix_executions_status_lease_expires_at", "status", "lease_expires_at"),
     )
@@ -437,6 +453,7 @@ class ExecutionModel(Base):
     attempt_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), nullable=False, default=uuid.uuid4, unique=True
     )
+    idempotency_key_hash: Mapped[str | None] = mapped_column(String(64))
     execution_target: Mapped[str] = mapped_column(String(128), nullable=False)
     status: Mapped[str] = mapped_column(
         String(32), nullable=False, default="queued", server_default="queued"

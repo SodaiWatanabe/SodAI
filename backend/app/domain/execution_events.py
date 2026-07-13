@@ -17,6 +17,7 @@ class EventDisposition(str, Enum):
 @dataclass(frozen=True, slots=True)
 class PendingOutboxEvent:
     id: UUID
+    execution_id: UUID
     payload: str
 
 
@@ -28,6 +29,8 @@ class ExecutionProjection:
     thread_revision: int
     response_request_id: UUID
     execution_id: UUID
+    attempt_id: UUID
+    attempt_no: int
     target_actor_id: UUID
     result_entry_id: UUID | None
     content: str
