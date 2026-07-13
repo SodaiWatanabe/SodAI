@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 import { useToast } from "@/components/ui/toast-provider";
 import type { RealtimeEvent } from "@/lib/chat/types";
@@ -15,6 +15,7 @@ export function useChatRealtime(
   onEvent: (event: RealtimeEvent) => void,
 ) {
   const { dismissToast, showToast } = useToast();
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -44,6 +45,7 @@ export function useChatRealtime(
     }
 
     async function connect(after?: number) {
+      setReady(false);
       try {
         const nextSocket = await createSocket(after);
         if (cancelled) {
@@ -57,6 +59,7 @@ export function useChatRealtime(
             | { type: "ready" | "ping"; cursor?: number };
           if (payload.type === "ready") {
             cursor = Math.max(cursor, payload.cursor ?? 0);
+            setReady(true);
             clearToastDelay();
             dismissToast("realtime-connection");
           } else if (payload.type !== "ping" && "sequence" in payload) {
@@ -66,6 +69,7 @@ export function useChatRealtime(
         });
         socket.addEventListener("close", () => {
           if (cancelled) return;
+          setReady(false);
           scheduleReconnectToast();
           reconnectTimer = setTimeout(
             () => void connect(cursor),
@@ -74,6 +78,7 @@ export function useChatRealtime(
         });
       } catch {
         if (cancelled) return;
+        setReady(false);
         scheduleReconnectToast();
         reconnectTimer = setTimeout(
           () => void connect(cursor),
@@ -91,4 +96,6 @@ export function useChatRealtime(
       dismissToast("realtime-connection");
     };
   }, [createSocket, dismissToast, onEvent, showToast]);
+
+  return ready;
 }

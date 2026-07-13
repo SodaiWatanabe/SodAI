@@ -32,6 +32,7 @@ type ChatDataContextValue = {
   conversations: ConversationSummary[];
   models: AvailableModel[];
   patchConversation: (id: string, patch: ConversationPatch) => void;
+  realtimeReady: boolean;
   renameConversation: (id: string, title: string) => Promise<ConversationSummary>;
   refresh: () => void;
   subscribeRealtime: (listener: RealtimeListener) => () => void;
@@ -137,7 +138,10 @@ export function ChatDataProvider({ children }: { children: ReactNode }) {
     [patchConversation, removeConversation, upsertConversation],
   );
 
-  useChatRealtime(chatApi.createRealtimeSocket, handleRealtime);
+  const realtimeReady = useChatRealtime(
+    chatApi.createRealtimeSocket,
+    handleRealtime,
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -173,6 +177,7 @@ export function ChatDataProvider({ children }: { children: ReactNode }) {
       conversations,
       models,
       patchConversation,
+      realtimeReady,
       renameConversation: async (id, title) => {
         const conversation = await chatApi.updateConversation(id, title);
         patchConversation(id, conversation);
@@ -187,6 +192,7 @@ export function ChatDataProvider({ children }: { children: ReactNode }) {
       conversations,
       models,
       patchConversation,
+      realtimeReady,
       refresh,
       removeConversation,
       subscribeRealtime,

@@ -69,8 +69,13 @@ function mergeMessages(current: ChatMessage[], incoming: ChatMessage[]) {
 
 export function ConversationShell(props: ConversationShellProps) {
   const { conversationId } = props;
-  const { createTurn, getConversation } = useChatApi();
-  const { models, patchConversation, subscribeRealtime } = useChatData();
+  const { createTurn, getConversation, startRun } = useChatApi();
+  const {
+    models,
+    patchConversation,
+    realtimeReady,
+    subscribeRealtime,
+  } = useChatData();
   const { dismissToast, showToast } = useToast();
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -79,12 +84,14 @@ export function ConversationShell(props: ConversationShellProps) {
   const mountedRef = useRef(true);
   const realtimeRevisionRef = useRef(0);
   const refreshGenerationRef = useRef(0);
+  const startingRunRef = useRef<string | undefined>(undefined);
   const [conversation, setConversation] = useState<Conversation>();
   const [model, setModel] = useState<AvailableModel["id"]>();
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const [startAttempt, setStartAttempt] = useState(0);
 
   const loadConversation = useCallback(
     () => getConversation(conversationId),
@@ -96,6 +103,7 @@ export function ConversationShell(props: ConversationShellProps) {
     return () => {
       mountedRef.current = false;
       dismissToast("message-send");
+      dismissToast("response-start");
     };
   }, [dismissToast]);
 
@@ -158,10 +166,18 @@ export function ConversationShell(props: ConversationShellProps) {
       if (event.type === "response.started" || event.type === "response.delta") {
         setSending(true);
       }
+      const terminalEvent =
+        event.type === "response.completed" || event.type === "response.failed";
       setConversation((current) => {
         if (!current) return current;
         return {
           ...current,
+          active_run: terminalEvent
+            ? null
+            : event.type === "response.started" &&
+                current.active_run?.id === event.run_id
+              ? { ...current.active_run, status: "running" }
+              : current.active_run,
           messages: current.messages.map((item) =>
             item.id === event.data.message_id
               ? {
@@ -178,7 +194,8 @@ export function ConversationShell(props: ConversationShellProps) {
           ),
         };
       });
-      if (event.type === "response.completed" || event.type === "response.failed") {
+      if (terminalEvent) {
+        startingRunRef.current = undefined;
         setSending(false);
         void syncConversation(false);
       }
@@ -198,6 +215,56 @@ export function ConversationShell(props: ConversationShellProps) {
     loadConversation,
     showToast,
     subscribeRealtime,
+  ]);
+
+  const queuedRun =
+    conversation?.active_run?.status === "queued"
+      ? conversation.active_run
+      : undefined;
+
+  useEffect(() => {
+    if (!realtimeReady || !queuedRun) return;
+    if (startingRunRef.current === queuedRun.id) return;
+    startingRunRef.current = queuedRun.id;
+    let cancelled = false;
+
+    void startRun(conversationId, queuedRun.id).then(
+      (startedRun) => {
+        if (cancelled) return;
+        dismissToast("response-start");
+        setConversation((current) =>
+          current?.active_run?.id === startedRun.id
+            ? { ...current, active_run: startedRun }
+            : current,
+        );
+      },
+      () => {
+        if (cancelled) return;
+        startingRunRef.current = undefined;
+        showToast({
+          id: "response-start",
+          message: "応答を開始できませんでした。",
+          tone: "error",
+          duration: null,
+          action: {
+            label: "再試行",
+            onClick: () => setStartAttempt((attempt) => attempt + 1),
+          },
+        });
+      },
+    );
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    conversationId,
+    dismissToast,
+    queuedRun,
+    realtimeReady,
+    showToast,
+    startAttempt,
+    startRun,
   ]);
 
   useLayoutEffect(() => {
