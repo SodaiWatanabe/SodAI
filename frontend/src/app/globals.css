@@ -201,35 +201,276 @@ button {
 .conversation-composer::after {
   content: "";
   position: absolute;
-  inset: -2rem 0 0;
+  inset: -5rem 0 0;
   pointer-events: none;
 }
 
 .conversation-composer::before {
-  -webkit-backdrop-filter: blur(18px);
-  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
   -webkit-mask-image: linear-gradient(
     to bottom,
     transparent 0%,
-    rgb(0 0 0 / 18%) 30%,
+    rgb(0 0 0 / 16%) 22%,
+    rgb(0 0 0 / 68%) 52%,
     black 72%
   );
   mask-image: linear-gradient(
     to bottom,
     transparent 0%,
-    rgb(0 0 0 / 18%) 30%,
+    rgb(0 0 0 / 16%) 22%,
+    rgb(0 0 0 / 68%) 52%,
     black 72%
   );
 }
 
 .conversation-composer::after {
-  background: linear-gradient(
+  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(24px);
+  -webkit-mask-image: linear-gradient(
     to bottom,
     transparent 0%,
-    color-mix(in srgb, var(--canvas) 24%, transparent) 34%,
-    color-mix(in srgb, var(--canvas) 76%, transparent) 58%,
-    var(--canvas) 72%
+    transparent 12%,
+    rgb(0 0 0 / 20%) 32%,
+    rgb(0 0 0 / 68%) 56%,
+    black 72%
   );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0%,
+    transparent 12%,
+    rgb(0 0 0 / 20%) 32%,
+    rgb(0 0 0 / 68%) 56%,
+    black 72%
+  );
+}
+
+.response-ambient {
+  --response-light-origin-y: 100%;
+  --response-light-akane: light-dark(
+    rgb(183 44 62 / 34%),
+    rgb(255 70 84 / 44%)
+  );
+  --response-light-shu: light-dark(
+    rgb(230 83 61 / 42%),
+    rgb(255 111 77 / 54%)
+  );
+  --response-light-yamabuki: light-dark(
+    rgb(236 169 44 / 40%),
+    rgb(255 199 74 / 50%)
+  );
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: min(68vh, 600px);
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0;
+  transition:
+    opacity 700ms ease-out,
+    left 300ms ease-out;
+}
+
+@media (min-width: 64rem) {
+  main[data-desktop-sidebar="expanded"] .response-ambient {
+    left: 256px;
+  }
+
+  main[data-desktop-sidebar="collapsed"] .response-ambient {
+    left: 52px;
+  }
+}
+
+.response-ambient[data-active="true"] {
+  opacity: 1;
+  transition-duration: 160ms, 300ms;
+}
+
+.response-glow {
+  position: absolute;
+  bottom: 0;
+  opacity: 0;
+  transform-origin: 50% var(--response-light-origin-y);
+  animation-play-state: paused;
+  will-change: left, opacity, transform;
+}
+
+.response-glow-one {
+  left: 12%;
+  width: clamp(400px, 60vw, 860px);
+  height: 122%;
+  background: radial-gradient(
+    ellipse 58% 90% at 50% var(--response-light-origin-y),
+    var(--response-light-akane) 0%,
+    var(--response-light-akane) 20%,
+    transparent 78%
+  );
+  filter: blur(70px) saturate(1.16) brightness(1.08);
+  animation: response-glow-one 7.2s linear infinite;
+}
+
+.response-glow-two {
+  left: 50%;
+  width: clamp(340px, 51vw, 740px);
+  height: 116%;
+  background: radial-gradient(
+    ellipse 52% 88% at 50% var(--response-light-origin-y),
+    var(--response-light-shu) 0%,
+    var(--response-light-shu) 24%,
+    transparent 76%
+  );
+  filter: blur(58px) saturate(1.2) brightness(1.14);
+  animation: response-glow-two 8.7s linear -2.9s infinite;
+}
+
+.response-glow-three {
+  left: 88%;
+  width: clamp(300px, 45vw, 660px);
+  height: 108%;
+  background: radial-gradient(
+    ellipse 48% 84% at 50% var(--response-light-origin-y),
+    var(--response-light-yamabuki) 0%,
+    var(--response-light-yamabuki) 28%,
+    transparent 74%
+  );
+  filter: blur(50px) saturate(1.18) brightness(1.18);
+  animation: response-glow-three 7.8s linear -4.5s infinite;
+}
+
+@media (min-width: 64rem) {
+  .response-glow-one {
+    width: clamp(780px, 90%, 1880px);
+    background:
+      radial-gradient(
+        ellipse 58% 90% at 50% var(--response-light-origin-y),
+        var(--response-light-akane) 0%,
+        var(--response-light-akane) 20%,
+        transparent 78%
+      ),
+      radial-gradient(
+        ellipse 76% 100% at 50% var(--response-light-origin-y),
+        color-mix(in srgb, var(--response-light-akane) 38%, transparent) 0%,
+        transparent 86%
+      );
+  }
+
+  .response-glow-two {
+    width: clamp(700px, 81%, 1700px);
+    background:
+      radial-gradient(
+        ellipse 52% 88% at 50% var(--response-light-origin-y),
+        var(--response-light-shu) 0%,
+        var(--response-light-shu) 24%,
+        transparent 76%
+      ),
+      radial-gradient(
+        ellipse 68% 98% at 50% var(--response-light-origin-y),
+        color-mix(in srgb, var(--response-light-shu) 36%, transparent) 0%,
+        transparent 84%
+      );
+  }
+
+  .response-glow-three {
+    width: clamp(640px, 72%, 1520px);
+    background:
+      radial-gradient(
+        ellipse 48% 84% at 50% var(--response-light-origin-y),
+        var(--response-light-yamabuki) 0%,
+        var(--response-light-yamabuki) 28%,
+        transparent 74%
+      ),
+      radial-gradient(
+        ellipse 63% 94% at 50% var(--response-light-origin-y),
+        color-mix(in srgb, var(--response-light-yamabuki) 34%, transparent) 0%,
+        transparent 82%
+      );
+  }
+}
+
+.response-ambient[data-active="true"] .response-glow {
+  animation-play-state: running;
+}
+
+@keyframes response-glow-one {
+  0%,
+  100% {
+    left: -2%;
+    opacity: 0.48;
+    transform: translateX(-50%) rotate(-4deg) scale(0.96, 1.04);
+  }
+
+  30% {
+    left: 16%;
+    opacity: 0.78;
+    transform: translateX(-50%) rotate(4deg) scale(1.08, 0.96);
+  }
+
+  58% {
+    left: 27%;
+    opacity: 0.64;
+    transform: translateX(-50%) rotate(6deg) scale(1.12, 1.08);
+  }
+
+  82% {
+    left: 5%;
+    opacity: 0.58;
+    transform: translateX(-50%) rotate(-3deg) scale(0.98, 1.12);
+  }
+}
+
+@keyframes response-glow-two {
+  0%,
+  100% {
+    left: 34%;
+    opacity: 0.58;
+    transform: translateX(-50%) rotate(-2deg) scale(0.98, 1.08);
+  }
+
+  25% {
+    left: 62%;
+    opacity: 0.8;
+    transform: translateX(-50%) rotate(4deg) scale(1.1, 0.98);
+  }
+
+  55% {
+    left: 45%;
+    opacity: 0.62;
+    transform: translateX(-50%) rotate(-4deg) scale(1, 1.14);
+  }
+
+  78% {
+    left: 68%;
+    opacity: 0.82;
+    transform: translateX(-50%) rotate(3deg) scale(1.14, 1.06);
+  }
+}
+
+@keyframes response-glow-three {
+  0%,
+  100% {
+    left: 102%;
+    opacity: 0.46;
+    transform: translateX(-50%) rotate(4deg) scale(0.94, 1.08);
+  }
+
+  32% {
+    left: 84%;
+    opacity: 0.74;
+    transform: translateX(-50%) rotate(-4deg) scale(1.1, 0.96);
+  }
+
+  60% {
+    left: 73%;
+    opacity: 0.62;
+    transform: translateX(-50%) rotate(-6deg) scale(1.14, 1.1);
+  }
+
+  84% {
+    left: 95%;
+    opacity: 0.58;
+    transform: translateX(-50%) rotate(3deg) scale(1, 1.14);
+  }
 }
 
 @keyframes toast-enter {
@@ -252,5 +493,11 @@ button {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+
+  .response-glow {
+    opacity: 0.52;
+    transform: none;
+    animation: none;
   }
 }

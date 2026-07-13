@@ -6,6 +6,7 @@ import type { ChatMessage, Conversation } from "@/lib/chat/types";
 type ConversationViewportProps = {
   conversation?: Conversation;
   loading: boolean;
+  responding: boolean;
 };
 
 function ConversationMessage({ message }: { message: ChatMessage }) {
@@ -21,9 +22,6 @@ function ConversationMessage({ message }: { message: ChatMessage }) {
         }
       >
         {message.content}
-        {message.speaker === "sodai" && message.status === "streaming" ? (
-          <span className="ml-1 inline-block size-1.5 animate-pulse rounded-full bg-[var(--muted)] align-middle" />
-        ) : null}
         {message.status === "failed" ? (
           <span className="text-sm text-[var(--danger-text)]">
             応答を完了できませんでした。
@@ -37,15 +35,31 @@ function ConversationMessage({ message }: { message: ChatMessage }) {
 export function ConversationViewport({
   conversation,
   loading,
+  responding,
 }: ConversationViewportProps) {
   return (
     <section
       aria-label="会話"
-      aria-busy={loading}
-      className="relative flex flex-1 flex-col"
+      aria-busy={loading || responding}
+      className="relative isolate flex flex-1 flex-col"
     >
+      <div
+        aria-hidden="true"
+        data-active={responding ? "true" : "false"}
+        className="response-ambient"
+      >
+        <span className="response-glow response-glow-one" />
+        <span className="response-glow response-glow-two" />
+        <span className="response-glow response-glow-three" />
+      </div>
+      {responding ? (
+        <span role="status" className="sr-only">
+          SodAIが応答しています
+        </span>
+      ) : null}
+
       {conversation ? (
-        <div className="mx-auto w-full max-w-[760px] px-5 py-10 sm:px-8">
+        <div className="relative z-10 mx-auto w-full max-w-[760px] px-5 py-10 sm:px-8">
           <div className="space-y-8">
             {conversation.messages.map((message) => (
               <ConversationMessage key={message.id} message={message} />

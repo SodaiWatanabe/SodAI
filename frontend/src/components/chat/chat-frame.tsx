@@ -327,7 +327,10 @@ export function ChatFrame({
         {sidebar(false, true, () => setMobileOpen(false))}
       </aside>
 
-      <main className="relative flex min-w-0 flex-1 flex-col">
+      <main
+        data-desktop-sidebar={desktopCollapsed ? "collapsed" : "expanded"}
+        className="relative flex min-w-0 flex-1 flex-col"
+      >
         <ToastViewport />
         <button
           ref={menuButtonRef}

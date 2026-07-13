@@ -280,7 +280,11 @@ export function ConversationShell(props: ConversationShellProps) {
         showPseudoBadge
       />
 
-      <ConversationViewport conversation={conversation} loading={loading} />
+      <ConversationViewport
+        conversation={conversation}
+        loading={loading}
+        responding={sending}
+      />
 
       <div className="conversation-composer sticky bottom-0 z-20 shrink-0 px-5 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-8">
         <button
