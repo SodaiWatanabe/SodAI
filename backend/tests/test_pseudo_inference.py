@@ -68,7 +68,7 @@ def test_model_catalog_uses_sodai_model_names() -> None:
 
     assert [(model.id, model.name, model.description, model.is_default) for model in models] == [
         (ModelId.ASUKA_1, "Asuka 1", "会話に最適。", True),
-        (ModelId.HINA, "Hina", "知能の萌芽。", False),
+        (ModelId.HINA, "Hina", "知能の萌芽を捉える。", False),
     ]
 
 

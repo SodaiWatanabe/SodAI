@@ -42,7 +42,7 @@ MODEL_CATALOG = (
     ModelDefinition(
         id=ModelId.HINA,
         name="Hina",
-        description="知能の萌芽。",
+        description="知能の萌芽を捉える。",
         runtime_id="pseudo-sodai-hina-v1",
         audiences=frozenset(ModelAudience),
         default_for=frozenset({ModelAudience.GUEST}),

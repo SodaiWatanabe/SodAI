@@ -273,11 +273,9 @@ export function ConversationShell(props: ConversationShellProps) {
       }}
     >
       <ChatHeader
-        disabled={sending}
         model={model}
         models={models}
         onModelChange={setModel}
-        showPseudoBadge
       />
 
       <ConversationViewport

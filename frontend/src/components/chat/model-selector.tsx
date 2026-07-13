@@ -11,40 +11,30 @@ import {
 import type { AvailableModel } from "@/lib/chat/types";
 
 type ModelSelectorProps = {
-  disabled?: boolean;
   model?: AvailableModel["id"];
   models: AvailableModel[];
   onChange: (model: AvailableModel["id"]) => void;
-  showPseudoBadge?: boolean;
 };
 
 export function ModelSelector({
-  disabled = false,
   model,
   models,
   onChange,
-  showPseudoBadge = false,
 }: ModelSelectorProps) {
   const selected =
     models.find((option) => option.id === model) ??
     models.find((option) => option.is_default) ??
     models[0];
   const label = selected?.name ?? model ?? "モデル";
-  const selectorDisabled = disabled || models.length === 0;
 
   return (
     <Popover placement="bottom-start" gutter={6}>
       <PopoverTrigger
-        disabled={selectorDisabled}
+        disabled={models.length === 0}
         aria-label={`モデル: ${label}`}
         className="group flex h-9 items-center gap-1.5 rounded-xl px-2.5 text-sm font-medium text-[var(--text)] transition-colors hover:bg-[var(--hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)] disabled:cursor-default disabled:opacity-50"
       >
         <span>{label}</span>
-        {showPseudoBadge && model ? (
-          <span className="rounded-full bg-[var(--control-background)] px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-[var(--muted)]">
-            Pseudo
-          </span>
-        ) : null}
         <ChevronDown
           aria-hidden="true"
           className="size-3.5 text-[var(--muted)] transition-transform group-aria-expanded:rotate-180"
