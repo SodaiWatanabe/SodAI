@@ -1,4 +1,15 @@
 from app.models.account import AuthIdentityModel, UserModel
+from app.models.credits import (
+    CreditAccountModel,
+    CreditLotConsumptionModel,
+    CreditLotModel,
+    CreditPostingModel,
+    CreditReservationAllocationModel,
+    CreditTransactionModel,
+    InferenceBillingIntentModel,
+    InferenceCreditReservationModel,
+    InferenceUsageRecordModel,
+)
 from app.models.platform import (
     ActorModel,
     EntryTextContentModel,
@@ -18,9 +29,18 @@ from app.models.platform import (
 __all__ = [
     "ActorModel",
     "AuthIdentityModel",
+    "CreditAccountModel",
+    "CreditLotConsumptionModel",
+    "CreditLotModel",
+    "CreditPostingModel",
+    "CreditReservationAllocationModel",
+    "CreditTransactionModel",
     "EntryTextContentModel",
     "ExecutionModel",
     "GuestSessionModel",
+    "InferenceBillingIntentModel",
+    "InferenceCreditReservationModel",
+    "InferenceUsageRecordModel",
     "ModelExecutionModel",
     "OutboxEventModel",
     "ResponseContextItemModel",
