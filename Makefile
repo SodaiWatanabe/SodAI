@@ -10,6 +10,7 @@ COMPOSE_DEV = $(COMPOSE_BASE) -f compose.dev.yaml
 
 .PHONY: install install-contracts install-backend install-frontend install-inference \
 	dev-backend dev-frontend dev-inference import-hina deploy-hina \
+	inference-status test-inference-e2e \
 	infra-check-env infra-config infra-up infra-up-internal infra-down infra-logs infra-ps \
 	tunnel-up tunnel-down db-shell redis-cli db-backup db-restore \
 	migrate migrate-auth migrate-app reinitialize-app-schema \
@@ -60,6 +61,12 @@ import-hina: infra-check-env
 deploy-hina: infra-check-env
 	@test -n "$(ARTIFACT_ID)" || { echo 'ARTIFACT_ID=<artifact-id> を指定してください。' >&2; exit 1; }
 	set -a; . ./$(ENV_FILE); set +a; exec $(INFERENCE_VENV)/bin/sodai-deploy-hina "$(ARTIFACT_ID)"
+
+inference-status:
+	cd backend && .venv/bin/python -m app.cli.inference_status
+
+test-inference-e2e: infra-check-env
+	ENV_FILE="$(ENV_FILE)" ./infra/scripts/test-inference-e2e.sh
 
 infra-check-env:
 	@test -f "$(ENV_FILE)" || { \
@@ -124,6 +131,7 @@ test:
 	$(BACKEND_PYTHON) -m pytest packages/contracts/tests
 	cd backend && .venv/bin/pytest
 	cd inference && .venv/bin/pytest
+	cd frontend && npm test
 
 test-integration: infra-check-env migrate-app
 	SODAI_INTEGRATION_TESTS=1 $(BACKEND_PYTHON) -m pytest backend/tests/test_platform_integration.py

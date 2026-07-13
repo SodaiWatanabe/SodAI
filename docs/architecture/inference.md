@@ -56,15 +56,20 @@ Projectorはeventを適用、重複、gap保留、破棄へ分類します。gap
 内部stream名とconsumer groupはcontract v2で分離しています。旧payloadを誤って処理せず、
 後方互換層を持ちません。
 
-jobは直近32 Entry、本文合計64KiBまでです。Hinaではguestのactive Executionを1件、全体を
-既定32件までに制限します。Cookie再作成を含むIP単位の濫用対策は公開edgeのrate limit、DBの
-advisory lockをGPU queueの最終防衛線とします。
+jobは直近32 Entry、本文合計64KiBまでです。Hinaではguest・modelごとのactive Executionを1件、
+modelごとの合計を既定32件までに制限します。複数modelが同じGPU poolを共有する段階では
+resource pool単位の上限を別契約として追加します。Cookie再作成を含むIP単位の濫用対策は
+公開edgeのrate limit、DBのadvisory lockをGPU queueの最終防衛線とします。
 
 ## 障害復旧
 
 Workerはterminal eventをRedisへ書いた後にだけjobをacknowledgeします。未acknowledge jobは
 consumer groupから同じExecutionとしてreclaimします。明示的な再試行だけが新しいattemptを
 作ります。
+
+再試行は元Executionのartifactをpinしたまま、同じResponseRequestへ新Executionを追加します。
+deployment切替後も旧artifactのactive Executionが存在する間は、運用診断がそのartifact専用streamと
+worker readinessを個別に列挙します。旧workerはactive件数がゼロになるまで停止しません。
 
 eventとattemptの配送位置はRedis scriptで原子的に記録します。sampling seedとchunk境界はjobに
 対して決定的であり、同じartifact、runtime、device classでの再実行時に異なる文章を途中へ
@@ -121,3 +126,15 @@ eventとattempt progressも同じく一つのRedis scriptで保存するため�
 Building-SLMの`v2`はAsukaの基盤モデルとして学習中です。SFTと評価を終えた成果物をHinaと同じ
 import、hash、deployment工程へ通した後、疑似runtimeを実モデルadapterへ交換します。公開ID、
 Actor、ResponseRequest、Execution、Frontend契約はその交換で変わりません。
+
+## 運用状態と検証
+
+`GET /api/v1/health/inference`は`healthy`、`degraded`、`unavailable`だけを公開し、schema revision、
+artifact、queue件数は返しません。ホスト上では`make inference-status`がDB revision、Outbox、
+Execution、Redis consumer group、current／pinned-active artifact、worker leaseを詳細表示します。
+正常な1件の配送ではdegradedへ揺らさず、Outbox、event、jobが一定時間進まない場合だけdegraded、
+DB revision不一致、consumer group欠落、worker lease消失はunavailableと判定します。
+
+`make test-inference-e2e`はlocal PostgreSQL／Redisだけを許可し、runごとの専用DBとRedis namespaceを
+作ります。CUDA deviceを事前検証して実Hina workerを一時起動し、HTTP作成、Outbox dispatch、GPU生成、
+stream投影、WebSocketイベント、再読込復元、terminal event冪等性を検証後に全資源を削除します。

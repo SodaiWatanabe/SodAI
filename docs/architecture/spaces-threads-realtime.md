@@ -52,12 +52,18 @@ activeなExecutionも1件だけです。入力Entryと結果Entryが別Threadを
 | `PATCH` | `/api/v1/threads/{id}` | Thread名を更新 |
 | `POST` | `/api/v1/threads/{id}/archive` | Threadをアーカイブ |
 | `POST` | `/api/v1/response-requests` | 既存Threadへ入力と応答要求を追加 |
+| `POST` | `/api/v1/response-requests/{id}/executions` | failed応答を新Executionとして再試行 |
 | `GET` | `/api/v1/answerers` | Principalが選択できる応答主体 |
 | `POST` | `/api/v1/realtime/tickets` | 一度限り、短寿命の接続ticket |
 | `WS` | `/api/v1/realtime` | Thread・Entry・Responseの変更通知 |
 
 応答主体の公開ID、表示名、説明、利用権限、主体別デフォルトはBackendのanswerer catalogだけが
 正本です。現在はゲストの既定値が`hina`、ログインユーザーの既定値が`asuka-1`です。
+
+再試行APIは`Idempotency-Key` headerを必須とします。同じResponseRequestとkeyの組み合わせは、
+同時送信や通信後の再送でも同じExecutionを返します。新しい入力Entryやcontext snapshotは作らず、
+最新のfailed ResponseRequestだけに`attempt_no`を増やします。key平文は保存せずSHA-256 hashだけを
+Executionへ記録します。
 
 アーカイブは削除ではありません。`status=archived`として通常一覧と追記対象から外し、将来の
 復元と完全削除を別操作として追加できる境界を残します。
@@ -72,6 +78,7 @@ activeなExecutionも1件だけです。入力Entryと結果Entryが別Threadを
 - `thread.updated`
 - `thread.archived`
 - `entry.created`
+- `response.queued`
 - `response.started`
 - `response.delta`
 - `response.completed`
@@ -82,6 +89,10 @@ activeなExecutionも1件だけです。入力Entryと結果Entryが別Threadを
 累積本文で置換するため、再送でも重複しません。購読queueが溢れた場合は古い構造イベントを
 黙って落とさず`sync.required`へ置き換え、Thread一覧と表示中ThreadをHTTPで再取得して
 PostgreSQLのrevisionへ収束します。ページ再読込も同じ復元経路を使います。
+
+`response.queued`は再試行で最新Executionが切り替わったことを表します。クライアントは
+`response_request_id`だけでなく`execution_id`も照合し、不一致時はHTTP snapshotを一度だけ取得して
+古い試行の遅延deltaを現在の本文へ混ぜません。
 
 Realtime hubと一度限りticketは現在process-localです。FastAPIを水平分割する前に、ticket storeと
 commit後イベントのfan-outを共有基盤へ移す必要があります。

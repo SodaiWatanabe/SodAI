@@ -129,6 +129,10 @@ make infra-down
 ```bash
 make check
 make infra-config
+# local CUDA上で実Hinaを含む隔離E2E
+make test-inference-e2e
+# 公開しない詳細な推論運用状態
+make inference-status
 ```
 
 ## 設計上の原則

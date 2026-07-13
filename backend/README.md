@@ -46,9 +46,14 @@ the public WebSocket stream. Hina and the in-process Asuka stand-in use this sam
 path.
 
 Generation jobs carry at most 32 recent turns and 64 KiB of Entry content.
-PostgreSQL advisory locking enforces the configured guest and global active
+PostgreSQL advisory locking enforces the configured per-guest/model and per-model active
 Execution limits before Hina work is committed. Processed Redis entries and
 published outbox payloads are removed because PostgreSQL is the sole Thread record.
+
+Failed response requests are retried with
+`POST /api/v1/response-requests/{id}/executions`. The required `Idempotency-Key`
+is hashed at the boundary; one key always resolves to one Execution under the
+same ResponseRequest. Retry does not duplicate the input Entry or context snapshot.
 
 The current realtime hub and one-time ticket store are process-local, so the
 supported deployment shape is one FastAPI process. Horizontal API scaling first
