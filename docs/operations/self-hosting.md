@@ -45,6 +45,20 @@ make migrate
 
 このコマンドはBetter Authの定義を`auth`schemaへ、Alembicの定義を`app`schemaへ適用します。
 
+### app schemaを再初期化するとき
+
+Platform core baselineは後方互換migrationを持ちません。開発中の旧Conversation schemaから
+Space・Thread基盤へ切り替える場合は、必要なデータを先にバックアップし、FastAPIと推論workerを
+停止してから`app`schemaだけを明示的に再初期化します。`auth`schemaは保持されますが、SodAI内部の
+ユーザー対応、Space、Thread、Entry、実行履歴はすべて削除されます。
+
+```bash
+make db-backup
+CONFIRM_REINITIALIZE_APP_SCHEMA=1 make reinitialize-app-schema
+```
+
+通常の起動や更新でこのtargetを使ってはいけません。確認変数がない実行は拒否されます。
+
 開発用の確認メールはSMTP `127.0.0.1:1025`へ送信し、<http://127.0.0.1:8025>で確認できます。Next.jsをホストで動かす場合の設定は次の通りです。
 
 ```dotenv

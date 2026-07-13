@@ -13,10 +13,10 @@ Better Auth ── auth schema
       ▼
 SodAI identity mapping ── app schema
       │ internal user UUID
-      ├─ conversations
+      ├─ spaces / threads / entries
       ├─ credit accounts
       ├─ feedback
-      └─ inference runs
+      └─ response requests / executions
 ```
 
 ## PostgreSQLの所有境界
@@ -26,7 +26,7 @@ SodAI identity mapping ── app schema
 | 領域 | DBロール | schema | 所有するデータ |
 | --- | --- | --- | --- |
 | 認証 | `sodai_auth` | `auth` | Better Authのユーザー、セッション、アカウント、検証情報、鍵 |
-| アプリ | `sodai_app` | `app` | SodAI内部ユーザー、identity対応、会話、クレジット、フィードバック |
+| アプリ | `sodai_app` | `app` | SodAI内部ユーザー、identity対応、Space、Thread、クレジット、フィードバック |
 
 各ロールは自分のschemaだけを所有し、他方のschemaへ権限を持ちません。ロールごとの`search_path`もデータベース初期化時に固定します。Better AuthとFastAPIが同じPostgreSQLを利用しても、誤ったmigrationで相手のテーブルを変更しにくい境界です。
 
@@ -54,7 +54,7 @@ auth_identities
 UNIQUE (issuer, subject)
 ```
 
-会話やクレジット台帳は常に内部`user_id`を参照します。メールアドレスは変更可能であり、主キーや無条件のアカウント結合キーにはしません。
+所有権を表すpersonal Spaceやクレジット台帳は内部`user_id`を起点に解決します。Entryの著者は別ID空間のActorで表し、認証Principalと混同しません。メールアドレスは変更可能であり、主キーや無条件のアカウント結合キーにはしません。
 
 ## FastAPIの認証境界
 
@@ -82,7 +82,7 @@ Cognitoへ移る場合は、次の順序で停止時間を小さくします。
 5. 旧セッションの期限後にBetter Auth issuerを停止する
 6. `auth`schemaを保持したバックアップを取得してから旧認証サービスを撤去する
 
-Google利用者は再ログインで移行できます。メールOTP利用者も、新しい認証基盤でメール所有を再確認したあと、確認済みの手続きで既存の内部UUIDへidentityを追加します。どちらの場合も、会話やクレジットは内部UUIDへ紐付いているため移動しません。
+Google利用者は再ログインで移行できます。メールOTP利用者も、新しい認証基盤でメール所有を再確認したあと、確認済みの手続きで既存の内部UUIDへidentityを追加します。どちらの場合も、Spaceやクレジットは内部UUIDから解決されるため移動しません。
 
 ## 外部依存を正確に捉える
 
@@ -92,4 +92,4 @@ Google利用者は再ログインで移行できます。メールOTP利用者�
 - メール配送事業者には宛先とメール本文が渡る
 - Cloudflare Tunnel利用時は公開経路とTLS終端をCloudflareへ依存する
 
-一方、OTP検証情報、セッションDB、会話、クレジット台帳、モデル、学習データはSodAI管理下に残します。各外部依存は固有IDをアプリ全体へ漏らさず、設定とadapter境界で交換できるようにします。
+一方、OTP検証情報、セッションDB、SpaceとThread、クレジット台帳、モデル、学習データはSodAI管理下に残します。各外部依存は固有IDをアプリ全体へ漏らさず、設定とadapter境界で交換できるようにします。

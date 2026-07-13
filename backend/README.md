@@ -23,31 +23,32 @@ The API validates the configured issuer, audience, expiration, issued-at time,
 subject, signing algorithm, and JWKS key ID. A verified `(issuer, subject)` is
 mapped to an immutable SodAI UUID on first access to `GET /api/v1/account/me`.
 
-Provider migration does not require changing conversation, credit, or feedback
+Provider migration does not require changing space, thread, credit, or feedback
 foreign keys: those future tables should reference `app.users.id`. A new provider
 identity must be explicitly linked to the existing SodAI UUID during migration;
 email addresses are never used as an automatic identity-linking key.
 
-## Model contract
+## Answerer contract
 
-Public model IDs are opaque, immutable API identifiers. The current catalog uses
+Public answerer IDs are opaque, immutable API identifiers. The catalog uses
 `hina` as the guest default and `asuka-1` as the authenticated default. Omitting
-`model` resolves through the same principal-aware policy. API requests and
-`inference_runs.requested_model` store the selected public ID; the separately
-versioned `resolved_model` records the immutable artifact, such as
-`hina@<artifact-id>`. Additions start
-in `app.domain.model_catalog` so metadata, audience rules, contextual defaults,
-and runtime resolution do not drift across endpoints.
+`answerer` resolves through the same principal-aware policy. Response requests
+store the public answerer ID, while model executions separately record the
+requested model, immutable artifact, and resolved runtime such as
+`hina@<artifact-id>`. Additions start in `app.domain.answerers` so identity,
+metadata, audience rules, defaults, and runtime routing cannot drift.
 
-The browser never starts an inference run. Conversation writes create the run and
-transactional outbox together. The dispatcher publishes committed jobs to Redis,
-and the projector is the only component allowed to apply worker events to the
-database and public WebSocket stream.
+The browser never starts an execution directly. Thread writes create an immutable
+input Entry, ResponseRequest, first Execution, context snapshot, and transactional
+outbox together. The dispatcher publishes committed jobs to Redis, and the
+projector is the only component allowed to apply runtime events to PostgreSQL and
+the public WebSocket stream. Hina and the in-process Asuka stand-in use this same
+path.
 
-Generation jobs carry at most 32 recent turns and 64 KiB of message content.
-PostgreSQL advisory locking enforces the configured guest and global active-run
-limits before a Hina run is committed. Processed Redis entries and published
-outbox payloads are removed because PostgreSQL is the sole conversation record.
+Generation jobs carry at most 32 recent turns and 64 KiB of Entry content.
+PostgreSQL advisory locking enforces the configured guest and global active
+Execution limits before Hina work is committed. Processed Redis entries and
+published outbox payloads are removed because PostgreSQL is the sole Thread record.
 
 The current realtime hub and one-time ticket store are process-local, so the
 supported deployment shape is one FastAPI process. Horizontal API scaling first

@@ -17,7 +17,7 @@ Internet ── Cloudflare Tunnel ── 自宅環境
 
 認証プロバイダーのユーザーIDをサービス全体の主キーにせず、SodAI内部の不変UUIDと`(issuer, subject)`の対応として扱います。これによりBetter Authを自前運用しながら、将来Cognitoなどへ段階移行できます。詳細は[認証・アカウント境界](docs/architecture/authentication.md)を参照してください。
 
-会話はHTTPで永続化し、Hina workerからの生成差分をWebSocketで配信します。匿名会話、再読込後の復元、イベント再送、モデル権限の境界は[会話・リアルタイム基盤](docs/architecture/conversations-realtime.md)、モデル成果物とGPU実行の境界は[推論基盤](docs/architecture/inference.md)にまとめています。
+作業文脈はSpaceとThreadとしてHTTPで永続化し、Hina／Asukaの生成差分をWebSocketで配信します。匿名利用、再読込後の復元、イベント再同期、応答主体の権限境界は[Space・Thread・リアルタイム基盤](docs/architecture/spaces-threads-realtime.md)、モデル成果物とGPU実行の境界は[推論基盤](docs/architecture/inference.md)にまとめています。
 
 ## ディレクトリ
 

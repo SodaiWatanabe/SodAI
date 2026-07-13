@@ -1,35 +1,93 @@
 # 推論基盤
 
-## 所有境界
+## プロセス境界
 
-SodAIは推論を含めて単一repository内で実行できますが、APIとGPU runtimeは別プロセス・別依存
-として分離します。
+SodAIは単一repositoryで配布しますが、APIとGPU runtimeを別プロセス・別依存として保ちます。
 
 ```text
 Browser
   ├─ HTTP / WebSocket
   ▼
 FastAPI ── PostgreSQL
-  │           ├─ conversations / messages / inference_runs
-  │           └─ inference_outbox
+  │           ├─ threads / entries
+  │           ├─ response_requests / executions
+  │           └─ response_context_items / outbox_events
   ▼
 Redis Streams
-  ▼
-Inference worker ── var/models/hina/<artifact-id>
+  ├─ Hina worker ── var/models/hina/<artifact-id>
+  └─ Asuka pseudo worker
 ```
 
-- FastAPIは会話、所有権、run状態、公開イベントを確定します。
-- Workerはversioned jobを受信して内部生成イベントを返すだけです。
-- WorkerはPostgreSQL、認証token、WebSocket接続を知りません。
-- PyTorch、Transformers、CUDA依存は`inference/`だけに閉じ込めます。
+- FastAPIは所有権、応答要求、実行状態、確定Entry、公開イベントを管理します。
+- Workerはversioned jobを受信し、内部生成イベントを返すだけです。
+- WorkerはPostgreSQL、認証token、WebSocketを知りません。
+- PyTorch、tokenizer、CUDA依存は`inference/`だけに閉じ込めます。
+- HinaとAsukaはruntimeが違っても、同じjob、event、projectorを通ります。
+
+## ResponseRequestとExecution
+
+ResponseRequestは「どのActorが、どの入力Entryを根拠に、どのActorへ応答を求めたか」という
+利用者の意図です。Executionはその要求を処理する個々の試行です。再試行を追加しても要求を
+複製せず、`attempt_no`を増やした新Executionとして記録できます。
+
+Threadへの入力時は、次を同じPostgreSQL transactionで確定します。
+
+1. 対話相手による不変の入力Entry
+2. queued状態のResponseRequest
+3. attempt 1のExecution
+4. その時点のEntryから切り出したcontext snapshot
+5. `model.generation.requested` outbox event
+
+生成中の本文は`Execution.partial_output`です。空のモデルEntryを先に作りません。completed eventの
+projector transactionだけが結果Entryを作り、ExecutionとResponseRequestをcompletedへ移します。
+failed eventはエラー状態だけを確定し、会話履歴へ疑似メッセージを混ぜません。
+
+## 共通配送路
+
+Outbox dispatcherはcommit済みjobをmodelとartifact別のRedis Streamへ発行します。内部jobは
+`execution_id`、`response_request_id`、`attempt_id`、`thread_id`、`answerer_actor_id`、model、
+artifact、context、生成条件、deadlineを含みます。内部eventは`execution_id + attempt_id`と
+単調増加する`sequence`を持ちます。
+
+Projectorはeventを適用、重複、gap保留、破棄へ分類します。gapはACKせず先行eventを待ち、DBに
+適用されなかったeventを公開WebSocketへ流しません。完了済みExecutionへの同一event再送も
+結果Entryを増やしません。
+
+内部stream名とconsumer groupはcontract v2で分離しています。旧payloadを誤って処理せず、
+後方互換層を持ちません。
+
+jobは直近32 Entry、本文合計64KiBまでです。Hinaではguestのactive Executionを1件、全体を
+既定32件までに制限します。Cookie再作成を含むIP単位の濫用対策は公開edgeのrate limit、DBの
+advisory lockをGPU queueの最終防衛線とします。
+
+## 障害復旧
+
+Workerはterminal eventをRedisへ書いた後にだけjobをacknowledgeします。未acknowledge jobは
+consumer groupから同じExecutionとしてreclaimします。明示的な再試行だけが新しいattemptを
+作ります。
+
+eventとattemptの配送位置はRedis scriptで原子的に記録します。sampling seedとchunk境界はjobに
+対して決定的であり、同じartifact、runtime、device classでの再実行時に異なる文章を途中へ
+継ぎ足しません。現在のworker poolへ異種GPUを混在させることはサポートしません。
+
+queued Executionにはjob deadline、running Executionには更新式leaseがあります。APIの
+reconcilerが期限切れをfailedへ収束させるため、Redis停止やworker消失でThreadが永久に送信不能に
+なりません。復旧直後は未検査eventをprojectorが先に処理し、正常なterminal eventとの競合を
+避けます。
+
+Redisは配送路です。project済みeventと完了jobは`XACK + XDEL`し、公開済みoutboxからもpayloadを
+除去します。Redisへ未配信のままExecutionが期限切れになったoutboxは`discarded_at`を記録して
+payloadを除去し、機密な入力本文を未処理queueへ残しません。Entryと実行監査の正本は
+PostgreSQLだけです。
 
 ## Hina
 
-`Hina`は製品モデル名です。`hina-1`というモデルは作りません。Building-SLMの`v1`は学習上の
+`Hina`が製品モデル名です。`hina-1`という公開モデルは作りません。Building-SLMの`v1`は学習上の
 出自であり、SodAIの公開APIには現れません。
 
 ```text
-公開モデルID      hina
+公開answerer ID  hina
+runtime model     hina
 学習上の出自      Building-SLM v1 / gpt_sft.pt
 architecture      absolute_position_gpt
 context length    512
@@ -37,67 +95,29 @@ prompt template   partner-self-v1
 resolved model    hina@<artifact-id>
 ```
 
-`artifact-id`はcheckpoint、tokenizer bundle全体、manifest schema、runtime ABIから導出した
-内容hashです。manifestはdtype、prompt template、語彙内にある必須special token集合も固定します。
-ジョブには投入時のartifact IDを固定し、deployment変更後も途中のrunが別の重みへ切り替わらない
-ようにします。
+`artifact-id`はcheckpoint、tokenizer bundle、manifest schema、runtime ABIから導出した内容hashです。
+manifestはdtype、prompt template、必須special tokenも固定します。job作成時にartifactをpinし、
+deployment変更後も実行途中で別の重みへ切り替えません。
 
-importとdeployment promotionは別操作です。新artifact用workerを`HINA_ARTIFACT_ID`で先に起動し、
-readinessを確認してからdeploymentを切り替えます。promotionコマンドも対象workerのreadinessを
-Redisで検証します。job streamはmodelとartifactごとに分離されるため、
-旧workerと新workerを同時に動かしても重みの異なるjobが交差しません。
+importとdeployment promotionは別操作です。新artifact専用workerを先に起動し、readinessをRedisで
+確認してからdeploymentを切り替えます。旧workerと新workerはartifact別streamを読むため共存できます。
 
-## 永続ジョブ
+HinaのByteLevel tokenizerは単独tokenのdecodeで日本語の途中byteが置換文字になることがあります。
+Workerは生成済みtoken ID列全体をdecodeし、安定した接頭辞の差分だけを配信します。短い差分は
+4文字まで束ね、Redis AOFとDB更新を増やしすぎず視覚的なstreamingを維持します。
 
-会話、partner発言、空のself発言、inference run、outboxを同一PostgreSQL transactionで作ります。
-ブラウザはrunを開始しません。outbox dispatcherがcommit済みjobをRedis Streamへ発行します。
-
-内部jobは`attempt_id`、`artifact_id`、会話turn、生成条件、deadlineを含みます。内部eventは
-`attempt_id`とrun内の単調増加`sequence`を含みます。Backend projectorはeventを適用、直前eventの
-再配信、破棄、gap保留に分類します。gapはACKせず先行eventを待ち、DBへ適用しなかったeventを
-新しい状態としてWebSocketへ流しません。
-
-job payloadは直近32 turnかつ本文合計64KiBまでに制限し、workerも新しいturnからcontextへ収めます。
-guestは同時Hina runを1件、全体queueは既定32件までに制限します。Cookieの作り直しを含むIP単位の
-濫用対策はCloudflare側のrate limitを公開時の必須境界とし、DBのglobal admissionがGPU queueの
-最終防衛線になります。
-
-Workerはterminal eventをRedisへ書いた後にだけjobをacknowledgeします。未acknowledge jobは
-Redis consumer groupからreclaimできます。attempt lockはevent配信ごとに所有者確認付きで更新し、
-lock失効後かつrunning lease失効前に別workerがjobを回収します。eventとattempt配信位置は単一の
-Redis scriptで原子的に記録し、再取得時は記録済みsequenceの次から配送を再開します。sampling seedとchunk境界はjobに対して決定的な
-ため、同一artifact・同一pinned runtime・同一device classでの再実行では異なる文章が継ぎ足されません。
-現在のworker poolへ異種GPUを混在させることはサポートしません。PostgreSQLが正本であり、Redisは
-配送路です。
-
-Backendとworkerはlock 60秒、claim idle 90秒、job timeout下限120秒という時間的不変条件を共有
-contractから参照します。`XAUTOCLAIM`は返却cursorを保持してPEL全体を巡回し、先頭付近のpending
-entryだけに回収が偏らないようにします。
-
-Redisは配送路であって会話archiveではありません。project済みeventと完了jobは`XACK`と`XDEL`を
-同じRedis scriptで処理し、公開済みoutboxからもpayloadを消去します。応答と会話履歴の正本は
-PostgreSQLだけに残します。
-
-queued runにはjob deadline、running runには更新式leaseがあります。API側reconcilerが期限切れrunを
-failedへ収束させるため、Redis停止やworker消失で会話が永久に送信不能になることはありません。
-起動時とDB/Redis障害からの復旧時だけ、reconcilerは未検査eventがなくなるまでprojectorを先行させます。
-定常時はglobal trafficから独立して動き、row lockと追加graceで正常eventとの競合を避けます。既知の
-DEFERは復旧完了を妨げないため、解消不能なgapもlease timeout後にfailedへ収束し、共有stream全体を
-止めません。公開eventの再配信も最後にcommitしたevent IDとtypeの完全一致を必要とします。
-
-## ストリーミング
-
-HinaのByteLevel tokenizerは、単独tokenをdecodeすると日本語の途中byteが置換文字になることが
-あります。Workerは生成済みtoken ID列全体を毎回decodeし、安定した接頭辞の差分だけを配信します。
-短い差分は4文字まで束ね、Redis AOFとDB更新を過剰に増やさず視覚的なstreamingを
-維持します。
-
-モデル内部の話者は`<|partner|>`と`<|self|>`です。512 tokenのうち標準で128 tokenを出力用に
-予約し、履歴は古いturnからturn境界単位で除外します。最新partner発言が長い場合だけ本文を左から
-token単位で切り詰め、prompt envelopeは必ず残します。
+モデル入力の役割は`<|partner|>`と`<|self|>`です。これは公開APIのActor表現をtokenizerへ落とす
+adapter境界であり、APIの`assistant/user`関係ではありません。512 tokenのうち標準で128 tokenを
+出力へ予約し、古いEntryから境界単位で除外します。
 
 ## Asuka 1
 
-Building-SLMの`v2`はAsukaの基盤モデルとして学習中です。可変な学習checkpointをSodAIが直接参照
-することはありません。SFTと評価を終えた成果物を同じimport、hash、deployment工程へ通した後に、
-`rope_gpt` architectureと`asuka_1` adapterを追加します。
+現在のAsuka 1は、製品のストリーミング経路を検証する決定的な疑似runtimeです。immutableな
+runtime revisionは`pseudo-v1`、resolved modelは`asuka-1@pseudo-v1`です。FastAPI内で直接本文を
+DBへ書かず、専用workerとしてHinaと同じGenerationJobを消費し、同じGenerationEventを返します。
+eventとattempt progressも同じく一つのRedis scriptで保存するため、再claim時は記録済みsequenceの
+次から再開します。このためUI、再読込、失敗収束、Entry確定の挙動がruntimeごとに分岐しません。
+
+Building-SLMの`v2`はAsukaの基盤モデルとして学習中です。SFTと評価を終えた成果物をHinaと同じ
+import、hash、deployment工程へ通した後、疑似runtimeを実モデルadapterへ交換します。公開ID、
+Actor、ResponseRequest、Execution、Frontend契約はその交換で変わりません。

@@ -23,7 +23,7 @@ make deploy-hina ARTIFACT_ID=<importで表示されたartifact-id>
 
 importとdeployment promotionは意図的に分離しています。更新時は新artifactをimportし、
 `make dev-inference HINA_ARTIFACT_ID=<artifact-id>`で専用workerのreadinessを確認してから
-`make deploy-hina`で新規runの向き先を切り替えます。job streamもartifact別なので、旧workerは
-旧artifactに固定されたrunを最後まで処理できます。promotion時にはコマンド自身が対象artifactの
+`make deploy-hina`で新規Executionの向き先を切り替えます。job streamもartifact別なので、旧workerは
+旧artifactに固定されたExecutionを最後まで処理できます。promotion時にはコマンド自身が対象artifactの
 worker readinessをRedisで検証します。初回導入も同じ順序です。promotion後はpinned workerをそのまま
 利用でき、次回起動から`HINA_ARTIFACT_ID`を省略できます。
