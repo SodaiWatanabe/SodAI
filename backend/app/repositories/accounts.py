@@ -20,6 +20,12 @@ class AccountRepository(Protocol):
 
     async def synchronize_identity(self, identity: ExternalIdentity) -> Account: ...
 
+    async def set_display_name(
+        self,
+        identity: ExternalIdentity,
+        display_name: str,
+    ) -> Account: ...
+
 
 class SqlAlchemyAccountRepository:
     def __init__(self, session: AsyncSession) -> None:
@@ -71,6 +77,20 @@ class SqlAlchemyAccountRepository:
         identity_model.last_seen_at = datetime.now(timezone.utc)
         if user.display_name is None and identity.display_name is not None:
             user.display_name = identity.display_name
+        await self._session.flush()
+        return self._to_account(user, identity_model)
+
+    async def set_display_name(
+        self,
+        identity: ExternalIdentity,
+        display_name: str,
+    ) -> Account:
+        row = await self._find_row(identity)
+        if row is None:
+            raise LookupError("identity is not linked to a SodAI account")
+
+        user, identity_model = row
+        user.display_name = display_name
         await self._session.flush()
         return self._to_account(user, identity_model)
 

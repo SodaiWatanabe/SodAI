@@ -6,7 +6,7 @@ import pytest
 
 from app.domain.accounts import Account, AccountStatus, ExternalIdentity
 from app.repositories.accounts import IdentityAlreadyLinkedError
-from app.services.account import AccountResolutionError, AccountService
+from app.services.account import AccountResolutionError, AccountService, InactiveAccountError
 
 NOW = datetime(2026, 7, 12, 9, 0, tzinfo=timezone.utc)
 IDENTITY = ExternalIdentity(
@@ -33,6 +33,7 @@ class FakeAccountRepository:
         self.race = race
         self.created = 0
         self.synchronized = 0
+        self.updated_display_name: str | None = None
         self._find_count = 0
 
     async def find_by_identity(self, identity: ExternalIdentity) -> Account | None:
@@ -53,6 +54,23 @@ class FakeAccountRepository:
         assert identity == IDENTITY
         self.synchronized += 1
         return ACCOUNT
+
+    async def set_display_name(
+        self,
+        identity: ExternalIdentity,
+        display_name: str,
+    ) -> Account:
+        assert identity == IDENTITY
+        self.updated_display_name = display_name
+        return Account(
+            id=ACCOUNT.id,
+            status=ACCOUNT.status,
+            display_name=display_name,
+            email=ACCOUNT.email,
+            email_verified=ACCOUNT.email_verified,
+            created_at=ACCOUNT.created_at,
+            updated_at=ACCOUNT.updated_at,
+        )
 
 
 class FakeUnitOfWork:
@@ -135,6 +153,56 @@ async def test_unexplained_identity_constraint_failure_is_not_silenced() -> None
     assert not unit_of_work.committed
 
 
+@pytest.mark.anyio
+async def test_display_name_is_normalized_and_persisted() -> None:
+    repository = FakeAccountRepository(existing=ACCOUNT)
+    unit_of_work = FakeUnitOfWork(repository)
+    service = AccountService(lambda: unit_of_work)
+
+    account = await service.set_display_name(IDENTITY, "  雛  ")
+
+    assert account.display_name == "雛"
+    assert repository.updated_display_name == "雛"
+    assert repository.synchronized == 1
+    assert unit_of_work.committed
+
+
+@pytest.mark.anyio
+async def test_inactive_account_cannot_update_profile() -> None:
+    inactive_account = Account(
+        id=ACCOUNT.id,
+        status=AccountStatus.SUSPENDED,
+        display_name=None,
+        email=ACCOUNT.email,
+        email_verified=ACCOUNT.email_verified,
+        created_at=ACCOUNT.created_at,
+        updated_at=ACCOUNT.updated_at,
+    )
+    repository = FakeAccountRepository(existing=inactive_account)
+    repository.synchronize_identity = _synchronize_inactive  # type: ignore[method-assign]
+    unit_of_work = FakeUnitOfWork(repository)
+    service = AccountService(lambda: unit_of_work)
+
+    with pytest.raises(InactiveAccountError):
+        await service.set_display_name(IDENTITY, "雛")
+
+    assert repository.updated_display_name is None
+    assert not unit_of_work.committed
+
+
 async def _always_missing(identity: ExternalIdentity) -> None:
     assert identity == IDENTITY
     return None
+
+
+async def _synchronize_inactive(identity: ExternalIdentity) -> Account:
+    assert identity == IDENTITY
+    return Account(
+        id=ACCOUNT.id,
+        status=AccountStatus.SUSPENDED,
+        display_name=None,
+        email=ACCOUNT.email,
+        email_verified=ACCOUNT.email_verified,
+        created_at=ACCOUNT.created_at,
+        updated_at=ACCOUNT.updated_at,
+    )

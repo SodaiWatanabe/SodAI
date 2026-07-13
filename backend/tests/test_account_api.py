@@ -8,7 +8,7 @@ from app.auth.dependencies import get_token_verifier
 from app.auth.verifier import TokenVerificationError
 from app.domain.accounts import Account, AccountStatus, ExternalIdentity
 from app.main import app
-from app.services.account import get_account_service
+from app.services.account import InactiveAccountError, get_account_service
 
 ACCOUNT_ID = UUID("018f96d4-7c48-7c27-a71f-591e3cb8748a")
 NOW = datetime(2026, 7, 12, 9, 0, tzinfo=timezone.utc)
@@ -45,6 +45,31 @@ class StubAccountService:
             created_at=NOW,
             updated_at=NOW,
         )
+
+    async def set_display_name(
+        self,
+        identity: ExternalIdentity,
+        display_name: str,
+    ) -> Account:
+        self.received_identity = identity
+        return Account(
+            id=ACCOUNT_ID,
+            status=AccountStatus.ACTIVE,
+            display_name=display_name,
+            email=identity.email,
+            email_verified=identity.email_verified,
+            created_at=NOW,
+            updated_at=NOW,
+        )
+
+
+class InactiveAccountService(StubAccountService):
+    async def set_display_name(
+        self,
+        identity: ExternalIdentity,
+        display_name: str,
+    ) -> Account:
+        raise InactiveAccountError
 
 
 @pytest.fixture
@@ -118,3 +143,61 @@ async def test_account_me_rejects_invalid_token_without_leaking_reason() -> None
 
     assert response.status_code == 401
     assert response.json() == {"detail": "Authentication required"}
+
+
+@pytest.mark.anyio
+async def test_account_profile_can_be_completed() -> None:
+    service = StubAccountService()
+    app.dependency_overrides[get_token_verifier] = lambda: StubVerifier()
+    app.dependency_overrides[get_account_service] = lambda: service
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+    ) as client:
+        response = await client.patch(
+            "/api/v1/account/me",
+            headers={"Authorization": "Bearer valid-token"},
+            json={"display_name": "雛"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["display_name"] == "雛"
+    assert service.received_identity is not None
+
+
+@pytest.mark.anyio
+async def test_account_profile_rejects_blank_display_name() -> None:
+    app.dependency_overrides[get_token_verifier] = lambda: StubVerifier()
+    app.dependency_overrides[get_account_service] = lambda: StubAccountService()
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+    ) as client:
+        response = await client.patch(
+            "/api/v1/account/me",
+            headers={"Authorization": "Bearer valid-token"},
+            json={"display_name": "   "},
+        )
+
+    assert response.status_code == 422
+
+
+@pytest.mark.anyio
+async def test_inactive_account_cannot_update_profile() -> None:
+    app.dependency_overrides[get_token_verifier] = lambda: StubVerifier()
+    app.dependency_overrides[get_account_service] = lambda: InactiveAccountService()
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+    ) as client:
+        response = await client.patch(
+            "/api/v1/account/me",
+            headers={"Authorization": "Bearer valid-token"},
+            json={"display_name": "雛"},
+        )
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Account is not active"}
