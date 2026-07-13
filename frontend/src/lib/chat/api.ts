@@ -1,6 +1,7 @@
 "use client";
 
 import type { ApiAccessTokenSource } from "@/lib/auth/api-client";
+import { API_BASE_URL } from "@/lib/api/base-url";
 import type {
   AvailableModel,
   Conversation,
@@ -8,10 +9,6 @@ import type {
   ConversationSummary,
   InferenceRun,
 } from "@/lib/chat/types";
-
-const API_BASE_URL = (
-  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000"
-).replace(/\/$/, "");
 
 export class ChatApiError extends Error {
   constructor(

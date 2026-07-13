@@ -98,13 +98,13 @@ export function ModelSelector({
               <div className="mt-5 flex gap-2">
                 <PopoverClose
                   className="h-9 rounded-full bg-[var(--primary)] px-4 text-xs font-medium text-[var(--on-primary)] transition-colors hover:bg-[var(--primary-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)]"
-                  onClick={() => openAuth("login")}
+                  onClick={openAuth}
                 >
                   ログイン
                 </PopoverClose>
                 <PopoverClose
                   className="h-9 rounded-full border border-[var(--border)] bg-[var(--button-background)] px-4 text-xs font-medium text-[var(--text)] transition-colors hover:bg-[var(--button-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)]"
-                  onClick={() => openAuth("register")}
+                  onClick={openAuth}
                 >
                   アカウントを作成
                 </PopoverClose>

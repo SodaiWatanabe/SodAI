@@ -36,62 +36,42 @@ function escapeHtml(value: string): string {
   });
 }
 
-function linkEmail(params: {
-  actionLabel: string;
-  body: string;
+function codeEmail(params: {
+  code: string;
   subject: string;
   to: string;
-  url: string;
 }): AuthEmail {
-  const safeUrl = escapeHtml(params.url);
+  const safeCode = escapeHtml(params.code);
 
   return {
     to: params.to,
     subject: params.subject,
-    text: `${params.body}\n\n${params.actionLabel}: ${params.url}\n\nこの操作に心当たりがない場合は、このメールを破棄してください。`,
+    text: `SodAIへのログインコードは ${params.code} です。5分以内に入力してください。\n\nこの操作に心当たりがない場合は、お手数をおかけしますがこのメールを破棄してください`,
     html: `
       <div style="font-family: system-ui, sans-serif; color: #0f172a; line-height: 1.7;">
         <h1 style="font-size: 22px; margin: 0 0 20px;">SodAI</h1>
-        <p>${escapeHtml(params.body)}</p>
-        <p style="margin: 28px 0;">
-          <a href="${safeUrl}" style="background: #0f172a; border-radius: 10px; color: #fff; display: inline-block; padding: 12px 18px; text-decoration: none;">
-            ${escapeHtml(params.actionLabel)}
-          </a>
+        <p>SodAIへのログインコードです。</p>
+        <p style="font-size: 30px; font-weight: 650; letter-spacing: 0.24em; margin: 24px 0;">
+          ${safeCode}
         </p>
-        <p style="color: #64748b; font-size: 13px;">この操作に心当たりがない場合は、このメールを破棄してください。</p>
+        <p style="color: #64748b; font-size: 13px;">このコードは5分間有効です。</p>
+        <p style="color: #64748b; font-size: 13px;">この操作に心当たりがない場合は、お手数をおかけしますがこのメールを破棄してください</p>
       </div>
     `,
   };
 }
 
-function sendInBackground(message: AuthEmail): void {
-  void getDelivery()
-    .send(message)
-    .catch((error: unknown) => {
-      console.error("Failed to deliver an authentication email.", error);
-    });
-}
+export async function sendSignInOtpEmail(to: string, otp: string): Promise<void> {
+  const message = codeEmail({
+    code: otp,
+    subject: "SodAIへのログインコード",
+    to,
+  });
 
-export function sendVerificationEmail(to: string, url: string): void {
-  sendInBackground(
-    linkEmail({
-      actionLabel: "メールアドレスを確認する",
-      body: "SodAIへの登録を完了するため、メールアドレスを確認してください。",
-      subject: "SodAIのメールアドレス確認",
-      to,
-      url,
-    }),
-  );
-}
-
-export function sendPasswordResetEmail(to: string, url: string): void {
-  sendInBackground(
-    linkEmail({
-      actionLabel: "パスワードを再設定する",
-      body: "SodAIアカウントのパスワード再設定がリクエストされました。",
-      subject: "SodAIのパスワード再設定",
-      to,
-      url,
-    }),
-  );
+  try {
+    await getDelivery().send(message);
+  } catch (error) {
+    console.error("Failed to deliver an authentication email.", error);
+    throw error;
+  }
 }

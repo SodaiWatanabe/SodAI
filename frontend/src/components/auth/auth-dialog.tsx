@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, Check, X } from "lucide-react";
+import { ArrowLeft, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import {
   type FormEvent,
@@ -10,11 +10,17 @@ import {
   useState,
 } from "react";
 
+import {
+  getAccountDestination,
+  getInitialAuthStep,
+  type AuthStep,
+} from "@/components/auth/auth-flow";
+import { IOSSpinner } from "@/components/ui/ios-spinner";
+import {
+  getCurrentAccount,
+  setCurrentAccountDisplayName,
+} from "@/lib/account/api";
 import { authClient } from "@/lib/auth/client";
-
-export type AuthMode = "login" | "register";
-
-type AuthStep = "email" | "credentials" | "complete";
 
 type AuthError = {
   code?: string;
@@ -22,26 +28,25 @@ type AuthError = {
 };
 
 type AuthDialogProps = {
+  accountUnavailable?: boolean;
   googleEnabled: boolean;
   initialError?: string;
-  mode: AuthMode;
   onClose: () => void;
+  resumeProfile?: boolean;
 };
 
+const OTP_LENGTH = 6;
+const RESEND_DELAY_SECONDS = 30;
+
 const errorMessages: Record<string, string> = {
-  EMAIL_NOT_VERIFIED: "確認メールをご確認ください。",
-  INVALID_EMAIL_OR_PASSWORD: "メールアドレスまたはパスワードが正しくありません。",
-  INVALID_PASSWORD: "メールアドレスまたはパスワードが正しくありません。",
+  INVALID_OTP: "コードが正しくありません。もう一度お試しください。",
+  OTP_EXPIRED: "コードの有効期限が切れました。新しいコードをお試しください。",
+  TOO_MANY_ATTEMPTS: "入力回数の上限に達しました。新しいコードをお試しください。",
   TOO_MANY_REQUESTS: "少し時間をおいて、もう一度お試しください。",
-  USER_ALREADY_EXISTS:
-    "登録を受け付けました。利用可能な場合は確認メールが届きます。",
 };
 
 function getErrorMessage(error: AuthError | null | undefined, fallback: string) {
-  if (error?.status === 429) {
-    return errorMessages.TOO_MANY_REQUESTS;
-  }
-
+  if (error?.status === 429) return errorMessages.TOO_MANY_REQUESTS;
   return (error?.code && errorMessages[error.code]) || fallback;
 }
 
@@ -69,77 +74,137 @@ function GoogleMark() {
 }
 
 export function AuthDialog({
+  accountUnavailable = false,
   googleEnabled,
   initialError,
-  mode,
   onClose,
+  resumeProfile = false,
 }: AuthDialogProps) {
   const router = useRouter();
-  const completeButtonRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const emailInputRef = useRef<HTMLInputElement>(null);
-  const passwordInputRef = useRef<HTMLInputElement>(null);
+  const mountedRef = useRef(true);
+  const otpInputRef = useRef<HTMLInputElement>(null);
+  const profileInputRef = useRef<HTMLInputElement>(null);
   const titleId = useId();
-  const [step, setStep] = useState<AuthStep>("email");
+  const descriptionId = useId();
+  const errorId = useId();
+  const [step, setStep] = useState<AuthStep>(() =>
+    getInitialAuthStep({ accountUnavailable, resumeProfile }),
+  );
   const [email, setEmail] = useState("");
+  const [otp, setOtp] = useState("");
   const [pending, setPending] = useState(false);
+  const [sessionEstablished, setSessionEstablished] = useState(
+    accountUnavailable || resumeProfile,
+  );
+  const [resendSeconds, setResendSeconds] = useState(0);
   const [errorMessage, setErrorMessage] = useState<string | undefined>(
     initialError,
   );
 
   useEffect(() => {
+    mountedRef.current = true;
     const dialog = dialogRef.current;
-    if (!dialog) {
-      return;
-    }
+    if (!dialog) return;
 
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    if (!dialog.open) {
-      dialog.showModal();
-    }
+    if (!dialog.open) dialog.showModal();
 
     return () => {
+      mountedRef.current = false;
       document.body.style.overflow = previousOverflow;
     };
   }, []);
 
   useEffect(() => {
-    if (step === "email") {
-      emailInputRef.current?.focus();
-    } else if (step === "credentials") {
-      passwordInputRef.current?.focus();
-    } else {
-      completeButtonRef.current?.focus();
-    }
+    if (step === "email") emailInputRef.current?.focus();
+    if (step === "otp") otpInputRef.current?.focus();
+    if (step === "profile") profileInputRef.current?.focus();
   }, [step]);
 
+  useEffect(() => {
+    if (step !== "otp" || resendSeconds <= 0) return;
+    const timer = window.setInterval(() => {
+      setResendSeconds((seconds) => Math.max(0, seconds - 1));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [resendSeconds, step]);
+
+  function finishAuthentication() {
+    dialogRef.current?.close();
+    router.refresh();
+  }
+
   function closeDialog() {
-    if (!pending) {
+    if (pending) return;
+    if (!sessionEstablished) {
       dialogRef.current?.close();
-    }
-  }
-
-  function continueWithEmail(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setErrorMessage(undefined);
-    setStep("credentials");
-  }
-
-  async function continueWithGoogle() {
-    if (!googleEnabled) {
       return;
     }
 
+    void discardIncompleteSession();
+  }
+
+  async function discardIncompleteSession() {
+    setPending(true);
+    setErrorMessage(undefined);
+    try {
+      const { error } = await authClient.signOut();
+      if (!mountedRef.current) return;
+      if (error) throw error;
+      dialogRef.current?.close();
+      router.refresh();
+    } catch {
+      if (!mountedRef.current) return;
+      setErrorMessage("ログアウトできませんでした。もう一度お試しください。");
+      setPending(false);
+    }
+  }
+
+  async function sendOtp() {
     setPending(true);
     setErrorMessage(undefined);
 
+    const normalizedEmail = email.trim().toLowerCase();
+    const { error } = await authClient.emailOtp.sendVerificationOtp({
+      email: normalizedEmail,
+      type: "sign-in",
+    });
+
+    if (!mountedRef.current) return;
+    setPending(false);
+    if (error) {
+      setErrorMessage(
+        getErrorMessage(error, "ログインコードを送信できませんでした。"),
+      );
+      return;
+    }
+
+    setEmail(normalizedEmail);
+    setOtp("");
+    setResendSeconds(RESEND_DELAY_SECONDS);
+    setStep("otp");
+  }
+
+  async function submitEmail(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await sendOtp();
+  }
+
+  async function continueWithGoogle() {
+    if (!googleEnabled) return;
+
+    setPending(true);
+    setErrorMessage(undefined);
     const { error } = await authClient.signIn.social({
       provider: "google",
       callbackURL: "/",
       errorCallbackURL: "/?authError=google",
     });
 
+    if (!mountedRef.current) return;
     if (error) {
       setErrorMessage(
         getErrorMessage(error, "Googleで続行できませんでした。"),
@@ -148,66 +213,92 @@ export function AuthDialog({
     }
   }
 
-  async function submitCredentials(event: FormEvent<HTMLFormElement>) {
+  async function resolveAccount() {
+    setStep("resolving");
+    setPending(true);
+    setErrorMessage(undefined);
+
+    try {
+      const account = await getCurrentAccount();
+      if (!mountedRef.current) return;
+      const destination = getAccountDestination(account);
+      if (destination === "blocked") {
+        setStep("blocked");
+        return;
+      }
+      if (destination === "authenticated") {
+        finishAuthentication();
+        return;
+      }
+      setStep("profile");
+    } catch {
+      if (!mountedRef.current) return;
+      setErrorMessage("アカウントを準備できませんでした。もう一度お試しください。");
+    } finally {
+      if (mountedRef.current) setPending(false);
+    }
+  }
+
+  async function submitOtp(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setPending(true);
     setErrorMessage(undefined);
 
-    const formData = new FormData(event.currentTarget);
-    const password = String(formData.get("password"));
-
-    if (mode === "login") {
-      const { error } = await authClient.signIn.email({
-        email,
-        password,
-        callbackURL: "/",
-      });
-
-      if (error) {
-        setErrorMessage(
-          getErrorMessage(error, "ログインできませんでした。"),
-        );
-        setPending(false);
-        return;
-      }
-
-      dialogRef.current?.close();
-      router.refresh();
-      return;
-    }
-
-    const { error } = await authClient.signUp.email({
-      name: String(formData.get("name")),
-      email,
-      password,
-      callbackURL: "/",
-    });
-
+    const { error } = await authClient.signIn.emailOtp({ email, otp });
+    if (!mountedRef.current) return;
     if (error) {
       setErrorMessage(
-        getErrorMessage(error, "アカウントを作成できませんでした。"),
+        getErrorMessage(error, "ログインコードを確認できませんでした。"),
       );
       setPending(false);
       return;
     }
 
-    setPending(false);
-    setStep("complete");
+    setSessionEstablished(true);
+    await resolveAccount();
   }
+
+  async function submitProfile(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setPending(true);
+    setErrorMessage(undefined);
+
+    const formData = new FormData(event.currentTarget);
+    const displayName = String(formData.get("displayName")).trim();
+    try {
+      await setCurrentAccountDisplayName(displayName);
+      if (!mountedRef.current) return;
+      finishAuthentication();
+    } catch {
+      if (!mountedRef.current) return;
+      setErrorMessage("表示名を保存できませんでした。もう一度お試しください。");
+      setPending(false);
+    }
+  }
+
+  const description =
+    step === "blocked"
+      ? "このアカウントは現在利用できません。"
+      : step === "email"
+      ? "ログインして、チャットを保存したり、高度なモデルにアクセスしたりしましょう。"
+      : step === "otp"
+        ? `${email} に送信したコードを入力してください。`
+        : step === "profile"
+          ? "最後に、SodAIで使う名前を設定してください。"
+          : "SodAIアカウントを準備しています。";
 
   return (
     <dialog
       ref={dialogRef}
       aria-labelledby={titleId}
+      aria-describedby={descriptionId}
       className="auth-dialog m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-[420px] overflow-y-auto overscroll-contain rounded-[28px] border border-[var(--divider)] bg-[var(--surface)] p-0 text-[var(--text)] shadow-[0_28px_80px_var(--dialog-shadow)]"
       onCancel={(event) => {
         event.preventDefault();
         closeDialog();
       }}
       onClick={(event) => {
-        if (event.target === dialogRef.current) {
-          closeDialog();
-        }
+        if (event.target === dialogRef.current) closeDialog();
       }}
       onClose={onClose}
     >
@@ -222,188 +313,204 @@ export function AuthDialog({
           <X className="size-[18px]" />
         </button>
 
-        {step === "complete" ? (
-          <div role="status" className="pb-1 pt-5 text-center">
-            <div className="mx-auto mb-5 grid size-12 place-items-center rounded-full bg-[var(--primary)] text-[var(--on-primary)]">
-              <Check className="size-6" />
-            </div>
-            <h2 id={titleId} className="text-[22px] font-semibold tracking-[-0.03em]">
-              メールを確認してください
-            </h2>
-            <p className="mx-auto mt-3 max-w-[310px] text-sm leading-6 text-[var(--muted)]">
-              <span className="font-medium text-[var(--text)]">{email}</span>
-              に確認リンクを送りました。
-            </p>
+        {step === "otp" ? (
+          <button
+            type="button"
+            aria-label="メールアドレス入力へ戻る"
+            className="absolute left-4 top-4 grid size-9 place-items-center rounded-full text-[var(--muted)] transition-colors hover:bg-[var(--hover)] hover:text-[var(--text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)] disabled:opacity-40"
+            disabled={pending}
+            onClick={() => {
+              setErrorMessage(undefined);
+              setStep("email");
+            }}
+          >
+            <ArrowLeft className="size-5" />
+          </button>
+        ) : null}
+
+        <header className="px-8 pt-5 text-center">
+          <h2
+            id={titleId}
+            className="text-2xl font-semibold tracking-[-0.035em]"
+          >
+            ログインまたは新規登録
+          </h2>
+          <p
+            id={descriptionId}
+            className="mt-2 text-sm leading-5 text-[var(--muted)]"
+          >
+            {description}
+          </p>
+        </header>
+
+        {errorMessage ? (
+          <p
+            id={errorId}
+            role="alert"
+            className="mt-5 rounded-2xl bg-[var(--danger-background)] px-4 py-2.5 text-center text-xs leading-5 text-[var(--danger-text)]"
+          >
+            {errorMessage}
+          </p>
+        ) : null}
+
+        {step === "email" ? (
+          <div className="mt-7">
             <button
-              ref={completeButtonRef}
               type="button"
-              className="mt-7 h-12 w-full rounded-full bg-[var(--primary)] text-sm font-medium text-[var(--on-primary)] transition hover:bg-[var(--primary-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--surface)]"
-              onClick={closeDialog}
+              aria-describedby={
+                googleEnabled ? undefined : `${titleId}-google-disabled`
+              }
+              className="flex h-12 w-full items-center justify-center gap-2.5 rounded-full border border-[var(--border)] bg-[var(--surface)] text-sm font-medium transition hover:bg-[var(--hover-soft)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)] disabled:cursor-not-allowed disabled:opacity-40"
+              disabled={!googleEnabled || pending}
+              onClick={continueWithGoogle}
+              title={
+                googleEnabled ? undefined : "Google OAuthの設定後に利用できます"
+              }
             >
-              閉じる
+              <GoogleMark />
+              Googleで続行
             </button>
+            {!googleEnabled ? (
+              <span id={`${titleId}-google-disabled`} className="sr-only">
+                Google OAuthの設定後に利用できます
+              </span>
+            ) : null}
+
+            <div className="my-5 flex items-center gap-3" aria-hidden="true">
+              <span className="h-px flex-1 bg-[var(--divider)]" />
+              <span className="text-xs text-[var(--muted)]">または</span>
+              <span className="h-px flex-1 bg-[var(--divider)]" />
+            </div>
+
+            <form onSubmit={submitEmail}>
+              <label htmlFor={`${titleId}-email`} className="sr-only">
+                メールアドレス
+              </label>
+              <input
+                ref={emailInputRef}
+                id={`${titleId}-email`}
+                type="email"
+                autoComplete="email"
+                inputMode="email"
+                required
+                aria-invalid={Boolean(errorMessage)}
+                aria-errormessage={errorMessage ? errorId : undefined}
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                placeholder="メールアドレス"
+                className="h-12 w-full rounded-full border border-[var(--border)] bg-transparent px-4 text-sm outline-none placeholder:text-[var(--muted)]"
+              />
+              <button
+                type="submit"
+                disabled={pending}
+                className="mt-3 h-12 w-full rounded-full bg-[var(--primary)] text-sm font-medium text-[var(--on-primary)] transition hover:bg-[var(--primary-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--surface)] disabled:cursor-wait disabled:opacity-50"
+              >
+                {pending ? "送信中…" : "続行"}
+              </button>
+            </form>
           </div>
-        ) : (
-          <>
-            {step === "credentials" ? (
+        ) : null}
+
+        {step === "otp" ? (
+          <form className="mt-7" onSubmit={submitOtp}>
+            <label htmlFor={`${titleId}-otp`} className="sr-only">
+              ログインコード
+            </label>
+            <input
+              ref={otpInputRef}
+              id={`${titleId}-otp`}
+              type="text"
+              autoComplete="one-time-code"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              minLength={OTP_LENGTH}
+              maxLength={OTP_LENGTH}
+              required
+              aria-invalid={Boolean(errorMessage)}
+              aria-errormessage={errorMessage ? errorId : undefined}
+              value={otp}
+              onChange={(event) => {
+                setOtp(event.target.value.replace(/\D/g, "").slice(0, OTP_LENGTH));
+              }}
+              placeholder="6桁のコード"
+              className="h-12 w-full rounded-full border border-[var(--border)] bg-transparent px-4 text-center text-lg tracking-[0.18em] outline-none placeholder:text-sm placeholder:tracking-normal placeholder:text-[var(--muted)]"
+            />
+            <button
+              type="submit"
+              disabled={pending || otp.length !== OTP_LENGTH}
+              className="mt-3 h-12 w-full rounded-full bg-[var(--primary)] text-sm font-medium text-[var(--on-primary)] transition hover:bg-[var(--primary-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--surface)] disabled:cursor-wait disabled:opacity-50"
+            >
+              {pending ? "確認中…" : "ログイン"}
+            </button>
+            <button
+              type="button"
+              disabled={pending || resendSeconds > 0}
+              className="mt-3 h-9 w-full text-xs font-medium text-[var(--muted)] transition-colors hover:text-[var(--text)] disabled:cursor-default disabled:opacity-60"
+              onClick={sendOtp}
+            >
+              {resendSeconds > 0
+                ? `${resendSeconds}秒後に再送信`
+                : "コードを再送信"}
+            </button>
+          </form>
+        ) : null}
+
+        {step === "resolving" ? (
+          <div className="mt-8 flex min-h-28 flex-col items-center justify-center gap-5">
+            {pending ? <IOSSpinner label="アカウントを準備中" /> : null}
+            {!pending ? (
               <button
                 type="button"
-                aria-label="メールアドレス入力へ戻る"
-                className="absolute left-4 top-4 grid size-9 place-items-center rounded-full text-[var(--muted)] transition-colors hover:bg-[var(--hover)] hover:text-[var(--text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)] disabled:opacity-40"
-                disabled={pending}
-                onClick={() => {
-                  setErrorMessage(undefined);
-                  setStep("email");
-                }}
+                className="h-12 w-full rounded-full bg-[var(--primary)] text-sm font-medium text-[var(--on-primary)] transition hover:bg-[var(--primary-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)]"
+                onClick={resolveAccount}
               >
-                <ArrowLeft className="size-5" />
+                再試行
               </button>
             ) : null}
+          </div>
+        ) : null}
 
-            <header className="px-8 pt-5 text-center">
-              <h2
-                id={titleId}
-                className="text-[24px] font-semibold tracking-[-0.035em]"
-              >
-                {step === "email"
-                  ? mode === "login"
-                    ? "SodAIにログイン"
-                    : "アカウントを作成"
-                  : mode === "login"
-                    ? "パスワードを入力"
-                    : "プロフィールを設定"}
-              </h2>
-              <p className="mt-2 text-sm leading-5 text-[var(--muted)]">
-                {step === "email"
-                  ? "ログインしてチャットを保存したり、より高度なモデルを利用しましょう。"
-                  : email}
-              </p>
-            </header>
+        {step === "blocked" ? (
+          <div className="mt-7">
+            <button
+              type="button"
+              disabled={pending}
+              className="h-12 w-full rounded-full bg-[var(--primary)] text-sm font-medium text-[var(--on-primary)] transition hover:bg-[var(--primary-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)] disabled:cursor-wait disabled:opacity-50"
+              onClick={discardIncompleteSession}
+            >
+              {pending ? "ログアウト中…" : "ログアウト"}
+            </button>
+          </div>
+        ) : null}
 
-            {errorMessage ? (
-              <p
-                role="alert"
-                className="mt-5 rounded-full bg-[var(--danger-background)] px-4 py-2.5 text-center text-xs leading-5 text-[var(--danger-text)]"
-              >
-                {errorMessage}
-              </p>
-            ) : null}
-
-            {step === "email" ? (
-              <div className="mt-7">
-                <button
-                  type="button"
-                  aria-describedby={
-                    googleEnabled ? undefined : `${titleId}-google-disabled`
-                  }
-                  className="flex h-12 w-full items-center justify-center gap-2.5 rounded-full border border-[var(--border)] bg-[var(--surface)] text-sm font-medium transition hover:bg-[var(--hover-soft)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)] disabled:cursor-not-allowed disabled:opacity-40"
-                  disabled={!googleEnabled || pending}
-                  onClick={continueWithGoogle}
-                  title={
-                    googleEnabled
-                      ? undefined
-                      : "Google OAuthの設定後に利用できます"
-                  }
-                >
-                  <GoogleMark />
-                  {pending ? "Googleへ接続中…" : "Googleで続行"}
-                </button>
-                {!googleEnabled ? (
-                  <span id={`${titleId}-google-disabled`} className="sr-only">
-                    Google OAuthの設定後に利用できます
-                  </span>
-                ) : null}
-
-                <div className="my-5 flex items-center gap-3" aria-hidden="true">
-                  <span className="h-px flex-1 bg-[var(--divider)]" />
-                  <span className="text-xs text-[var(--muted)]">または</span>
-                  <span className="h-px flex-1 bg-[var(--divider)]" />
-                </div>
-
-                <form onSubmit={continueWithEmail}>
-                  <label htmlFor={`${titleId}-email`} className="sr-only">
-                    メールアドレス
-                  </label>
-                  <input
-                    ref={emailInputRef}
-                    id={`${titleId}-email`}
-                    type="email"
-                    autoComplete="email"
-                    inputMode="email"
-                    required
-                    value={email}
-                    onChange={(event) => setEmail(event.target.value)}
-                    placeholder="メールアドレス"
-                    className="h-12 w-full rounded-full border border-[var(--border)] bg-transparent px-4 text-[15px] outline-none placeholder:text-[var(--muted)]"
-                  />
-                  <button
-                    type="submit"
-                    className="mt-3 h-12 w-full rounded-full bg-[var(--primary)] text-sm font-medium text-[var(--on-primary)] transition hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--surface)]"
-                  >
-                    続行
-                  </button>
-                </form>
-              </div>
-            ) : (
-              <form className="mt-7" onSubmit={submitCredentials}>
-                {mode === "register" ? (
-                  <div className="mb-3">
-                    <label htmlFor={`${titleId}-name`} className="sr-only">
-                      表示名
-                    </label>
-                    <input
-                      id={`${titleId}-name`}
-                      name="name"
-                      type="text"
-                      autoComplete="name"
-                      required
-                      minLength={1}
-                      maxLength={80}
-                      disabled={pending}
-                      placeholder="表示名"
-                      className="h-12 w-full rounded-full border border-[var(--border)] bg-[var(--field)] px-4 text-[15px] outline-none placeholder:text-[var(--muted)] disabled:opacity-50"
-                    />
-                  </div>
-                ) : null}
-
-                <label htmlFor={`${titleId}-password`} className="sr-only">
-                  パスワード
-                </label>
-                <input
-                  ref={passwordInputRef}
-                  id={`${titleId}-password`}
-                  name="password"
-                  type="password"
-                  autoComplete={
-                    mode === "login" ? "current-password" : "new-password"
-                  }
-                  required
-                  minLength={12}
-                  maxLength={128}
-                  disabled={pending}
-                  placeholder="パスワード"
-                  className="h-12 w-full rounded-full border border-[var(--border)] bg-[var(--field)] px-4 text-[15px] outline-none placeholder:text-[var(--muted)] disabled:opacity-50"
-                />
-                {mode === "register" ? (
-                  <p className="mt-2 px-1 text-xs text-[var(--muted)]">
-                    12文字以上で設定してください
-                  </p>
-                ) : null}
-                <button
-                  type="submit"
-                  disabled={pending}
-                  className="mt-4 h-12 w-full rounded-full bg-[var(--primary)] text-sm font-medium text-[var(--on-primary)] transition hover:bg-[var(--primary-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--surface)] disabled:cursor-wait disabled:opacity-50"
-                >
-                  {pending
-                    ? "処理中…"
-                    : mode === "login"
-                      ? "ログイン"
-                      : "アカウントを作成"}
-                </button>
-              </form>
-            )}
-          </>
-        )}
+        {step === "profile" ? (
+          <form className="mt-7" onSubmit={submitProfile}>
+            <label htmlFor={`${titleId}-display-name`} className="sr-only">
+              表示名
+            </label>
+            <input
+              ref={profileInputRef}
+              id={`${titleId}-display-name`}
+              name="displayName"
+              type="text"
+              autoComplete="name"
+              required
+              aria-invalid={Boolean(errorMessage)}
+              aria-errormessage={errorMessage ? errorId : undefined}
+              minLength={1}
+              maxLength={200}
+              placeholder="表示名"
+              className="h-12 w-full rounded-full border border-[var(--border)] bg-transparent px-4 text-sm outline-none placeholder:text-[var(--muted)]"
+            />
+            <button
+              type="submit"
+              disabled={pending}
+              className="mt-3 h-12 w-full rounded-full bg-[var(--primary)] text-sm font-medium text-[var(--on-primary)] transition hover:bg-[var(--primary-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--surface)] disabled:cursor-wait disabled:opacity-50"
+            >
+              {pending ? "保存中…" : "はじめる"}
+            </button>
+          </form>
+        ) : null}
       </div>
     </dialog>
   );

@@ -1,5 +1,5 @@
 import type { BetterAuthOptions } from "better-auth";
-import { jwt } from "better-auth/plugins";
+import { emailOTP, jwt } from "better-auth/plugins";
 
 import { authDatabasePool } from "./database";
 import {
@@ -9,7 +9,7 @@ import {
   requireServerEnvironment,
   shouldTrustCloudflareIpHeader,
 } from "./environment";
-import { sendPasswordResetEmail, sendVerificationEmail } from "./email";
+import { sendSignInOtpEmail } from "./email";
 
 const authBaseUrl = getAuthBaseUrl();
 const googleCredentials = getGoogleCredentials();
@@ -20,25 +20,6 @@ export const authOptions = {
   secret: requireServerEnvironment("BETTER_AUTH_SECRET"),
   trustedOrigins: getTrustedOrigins(),
   database: authDatabasePool,
-  emailAndPassword: {
-    enabled: true,
-    requireEmailVerification: true,
-    minPasswordLength: 12,
-    maxPasswordLength: 128,
-    revokeSessionsOnPasswordReset: true,
-    sendResetPassword: async ({ user, url }) => {
-      sendPasswordResetEmail(user.email, url);
-    },
-  },
-  emailVerification: {
-    autoSignInAfterVerification: true,
-    expiresIn: 60 * 60,
-    sendOnSignIn: true,
-    sendOnSignUp: true,
-    sendVerificationEmail: async ({ user, url }) => {
-      sendVerificationEmail(user.email, url);
-    },
-  },
   socialProviders: googleCredentials
     ? {
         google: {
@@ -78,6 +59,19 @@ export const authOptions = {
       : {}),
   },
   plugins: [
+    emailOTP({
+      allowedAttempts: 3,
+      expiresIn: 5 * 60,
+      rateLimit: {
+        max: 3,
+        window: 60,
+      },
+      resendStrategy: "rotate",
+      sendVerificationOTP: async ({ email, otp, type }) => {
+        if (type === "sign-in") await sendSignInOtpEmail(email, otp);
+      },
+      storeOTP: "hashed",
+    }),
     jwt({
       jwt: {
         issuer: authBaseUrl,

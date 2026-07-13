@@ -12,7 +12,7 @@ npm run auth:migrate
 npm run dev
 ```
 
-開発サーバーは <http://localhost:3000> で起動します。`AUTH_EMAIL_DELIVERY=console`の場合、メール確認とパスワード再設定のURLはNext.jsサーバーの標準出力へ表示されます。本番環境ではconsole配送を拒否するため、SMTPを設定してください。
+開発サーバーは <http://localhost:3000> で起動します。`AUTH_EMAIL_DELIVERY=console`の場合、メールのワンタイムログインコードはNext.jsサーバーの標準出力へ表示されます。本番環境ではconsole配送を拒否するため、SMTPを設定してください。
 
 ## データベース境界
 
@@ -42,7 +42,7 @@ https://platform.sodai.me/api/auth/callback/google
 
 ## FastAPIとの認証契約
 
-ブラウザのBetter AuthセッションはNext.js内でのみ利用します。FastAPIへは`authClient.token()`で取得した10分有効のJWTをBearer tokenとして送信します。
+ブラウザのBetter AuthセッションはNext.js内でのみ利用します。FastAPIへはBetter Authから取得した10分有効のJWTをBearer tokenとして送信します。
 
 - issuer: `BETTER_AUTH_URL`
 - audience: `BETTER_AUTH_URL`
@@ -53,7 +53,21 @@ https://platform.sodai.me/api/auth/callback/google
 
 JWTはセッションの代替ではなく、FastAPIなど別サービスへ本人性を渡すためだけに発行します。JWT署名秘密鍵も`auth.jwks`へ暗号化して保存されます。
 
-チャットレイアウトはServer Componentで確定した認証状態をクライアントへ引き継ぎます。ゲストは認証APIを呼ばず、ログインユーザーのJWTは有効期限直前までメモリ上で共有します。これにより、FastAPIへの各リクエスト前に`/get-session`を重複実行しません。
+チャットレイアウトはServer Componentで確定した認証状態とSodAIアカウントをクライアントへ引き継ぎます。ゲストは認証APIを呼ばず、ログインユーザーのJWTは有効期限直前までメモリ上で共有します。これにより、FastAPIへの各リクエスト前に`/get-session`を重複実行しません。
+
+## メールOTP認証
+
+メール認証はパスワードを持たない単一フローです。メールアドレスへ6桁のコードを送り、検証に成功すると既存ユーザーはログインし、未登録ユーザーはBetter Auth上に自動作成されます。アカウントの存在有無を返すAPIは設けません。
+
+- 有効期限: 5分
+- 入力上限: 3回
+- 発行・検証のレート制限: 1分あたり3回
+- DB保存: ハッシュ化
+- 再送信: 以前のコードを失効させてローテーション
+
+OTP検証後、FastAPIの`GET /api/v1/account/me`でSodAI所有のアカウントを解決します。`display_name`が未設定の場合だけプロフィール設定へ進み、`PATCH /api/v1/account/me`で完成させます。認証identityとプロダクトプロフィールの所有境界は混在させません。
+
+ブラウザ向けの`NEXT_PUBLIC_API_BASE_URL`とは別に、Next.jsサーバーからFastAPIへ到達する内部URLを`SODAI_API_BASE_URL`で指定できます。未指定時はブラウザ向けURLを利用します。
 
 ## メール配送
 

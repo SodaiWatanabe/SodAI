@@ -10,3 +10,10 @@ export const getCurrentSession = cache(async () => {
     headers: await headers(),
   });
 });
+
+export const getCurrentApiAccessToken = cache(async () => {
+  const result = await auth.api.getToken({
+    headers: await headers(),
+  });
+  return result?.token ?? null;
+});

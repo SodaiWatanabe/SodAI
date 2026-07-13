@@ -10,7 +10,7 @@ import {
 import { usePathname, useRouter } from "next/navigation";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 
-import { AuthDialog, type AuthMode } from "@/components/auth/auth-dialog";
+import { AuthDialog } from "@/components/auth/auth-dialog";
 import { useApiAccessToken } from "@/components/auth/api-access-token-provider";
 import {
   SidebarAccount,
@@ -29,7 +29,9 @@ const SIDEBAR_TRANSITION_DURATION = 300;
 export type ChatFrameProps = {
   children: ReactNode;
   googleAuthEnabled: boolean;
+  initialAccountUnavailable: boolean;
   initialDesktopSidebarCollapsed: boolean;
+  initialProfileIncomplete: boolean;
   initialUser: SidebarUser | null;
 };
 
@@ -41,7 +43,7 @@ type SidebarProps = {
   guestActionsVisible: boolean;
   onClose: () => void;
   onArchiveConversation: (id: string) => void;
-  onOpenAuth: (mode: AuthMode) => void;
+  onOpenAuth: () => void;
   onSelectConversation: (id: string) => void;
   onSignOut: () => void;
   signingOut: boolean;
@@ -156,14 +158,14 @@ function Sidebar({
             <button
               type="button"
               className="h-10 w-full rounded-full border border-[var(--border)] bg-[var(--button-background)] text-sm font-medium transition-colors hover:bg-[var(--button-hover)]"
-              onClick={() => onOpenAuth("login")}
+              onClick={onOpenAuth}
             >
               ログイン
             </button>
             <button
               type="button"
               className="h-10 w-full rounded-full border border-[var(--border)] bg-[var(--button-background)] text-sm font-medium transition-colors hover:bg-[var(--button-hover)]"
-              onClick={() => onOpenAuth("register")}
+              onClick={onOpenAuth}
             >
               アカウントを作成
             </button>
@@ -177,7 +179,9 @@ function Sidebar({
 export function ChatFrame({
   children,
   googleAuthEnabled,
+  initialAccountUnavailable,
   initialDesktopSidebarCollapsed,
+  initialProfileIncomplete,
   initialUser,
 }: ChatFrameProps) {
   const pathname = usePathname();
@@ -194,9 +198,12 @@ export function ChatFrame({
   );
   const [mobileOpen, setMobileOpen] = useState(false);
   const [mobileGuestActionsVisible, setMobileGuestActionsVisible] = useState(false);
-  const [authMode, setAuthMode] = useState<AuthMode>();
+  const [authOpen, setAuthOpen] = useState(
+    initialAccountUnavailable || initialProfileIncomplete,
+  );
   const [googleAuthError, setGoogleAuthError] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
+  const openAuth = useCallback(() => setAuthOpen(true), []);
   const openMobileSidebar = useCallback(() => {
     setMobileGuestActionsVisible(false);
     setMobileOpen(true);
@@ -214,7 +221,7 @@ export function ChatFrame({
     if (url.searchParams.get("authError") !== "google") return;
     requestAnimationFrame(() => {
       setGoogleAuthError(true);
-      setAuthMode("login");
+      setAuthOpen(true);
     });
     url.searchParams.delete("authError");
     window.history.replaceState(window.history.state, "", url);
@@ -327,7 +334,7 @@ export function ChatFrame({
       guestActionsVisible={guestActionsVisible}
       onClose={onClose}
       onArchiveConversation={leaveArchivedConversation}
-      onOpenAuth={setAuthMode}
+      onOpenAuth={openAuth}
       onSelectConversation={navigate}
       onSignOut={signOut}
       signingOut={signingOut}
@@ -338,7 +345,7 @@ export function ChatFrame({
   return (
     <ChatAuthProvider
       authenticated={Boolean(initialUser)}
-      openAuth={setAuthMode}
+      openAuth={openAuth}
     >
       <div className="flex h-[100dvh] overflow-hidden bg-[var(--canvas)]">
       <aside
@@ -397,18 +404,18 @@ export function ChatFrame({
         {children}
       </main>
 
-      {authMode ? (
+      {authOpen ? (
         <AuthDialog
-          key={authMode}
+          accountUnavailable={initialAccountUnavailable}
           googleEnabled={googleAuthEnabled}
-          mode={authMode}
+          resumeProfile={initialProfileIncomplete}
           initialError={
             googleAuthError
               ? "Googleログインを完了できませんでした。もう一度お試しください。"
               : undefined
           }
           onClose={() => {
-            setAuthMode(undefined);
+            setAuthOpen(false);
             setGoogleAuthError(false);
           }}
         />

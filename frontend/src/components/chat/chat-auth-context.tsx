@@ -7,11 +7,9 @@ import {
   useMemo,
 } from "react";
 
-import type { AuthMode } from "@/components/auth/auth-dialog";
-
 type ChatAuthContextValue = {
   authenticated: boolean;
-  openAuth: (mode: AuthMode) => void;
+  openAuth: () => void;
 };
 
 const ChatAuthContext = createContext<ChatAuthContextValue | null>(null);
