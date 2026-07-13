@@ -24,16 +24,13 @@ export function ModelSelector({
   onChange,
 }: ModelSelectorProps) {
   const { authenticated, openAuth } = useChatAuth();
-  const selected =
-    models.find((option) => option.id === model) ??
-    models.find((option) => option.is_default) ??
-    models[0];
-  const label = selected?.name ?? model ?? "モデル";
+  const selected = models.find((option) => option.id === model);
+  const label = selected?.name ?? "モデル";
 
   return (
     <Popover placement="bottom-start" gutter={6}>
       <PopoverTrigger
-        disabled={models.length === 0}
+        disabled={!selected}
         aria-label={`モデル: ${label}`}
         className="group flex h-9 items-center gap-1.5 rounded-xl px-2.5 text-sm font-medium text-[var(--text)] transition-colors hover:bg-[var(--hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)] disabled:cursor-default disabled:opacity-50"
       >
