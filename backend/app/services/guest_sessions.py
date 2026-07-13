@@ -7,15 +7,15 @@ from sqlalchemy import select
 
 from app.core.config import get_settings
 from app.db.session import get_session_factory
-from app.domain.conversations import ConversationPrincipal, PrincipalKind
-from app.models.conversation import GuestSessionModel
+from app.domain.principals import Principal, PrincipalKind
+from app.models.platform import GuestSessionModel
 
 GUEST_COOKIE_NAME = "sodai_guest"
 GUEST_TTL = timedelta(days=90)
 
 
 class GuestSessionService:
-    async def resolve(self, raw_token: str | None, response: Response) -> ConversationPrincipal:
+    async def resolve(self, raw_token: str | None, response: Response) -> Principal:
         now = datetime.now(timezone.utc)
         async with get_session_factory()() as session:
             guest = None
@@ -47,7 +47,7 @@ class GuestSessionService:
             else:
                 guest.last_seen_at = now
                 await session.commit()
-            return ConversationPrincipal(PrincipalKind.GUEST, guest.id)
+            return Principal(PrincipalKind.GUEST, guest.id)
 
 
 def _hash_token(token: str) -> str:

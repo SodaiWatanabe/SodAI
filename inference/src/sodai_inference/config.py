@@ -21,9 +21,9 @@ class Settings:
     device: str
     consumer_name: str
     artifact_id: str | None = None
-    job_stream: str = "sodai:inference:jobs:v1"
-    event_stream: str = "sodai:inference:events:v1"
-    worker_group: str = "sodai-inference-workers-v1"
+    job_stream: str = "sodai:inference:jobs:v2"
+    event_stream: str = "sodai:inference:events:v2"
+    worker_group: str = "sodai-inference-workers-v2"
     job_claim_idle_ms: int = INFERENCE_JOB_CLAIM_IDLE_MS
     run_lock_seconds: int = INFERENCE_ATTEMPT_LOCK_SECONDS
 

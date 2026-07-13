@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
+import socket
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -10,15 +12,20 @@ from typing import Any
 from redis.asyncio import Redis
 from redis.exceptions import ResponseError
 from sodai_contracts.inference import (
+    INFERENCE_ATTEMPT_LOCK_SECONDS,
+    INFERENCE_JOB_CLAIM_IDLE_MS,
     FinishReason,
     GenerationEvent,
     GenerationEventType,
     GenerationJob,
 )
 
-from sodai_inference.config import Settings
-from sodai_inference.deployment import resolve_hina_artifact
-from sodai_inference.models.hina import HinaEngine
+from app.core.config import Settings, get_settings
+from app.services.inference.asuka import (
+    ASUKA_PSEUDO_ARTIFACT_ID,
+    ASUKA_PSEUDO_RESOLVED_MODEL,
+    AsukaPseudoGenerator,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -62,60 +69,84 @@ class AttemptProgress:
     terminal: bool
 
 
-class InferenceWorker:
-    def __init__(self, settings: Settings, redis: Redis, hina: HinaEngine) -> None:
-        self._settings = settings
+class PseudoGenerationWorker:
+    """Consumes Asuka jobs and emits the same events as an external model worker."""
+
+    model = "asuka-1"
+    artifact_id = ASUKA_PSEUDO_ARTIFACT_ID
+
+    def __init__(
+        self,
+        redis: Redis,
+        generator: AsukaPseudoGenerator,
+        *,
+        job_stream: str,
+        event_stream: str,
+        worker_group: str,
+        consumer_name: str,
+        job_claim_idle_ms: int = INFERENCE_JOB_CLAIM_IDLE_MS,
+        run_lock_seconds: int = INFERENCE_ATTEMPT_LOCK_SECONDS,
+    ) -> None:
         self._redis = redis
-        self._hina = hina
-        self._job_stream = f"{settings.job_stream}:{hina.model_name}:{hina.manifest.artifact_id}"
-        self._job_claim_cursor = "0-0"
+        self._generator = generator
+        self._job_stream = f"{job_stream}:{self.model}:{self.artifact_id}"
+        self._event_stream = event_stream
+        self._worker_group = worker_group
+        self._consumer_name = consumer_name
+        self._job_claim_idle_ms = job_claim_idle_ms
+        self._run_lock_seconds = run_lock_seconds
+        self._claim_cursor = "0-0"
+        self._task: asyncio.Task[None] | None = None
 
-    async def run(self) -> None:
-        await self._ensure_group()
-        await self._announce_readiness()
-        logger.info("Hina worker ready with %s", self._hina.resolved_model)
+    def start(self) -> None:
+        if self._task is None:
+            self._task = asyncio.create_task(self._run(), name="asuka-pseudo-worker")
+
+    async def stop(self) -> None:
+        if self._task is not None:
+            self._task.cancel()
+            await asyncio.gather(self._task, return_exceptions=True)
+            self._task = None
+        await self._redis.aclose()
+
+    async def _run(self) -> None:
         while True:
-            await self._announce_readiness()
-            messages = await self._next_jobs()
-            for message_id, fields in messages:
-                await self._process(message_id, fields)
-
-    async def _announce_readiness(self) -> None:
-        await self._redis.set(
-            f"sodai:inference:worker:ready:{self._hina.model_name}:{self._hina.manifest.artifact_id}",
-            self._settings.consumer_name,
-            ex=30,
-        )
+            try:
+                await self._ensure_group()
+                for message_id, fields in await self._next_jobs():
+                    await self._process(message_id, fields)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("Asuka pseudo worker failed")
+                await asyncio.sleep(1)
 
     async def _next_jobs(self) -> list[tuple[str, dict[str, Any]]]:
         claimed = await self._redis.xautoclaim(
             self._job_stream,
-            self._settings.worker_group,
-            self._settings.consumer_name,
-            min_idle_time=self._settings.job_claim_idle_ms,
-            start_id=self._job_claim_cursor,
+            self._worker_group,
+            self._consumer_name,
+            min_idle_time=self._job_claim_idle_ms,
+            start_id=self._claim_cursor,
             count=1,
         )
         if claimed:
-            self._job_claim_cursor = claimed[0]
+            self._claim_cursor = claimed[0]
         if len(claimed) > 1 and claimed[1]:
             return claimed[1]
         streams = await self._redis.xreadgroup(
-            groupname=self._settings.worker_group,
-            consumername=self._settings.consumer_name,
+            groupname=self._worker_group,
+            consumername=self._consumer_name,
             streams={self._job_stream: ">"},
             count=1,
-            block=5_000,
+            block=250,
         )
         return streams[0][1] if streams else []
 
     async def _ensure_group(self) -> None:
         try:
             await self._redis.xgroup_create(
-                self._job_stream,
-                self._settings.worker_group,
-                id="0-0",
-                mkstream=True,
+                self._job_stream, self._worker_group, id="0-0", mkstream=True
             )
         except ResponseError as error:
             if "BUSYGROUP" not in str(error):
@@ -124,30 +155,31 @@ class InferenceWorker:
     async def _process(self, message_id: str, fields: dict[str, Any]) -> None:
         payload = fields.get("payload")
         if not isinstance(payload, str):
-            logger.error("Discarding inference job %s without payload", message_id)
             await self._ack(message_id)
             return
-
         try:
             job = GenerationJob.from_json(payload)
         except (TypeError, ValueError):
-            logger.exception("Discarding invalid inference job %s", message_id)
+            logger.exception("Discarding invalid Asuka job %s", message_id)
             await self._ack(message_id)
             return
+        if job.model != self.model or job.artifact_id != self.artifact_id:
+            logger.error("Discarding misrouted Asuka job %s", message_id)
+            await self._ack(message_id)
+            return
+
         lock_key = f"sodai:inference:attempt:{job.attempt_id}"
         progress_key = f"{lock_key}:progress"
         acquired = await self._redis.set(
             lock_key,
-            self._settings.consumer_name,
-            ex=self._settings.run_lock_seconds,
+            self._consumer_name,
+            ex=self._run_lock_seconds,
             nx=True,
         )
         if not acquired:
-            state = await self._redis.get(lock_key)
-            if state == "done":
+            if await self._redis.get(lock_key) == "done":
                 await self._ack(message_id)
             return
-
         try:
             progress = await self._read_progress(progress_key)
             if not progress.terminal:
@@ -156,21 +188,19 @@ class InferenceWorker:
                 COMPARE_AND_SET_SCRIPT,
                 1,
                 lock_key,
-                self._settings.consumer_name,
+                self._consumer_name,
                 "done",
                 86_400,
             )
             if marked_done != 1:
-                raise RuntimeError("inference attempt lock was lost before completion")
+                raise RuntimeError("Asuka attempt lock was lost before completion")
             await self._ack(message_id)
+        except asyncio.CancelledError:
+            await self._release_lock(lock_key)
+            raise
         except Exception:
-            logger.exception("Inference transport failed for execution %s", job.execution_id)
-            await self._redis.eval(
-                COMPARE_AND_DELETE_SCRIPT,
-                1,
-                lock_key,
-                self._settings.consumer_name,
-            )
+            await self._release_lock(lock_key)
+            logger.exception("Asuka execution %s failed", job.execution_id)
 
     async def _generate(self, job: GenerationJob, *, resume_after_sequence: int = -1) -> None:
         sequence = 0
@@ -182,16 +212,8 @@ class InferenceWorker:
             await self._publish(event, progress_key)
 
         if resume_after_sequence < 0 and datetime.now(timezone.utc) >= job.deadline:
-            await emit(self._failed_event(job, sequence))
+            await emit(self._failed(job, sequence, "generation_timeout"))
             return
-
-        try:
-            prompt_ids = self._hina.build_prompt(job)
-        except Exception:
-            logger.exception("Hina prompt construction failed for execution %s", job.execution_id)
-            await emit(self._failed_event(job, sequence))
-            return
-
         await emit(
             GenerationEvent.create(
                 GenerationEventType.STARTED,
@@ -199,33 +221,13 @@ class InferenceWorker:
                 attempt_id=job.attempt_id,
                 sequence=sequence,
                 thread_id=job.thread_id,
-                resolved_model=self._hina.resolved_model,
-                input_tokens=len(prompt_ids),
+                resolved_model=ASUKA_PSEUDO_RESOLVED_MODEL,
             )
         )
-        buffered_delta = ""
-        buffered_tokens = 0
-        steps = iter(self._hina.generate(prompt_ids, job))
-        while True:
-            try:
-                step = next(steps)
-            except StopIteration:
-                logger.error(
-                    "Hina generation ended without a terminal step for execution %s",
-                    job.execution_id,
-                )
-                await emit(self._failed_event(job, sequence + 1))
-                return
-            except Exception:
-                logger.exception("Hina generation failed for execution %s", job.execution_id)
-                await emit(self._failed_event(job, sequence + 1))
-                return
-
-            if step.finish_reason is None:
-                buffered_delta += step.delta
-                buffered_tokens = step.output_tokens
-                if len(buffered_delta) < 4:
-                    continue
+        generated = ""
+        try:
+            async for delta in self._generator.stream(job.turns[-1].content):
+                generated += delta
                 sequence += 1
                 await emit(
                     GenerationEvent.create(
@@ -234,43 +236,27 @@ class InferenceWorker:
                         attempt_id=job.attempt_id,
                         sequence=sequence,
                         thread_id=job.thread_id,
-                        delta=buffered_delta,
-                        output_tokens=buffered_tokens,
+                        delta=delta,
                     )
                 )
-                buffered_delta = ""
-                continue
-
-            if buffered_delta:
-                sequence += 1
-                await emit(
-                    GenerationEvent.create(
-                        GenerationEventType.DELTA,
-                        execution_id=job.execution_id,
-                        attempt_id=job.attempt_id,
-                        sequence=sequence,
-                        thread_id=job.thread_id,
-                        delta=buffered_delta,
-                        output_tokens=buffered_tokens,
-                    )
-                )
-            sequence += 1
-            await emit(
-                GenerationEvent.create(
-                    GenerationEventType.COMPLETED,
-                    execution_id=job.execution_id,
-                    attempt_id=job.attempt_id,
-                    sequence=sequence,
-                    thread_id=job.thread_id,
-                    content=step.content,
-                    output_tokens=step.output_tokens,
-                    finish_reason=step.finish_reason,
-                )
-            )
+        except Exception:
+            await emit(self._failed(job, sequence + 1, "asuka_generation_failed"))
             return
+        sequence += 1
+        await emit(
+            GenerationEvent.create(
+                GenerationEventType.COMPLETED,
+                execution_id=job.execution_id,
+                attempt_id=job.attempt_id,
+                sequence=sequence,
+                thread_id=job.thread_id,
+                content=generated,
+                finish_reason=FinishReason.STOP,
+            )
+        )
 
     @staticmethod
-    def _failed_event(job: GenerationJob, sequence: int) -> GenerationEvent:
+    def _failed(job: GenerationJob, sequence: int, error_code: str) -> GenerationEvent:
         return GenerationEvent.create(
             GenerationEventType.FAILED,
             execution_id=job.execution_id,
@@ -278,7 +264,7 @@ class InferenceWorker:
             sequence=sequence,
             thread_id=job.thread_id,
             finish_reason=FinishReason.ERROR,
-            error_code="hina_generation_failed",
+            error_code=error_code,
         )
 
     async def _publish(self, event: GenerationEvent, progress_key: str) -> None:
@@ -293,13 +279,13 @@ class InferenceWorker:
         await self._redis.eval(
             PUBLISH_EVENT_SCRIPT,
             3,
-            self._settings.event_stream,
+            self._event_stream,
             progress_key,
             progress_key.removesuffix(":progress"),
             event.to_json(),
             progress,
-            self._settings.consumer_name,
-            self._settings.run_lock_seconds,
+            self._consumer_name,
+            self._run_lock_seconds,
         )
 
     async def _read_progress(self, progress_key: str) -> AttemptProgress:
@@ -310,45 +296,41 @@ class InferenceWorker:
         sequence = value.get("sequence")
         terminal = value.get("terminal")
         if not isinstance(sequence, int) or sequence < 0 or not isinstance(terminal, bool):
-            raise ValueError("inference attempt progress is invalid")
+            raise ValueError("Asuka attempt progress is invalid")
         return AttemptProgress(sequence=sequence, terminal=terminal)
+
+    async def _release_lock(self, lock_key: str) -> None:
+        await self._redis.eval(
+            COMPARE_AND_DELETE_SCRIPT,
+            1,
+            lock_key,
+            self._consumer_name,
+        )
 
     async def _ack(self, message_id: str) -> None:
         await self._redis.eval(
             ACK_AND_DELETE_SCRIPT,
             1,
             self._job_stream,
-            self._settings.worker_group,
+            self._worker_group,
             message_id,
         )
 
 
-async def run_worker() -> None:
-    settings = Settings.from_env()
+def create_pseudo_generation_worker(
+    settings: Settings | None = None,
+) -> PseudoGenerationWorker:
+    settings = settings or get_settings()
     redis = Redis.from_url(
         settings.redis_url,
         password=settings.redis_password,
         decode_responses=True,
     )
-    artifact_path = resolve_hina_artifact(settings.model_root, settings.artifact_id)
-    hina = HinaEngine.load(artifact_path, settings.device)
-    worker = InferenceWorker(settings, redis, hina)
-    try:
-        await worker.run()
-    finally:
-        await redis.aclose()
-
-
-def main() -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    return PseudoGenerationWorker(
+        redis,
+        AsukaPseudoGenerator(),
+        job_stream=settings.inference_job_stream,
+        event_stream=settings.inference_event_stream,
+        worker_group=settings.inference_worker_group,
+        consumer_name=f"{socket.gethostname()}-{os.getpid()}-asuka",
     )
-    try:
-        asyncio.run(run_worker())
-    except KeyboardInterrupt:
-        pass
-
-
-if __name__ == "__main__":
-    main()

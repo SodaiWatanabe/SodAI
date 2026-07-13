@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import UUID, uuid4
 
-from app.domain.conversations import ConversationPrincipal
+from app.domain.principals import Principal
 
 
 @dataclass(frozen=True, slots=True)
@@ -14,8 +14,11 @@ class RealtimeEvent:
     id: UUID
     sequence: int
     type: str
-    conversation_id: UUID
-    run_id: UUID | None
+    space_id: UUID
+    thread_id: UUID
+    thread_revision: int
+    response_request_id: UUID | None
+    execution_id: UUID | None
     occurred_at: datetime
     data: dict[str, Any]
 
@@ -24,8 +27,13 @@ class RealtimeEvent:
             "id": str(self.id),
             "sequence": self.sequence,
             "type": self.type,
-            "conversation_id": str(self.conversation_id),
-            "run_id": str(self.run_id) if self.run_id else None,
+            "space_id": str(self.space_id),
+            "thread_id": str(self.thread_id),
+            "thread_revision": self.thread_revision,
+            "response_request_id": (
+                str(self.response_request_id) if self.response_request_id else None
+            ),
+            "execution_id": str(self.execution_id) if self.execution_id else None,
             "occurred_at": self.occurred_at.isoformat(),
             "data": self.data,
         }
@@ -34,12 +42,15 @@ class RealtimeEvent:
 class RealtimeHub:
     MAX_PRINCIPAL_HISTORIES = 2048
 
-    def __init__(self) -> None:
+    def __init__(self, *, history_size: int = 512, subscriber_queue_size: int = 256) -> None:
+        if history_size < 1 or subscriber_queue_size < 1:
+            raise ValueError("realtime queue sizes must be positive")
+        self._history_size = history_size
+        self._subscriber_queue_size = subscriber_queue_size
         self._sequence = 0
-        self._subscribers: dict[ConversationPrincipal, set[asyncio.Queue[RealtimeEvent]]] = (
-            defaultdict(set)
-        )
-        self._history: OrderedDict[ConversationPrincipal, deque[RealtimeEvent]] = OrderedDict()
+        self._subscribers: dict[Principal, set[asyncio.Queue[RealtimeEvent]]] = defaultdict(set)
+        self._history: OrderedDict[Principal, deque[RealtimeEvent]] = OrderedDict()
+        self._evicted_through: dict[Principal, int] = {}
 
     @property
     def cursor(self) -> int:
@@ -47,10 +58,14 @@ class RealtimeHub:
 
     async def publish(
         self,
-        principal: ConversationPrincipal,
+        principal: Principal,
+        *,
         event_type: str,
-        conversation_id: UUID,
-        run_id: UUID | None,
+        space_id: UUID,
+        thread_id: UUID,
+        thread_revision: int,
+        response_request_id: UUID | None,
+        execution_id: UUID | None,
         data: dict[str, Any],
     ) -> None:
         self._sequence += 1
@@ -58,12 +73,17 @@ class RealtimeHub:
             id=uuid4(),
             sequence=self._sequence,
             type=event_type,
-            conversation_id=conversation_id,
-            run_id=run_id,
+            space_id=space_id,
+            thread_id=thread_id,
+            thread_revision=thread_revision,
+            response_request_id=response_request_id,
+            execution_id=execution_id,
             occurred_at=datetime.now(timezone.utc),
             data=data,
         )
-        history = self._history.setdefault(principal, deque(maxlen=512))
+        history = self._history.setdefault(principal, deque(maxlen=self._history_size))
+        if len(history) == self._history_size:
+            self._evicted_through[principal] = history[0].sequence
         history.append(event)
         self._history.move_to_end(principal)
         self._evict_inactive_history()
@@ -71,24 +91,28 @@ class RealtimeHub:
             try:
                 queue.put_nowait(event)
             except asyncio.QueueFull:
-                # Deltas contain cumulative content, so keeping the newest event
-                # lets a slow connection converge without becoming silently stale.
-                queue.get_nowait()
-                queue.put_nowait(event)
+                # Once a structural event may have been missed, deltas alone
+                # cannot prove convergence. Replace the backlog with an explicit
+                # request for an authoritative HTTP snapshot.
+                while not queue.empty():
+                    queue.get_nowait()
+                queue.put_nowait(self._sync_required(event, "subscriber_overflow"))
 
     def subscribe(
-        self, principal: ConversationPrincipal, after: int
+        self, principal: Principal, after: int
     ) -> tuple[asyncio.Queue[RealtimeEvent], list[RealtimeEvent]]:
-        queue: asyncio.Queue[RealtimeEvent] = asyncio.Queue(maxsize=256)
+        queue: asyncio.Queue[RealtimeEvent] = asyncio.Queue(maxsize=self._subscriber_queue_size)
         self._subscribers[principal].add(queue)
-        history = self._history.setdefault(principal, deque(maxlen=512))
+        history = self._history.setdefault(principal, deque(maxlen=self._history_size))
         self._history.move_to_end(principal)
-        replay = [event for event in history if event.sequence > after]
+        evicted_through = self._evicted_through.get(principal)
+        if history and evicted_through is not None and after < evicted_through:
+            replay = [self._sync_required(history[-1], "replay_gap")]
+        else:
+            replay = [event for event in history if event.sequence > after]
         return queue, replay
 
-    def unsubscribe(
-        self, principal: ConversationPrincipal, queue: asyncio.Queue[RealtimeEvent]
-    ) -> None:
+    def unsubscribe(self, principal: Principal, queue: asyncio.Queue[RealtimeEvent]) -> None:
         self._subscribers[principal].discard(queue)
         if not self._subscribers[principal]:
             self._subscribers.pop(principal, None)
@@ -102,19 +126,35 @@ class RealtimeHub:
             if inactive is None:
                 return
             self._history.pop(inactive, None)
+            self._evicted_through.pop(inactive, None)
+
+    @staticmethod
+    def _sync_required(reference: RealtimeEvent, reason: str) -> RealtimeEvent:
+        return RealtimeEvent(
+            id=uuid4(),
+            sequence=reference.sequence,
+            type="sync.required",
+            space_id=reference.space_id,
+            thread_id=reference.thread_id,
+            thread_revision=reference.thread_revision,
+            response_request_id=reference.response_request_id,
+            execution_id=reference.execution_id,
+            occurred_at=datetime.now(timezone.utc),
+            data={"reason": reason},
+        )
 
 
 class RealtimeTicketService:
     def __init__(self) -> None:
-        self._tickets: dict[str, tuple[ConversationPrincipal, datetime]] = {}
+        self._tickets: dict[str, tuple[Principal, datetime]] = {}
 
-    def issue(self, principal: ConversationPrincipal) -> str:
+    def issue(self, principal: Principal) -> str:
         self._discard_expired()
         ticket = secrets.token_urlsafe(32)
         self._tickets[ticket] = (principal, datetime.now(timezone.utc) + timedelta(seconds=30))
         return ticket
 
-    def consume(self, ticket: str) -> ConversationPrincipal | None:
+    def consume(self, ticket: str) -> Principal | None:
         self._discard_expired()
         value = self._tickets.pop(ticket, None)
         return value[0] if value else None

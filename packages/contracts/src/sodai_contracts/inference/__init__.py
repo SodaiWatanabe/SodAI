@@ -1,4 +1,4 @@
-from sodai_contracts.inference.v1 import (
+from sodai_contracts.inference.v2 import (
     FinishReason,
     GenerationEvent,
     GenerationEventType,

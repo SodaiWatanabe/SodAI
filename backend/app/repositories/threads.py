@@ -1,0 +1,856 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from uuid import UUID, uuid4
+
+from sodai_contracts.inference import (
+    MAX_GENERATION_INPUT_BYTES,
+    MAX_GENERATION_TURNS,
+    GenerationEvent,
+    GenerationEventType,
+    GenerationTurn,
+    InferenceSpeaker,
+)
+from sqlalchemy import and_, func, or_, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
+from app.domain.answerers import AnswererDefinition, AnswererId
+from app.domain.execution_events import (
+    EventDisposition,
+    ExecutionProjection,
+    PendingOutboxEvent,
+    ProjectionResult,
+    classify_generation_event,
+)
+from app.domain.principals import Principal, PrincipalKind
+from app.domain.responses import Execution, ResponseCreation, ResponseRequest, ResponseStatus
+from app.domain.threads import (
+    Actor,
+    ActorKind,
+    Entry,
+    EntryKind,
+    SpaceSummary,
+    Thread,
+    ThreadSummary,
+)
+from app.models.platform import (
+    ActorModel,
+    EntryTextContentModel,
+    ExecutionModel,
+    ModelExecutionModel,
+    OutboxEventModel,
+    ResponseContextItemModel,
+    ResponseRequestModel,
+    SpaceMembershipModel,
+    SpaceModel,
+    ThreadEntryModel,
+    ThreadModel,
+    ThreadParticipantModel,
+)
+
+GENERATION_OUTBOX_TOPIC = "model.generation.requested"
+EXECUTION_ADMISSION_LOCK_KEY = 0x534F44414902
+
+
+class ThreadNotFoundError(Exception):
+    pass
+
+
+class ThreadBusyError(Exception):
+    pass
+
+
+@dataclass(frozen=True, slots=True)
+class PersonalContext:
+    actor: ActorModel
+    space: SpaceModel
+
+
+class SqlAlchemyThreadRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def ensure_personal_context(self, principal: Principal) -> PersonalContext:
+        actor_id = uuid4()
+        actor_values = {
+            "id": actor_id,
+            "kind": ActorKind.HUMAN.value,
+            "key": f"human:{actor_id}",
+            "name": "対話相手",
+            "owner_user_id": principal.id if principal.kind is PrincipalKind.USER else None,
+            "guest_session_id": principal.id if principal.kind is PrincipalKind.GUEST else None,
+        }
+        await self._session.execute(
+            pg_insert(ActorModel).values(**actor_values).on_conflict_do_nothing()
+        )
+        actor = await self._session.scalar(
+            select(ActorModel).where(self._actor_owned_by(principal))
+        )
+        if actor is None:
+            raise RuntimeError("principal actor could not be resolved")
+
+        space_values = {
+            "id": uuid4(),
+            "kind": "personal",
+            "name": None,
+            "owner_user_id": principal.id if principal.kind is PrincipalKind.USER else None,
+            "guest_session_id": principal.id if principal.kind is PrincipalKind.GUEST else None,
+            "status": "active",
+        }
+        await self._session.execute(
+            pg_insert(SpaceModel).values(**space_values).on_conflict_do_nothing()
+        )
+        space = await self._session.scalar(
+            select(SpaceModel).where(self._space_owned_by(principal))
+        )
+        if space is None:
+            raise RuntimeError("personal space could not be resolved")
+        await self._session.execute(
+            pg_insert(SpaceMembershipModel)
+            .values(space_id=space.id, actor_id=actor.id, role="owner", status="active")
+            .on_conflict_do_nothing()
+        )
+        await self._session.flush()
+        return PersonalContext(actor=actor, space=space)
+
+    async def list_spaces(self, principal: Principal) -> list[SpaceSummary]:
+        rows = (
+            await self._session.scalars(
+                select(SpaceModel)
+                .where(self._space_accessible_by(principal), SpaceModel.status == "active")
+                .order_by(SpaceModel.created_at)
+            )
+        ).all()
+        return [self._to_space(row) for row in rows]
+
+    async def create_thread_response(
+        self,
+        principal: Principal,
+        context: PersonalContext,
+        content: str,
+        answerer: AnswererDefinition,
+        *,
+        execution_target: str,
+        artifact_id: str,
+        deadline_at: datetime,
+    ) -> ResponseCreation:
+        now = datetime.now(timezone.utc)
+        thread = ThreadModel(
+            id=uuid4(),
+            space_id=context.space.id,
+            created_by_actor_id=context.actor.id,
+            title=_title_from(content),
+            default_answerer=answerer.id.value,
+            status="active",
+            revision=1,
+            last_activity_at=now,
+            updated_at=now,
+        )
+        self._session.add(thread)
+        self._session.add_all(
+            [
+                ThreadParticipantModel(
+                    thread_id=thread.id, actor_id=context.actor.id, role="participant"
+                ),
+                ThreadParticipantModel(
+                    thread_id=thread.id, actor_id=answerer.actor_id, role="answerer"
+                ),
+            ]
+        )
+        await self._session.flush()
+        await self._create_response_models(
+            thread,
+            context.actor.id,
+            content,
+            answerer,
+            execution_target=execution_target,
+            artifact_id=artifact_id,
+            deadline_at=deadline_at,
+            ordinal=0,
+        )
+        await self._session.flush()
+        return ResponseCreation(
+            thread=await self.get(principal, thread.id),
+            response=await self._latest_response(thread.id),
+        )
+
+    async def append_response(
+        self,
+        principal: Principal,
+        thread_id: UUID,
+        requester_actor_id: UUID,
+        content: str,
+        answerer: AnswererDefinition,
+        *,
+        execution_target: str,
+        artifact_id: str,
+        deadline_at: datetime,
+    ) -> ResponseCreation:
+        thread = await self._locked_thread(principal, thread_id)
+        active = await self._session.scalar(
+            select(ResponseRequestModel.id).where(
+                ResponseRequestModel.thread_id == thread_id,
+                ResponseRequestModel.status.in_(["queued", "running"]),
+            )
+        )
+        if active is not None:
+            raise ThreadBusyError
+        await self._session.execute(
+            pg_insert(ThreadParticipantModel)
+            .values(thread_id=thread_id, actor_id=answerer.actor_id, role="answerer")
+            .on_conflict_do_nothing()
+        )
+        last_ordinal = await self._session.scalar(
+            select(func.max(ThreadEntryModel.ordinal)).where(
+                ThreadEntryModel.thread_id == thread_id
+            )
+        )
+        now = datetime.now(timezone.utc)
+        thread.default_answerer = answerer.id.value
+        thread.revision += 1
+        thread.updated_at = now
+        thread.last_activity_at = now
+        await self._create_response_models(
+            thread,
+            requester_actor_id,
+            content,
+            answerer,
+            execution_target=execution_target,
+            artifact_id=artifact_id,
+            deadline_at=deadline_at,
+            ordinal=(last_ordinal if last_ordinal is not None else -1) + 1,
+        )
+        await self._session.flush()
+        return ResponseCreation(
+            thread=await self.get(principal, thread_id),
+            response=await self._latest_response(thread_id),
+        )
+
+    async def _create_response_models(
+        self,
+        thread: ThreadModel,
+        requester_actor_id: UUID,
+        content: str,
+        answerer: AnswererDefinition,
+        *,
+        execution_target: str,
+        artifact_id: str,
+        deadline_at: datetime,
+        ordinal: int,
+    ) -> None:
+        input_entry = ThreadEntryModel(
+            id=uuid4(),
+            thread_id=thread.id,
+            author_actor_id=requester_actor_id,
+            kind=EntryKind.MESSAGE.value,
+            ordinal=ordinal,
+        )
+        input_entry.text = EntryTextContentModel(content=content)
+        self._session.add(input_entry)
+        await self._session.flush()
+        response_request = ResponseRequestModel(
+            id=uuid4(),
+            thread_id=thread.id,
+            requester_actor_id=requester_actor_id,
+            target_actor_id=answerer.actor_id,
+            input_entry_id=input_entry.id,
+            requested_answerer=answerer.id.value,
+            status=ResponseStatus.QUEUED.value,
+        )
+        execution = ExecutionModel(
+            id=uuid4(),
+            response_request_id=response_request.id,
+            thread_id=thread.id,
+            target_actor_id=answerer.actor_id,
+            attempt_no=1,
+            attempt_id=uuid4(),
+            execution_target=execution_target,
+            status=ResponseStatus.QUEUED.value,
+            partial_output="",
+            deadline_at=deadline_at,
+        )
+        execution.model_execution = ModelExecutionModel(
+            requested_model=answerer.id.value,
+            resolved_model=None,
+            artifact_id=artifact_id,
+        )
+        self._session.add_all([response_request, execution])
+        await self._session.flush()
+        await self._snapshot_context(response_request)
+
+    async def _snapshot_context(self, request: ResponseRequestModel) -> None:
+        statement = (
+            select(ThreadEntryModel, EntryTextContentModel)
+            .join(EntryTextContentModel, EntryTextContentModel.entry_id == ThreadEntryModel.id)
+            .where(ThreadEntryModel.thread_id == request.thread_id)
+            .order_by(ThreadEntryModel.ordinal.desc())
+            .limit(MAX_GENERATION_TURNS)
+        )
+        rows = (await self._session.execute(statement)).all()
+        selected: list[ThreadEntryModel] = []
+        input_bytes = 0
+        for entry, text_content in rows:
+            size = len(text_content.content.encode("utf-8"))
+            if input_bytes + size > MAX_GENERATION_INPUT_BYTES:
+                if not selected:
+                    raise ValueError("latest entry exceeds the generation context limit")
+                break
+            selected.append(entry)
+            input_bytes += size
+        for ordinal, entry in enumerate(reversed(selected)):
+            self._session.add(
+                ResponseContextItemModel(
+                    response_request_id=request.id,
+                    entry_id=entry.id,
+                    thread_id=request.thread_id,
+                    ordinal=ordinal,
+                )
+            )
+
+    async def generation_turns(self, response_request_id: UUID) -> tuple[GenerationTurn, ...]:
+        statement = (
+            select(
+                ThreadEntryModel.author_actor_id,
+                EntryTextContentModel.content,
+                ResponseRequestModel.target_actor_id,
+            )
+            .join(
+                ResponseContextItemModel,
+                and_(
+                    ResponseContextItemModel.entry_id == ThreadEntryModel.id,
+                    ResponseContextItemModel.thread_id == ThreadEntryModel.thread_id,
+                ),
+            )
+            .join(
+                ResponseRequestModel,
+                ResponseRequestModel.id == ResponseContextItemModel.response_request_id,
+            )
+            .join(EntryTextContentModel, EntryTextContentModel.entry_id == ThreadEntryModel.id)
+            .where(ResponseContextItemModel.response_request_id == response_request_id)
+            .order_by(ResponseContextItemModel.ordinal)
+        )
+        rows = (await self._session.execute(statement)).all()
+        return tuple(
+            GenerationTurn(
+                InferenceSpeaker.SELF
+                if author_actor_id == target_actor_id
+                else InferenceSpeaker.PARTNER,
+                content,
+            )
+            for author_actor_id, content, target_actor_id in rows
+        )
+
+    async def add_generation_outbox(self, execution_id: UUID, payload: str) -> None:
+        self._session.add(
+            OutboxEventModel(
+                topic=GENERATION_OUTBOX_TOPIC,
+                aggregate_id=execution_id,
+                payload=payload,
+            )
+        )
+        await self._session.flush()
+
+    async def list(self, principal: Principal, *, limit: int = 50) -> list[ThreadSummary]:
+        statement = (
+            select(ThreadModel)
+            .join(SpaceModel, SpaceModel.id == ThreadModel.space_id)
+            .where(self._space_accessible_by(principal), ThreadModel.status == "active")
+            .order_by(ThreadModel.last_activity_at.desc())
+            .limit(limit)
+        )
+        return [self._to_summary(row) for row in (await self._session.scalars(statement)).all()]
+
+    async def get(self, principal: Principal, thread_id: UUID) -> Thread:
+        statement = (
+            select(ThreadModel)
+            .join(SpaceModel, SpaceModel.id == ThreadModel.space_id)
+            .where(
+                ThreadModel.id == thread_id,
+                self._space_accessible_by(principal),
+                ThreadModel.status == "active",
+            )
+            .options(
+                selectinload(ThreadModel.entries).selectinload(ThreadEntryModel.author),
+                selectinload(ThreadModel.entries).selectinload(ThreadEntryModel.text),
+                selectinload(ThreadModel.response_requests).selectinload(
+                    ResponseRequestModel.target_actor
+                ),
+                selectinload(ThreadModel.response_requests)
+                .selectinload(ResponseRequestModel.executions)
+                .selectinload(ExecutionModel.model_execution),
+            )
+        )
+        thread = await self._session.scalar(statement)
+        if thread is None:
+            raise ThreadNotFoundError
+        return self._to_thread(thread)
+
+    async def update_title(
+        self, principal: Principal, thread_id: UUID, title: str
+    ) -> ThreadSummary:
+        thread = await self._locked_thread(principal, thread_id)
+        now = datetime.now(timezone.utc)
+        thread.title = title
+        thread.revision += 1
+        thread.updated_at = now
+        await self._session.flush()
+        return self._to_summary(thread)
+
+    async def archive(self, principal: Principal, thread_id: UUID) -> ThreadSummary:
+        thread = await self._locked_thread(principal, thread_id)
+        thread.status = "archived"
+        thread.revision += 1
+        thread.updated_at = datetime.now(timezone.utc)
+        await self._session.flush()
+        return self._to_summary(thread)
+
+    async def reserve_generation_capacity(
+        self,
+        principal: Principal,
+        answerer: AnswererId,
+        *,
+        global_limit: int,
+        guest_limit: int,
+    ) -> bool:
+        await self._session.execute(
+            select(func.pg_advisory_xact_lock(EXECUTION_ADMISSION_LOCK_KEY))
+        )
+        active = (ResponseStatus.QUEUED.value, ResponseStatus.RUNNING.value)
+        global_count = await self._session.scalar(
+            select(func.count())
+            .select_from(ExecutionModel)
+            .join(ModelExecutionModel)
+            .where(
+                ModelExecutionModel.requested_model == answerer.value,
+                ExecutionModel.status.in_(active),
+            )
+        )
+        if (global_count or 0) >= global_limit:
+            return False
+        if principal.kind is PrincipalKind.USER:
+            return True
+        guest_count = await self._session.scalar(
+            select(func.count())
+            .select_from(ExecutionModel)
+            .join(ModelExecutionModel)
+            .join(ThreadModel, ThreadModel.id == ExecutionModel.thread_id)
+            .join(SpaceModel, SpaceModel.id == ThreadModel.space_id)
+            .where(
+                SpaceModel.guest_session_id == principal.id,
+                ModelExecutionModel.requested_model == answerer.value,
+                ExecutionModel.status.in_(active),
+            )
+        )
+        return (guest_count or 0) < guest_limit
+
+    async def pending_outbox(self, *, limit: int = 32) -> list[PendingOutboxEvent]:
+        statement = (
+            select(OutboxEventModel)
+            .join(ExecutionModel, ExecutionModel.id == OutboxEventModel.aggregate_id)
+            .where(
+                OutboxEventModel.topic == GENERATION_OUTBOX_TOPIC,
+                OutboxEventModel.published_at.is_(None),
+                OutboxEventModel.discarded_at.is_(None),
+                ExecutionModel.status.in_(["queued", "running"]),
+            )
+            .order_by(OutboxEventModel.created_at)
+            .limit(limit)
+            .with_for_update(skip_locked=True)
+        )
+        rows = (await self._session.scalars(statement)).all()
+        return [PendingOutboxEvent(id=row.id, payload=row.payload) for row in rows]
+
+    async def discard_terminal_outbox(self, *, limit: int = 32) -> int:
+        statement = (
+            select(OutboxEventModel)
+            .join(ExecutionModel, ExecutionModel.id == OutboxEventModel.aggregate_id)
+            .where(
+                OutboxEventModel.topic == GENERATION_OUTBOX_TOPIC,
+                OutboxEventModel.published_at.is_(None),
+                OutboxEventModel.discarded_at.is_(None),
+                ExecutionModel.status.in_(["completed", "failed"]),
+            )
+            .order_by(OutboxEventModel.created_at)
+            .limit(limit)
+            .with_for_update(skip_locked=True)
+        )
+        rows = (await self._session.scalars(statement)).all()
+        discarded_at = datetime.now(timezone.utc)
+        for row in rows:
+            row.discarded_at = discarded_at
+            row.payload = ""
+            row.last_error = "execution_terminated_before_dispatch"
+        await self._session.flush()
+        return len(rows)
+
+    async def mark_outbox_published(self, outbox_id: UUID) -> None:
+        row = await self._session.get(OutboxEventModel, outbox_id)
+        if row is None:
+            return
+        row.publish_attempts += 1
+        row.published_at = datetime.now(timezone.utc)
+        row.payload = ""
+        row.last_error = None
+        await self._session.flush()
+
+    async def mark_outbox_failed(self, outbox_id: UUID, error: str) -> None:
+        row = await self._session.get(OutboxEventModel, outbox_id)
+        if row is None:
+            return
+        row.publish_attempts += 1
+        row.last_error = error[:500]
+        await self._session.flush()
+
+    async def project_generation_event(self, event: GenerationEvent) -> ProjectionResult:
+        statement = (
+            select(ExecutionModel, ResponseRequestModel, ThreadModel, SpaceModel)
+            .join(
+                ResponseRequestModel,
+                ResponseRequestModel.id == ExecutionModel.response_request_id,
+            )
+            .join(ThreadModel, ThreadModel.id == ExecutionModel.thread_id)
+            .join(SpaceModel, SpaceModel.id == ThreadModel.space_id)
+            .where(ExecutionModel.id == event.execution_id)
+            .options(selectinload(ExecutionModel.model_execution))
+            .with_for_update()
+        )
+        row = (await self._session.execute(statement)).one_or_none()
+        if row is None:
+            return ProjectionResult(EventDisposition.IGNORE)
+        execution, request, thread, space = row
+        if event.thread_id != execution.thread_id:
+            return ProjectionResult(EventDisposition.IGNORE)
+        disposition = classify_generation_event(
+            attempt_id=execution.attempt_id,
+            last_sequence=execution.last_event_sequence,
+            last_event_id=execution.last_event_id,
+            last_event_type=execution.last_event_type,
+            execution_status=execution.status,
+            event=event,
+        )
+        if disposition in {EventDisposition.IGNORE, EventDisposition.DEFER}:
+            return ProjectionResult(disposition)
+        if disposition is EventDisposition.APPLY:
+            await self._apply_event(execution, request, thread, event)
+            execution.last_event_sequence = event.sequence
+            execution.last_event_id = event.id
+            execution.last_event_type = event.type.value
+            await self._session.flush()
+        return ProjectionResult(
+            disposition,
+            await self._projection(execution, request, thread, space),
+        )
+
+    async def _apply_event(
+        self,
+        execution: ExecutionModel,
+        request: ResponseRequestModel,
+        thread: ThreadModel,
+        event: GenerationEvent,
+    ) -> None:
+        now = datetime.now(timezone.utc)
+        thread.revision += 1
+        thread.updated_at = now
+        if event.type is GenerationEventType.STARTED:
+            execution.status = ResponseStatus.RUNNING.value
+            execution.started_at = execution.started_at or now
+            execution.lease_expires_at = now + timedelta(minutes=3)
+            execution.input_tokens = event.input_tokens
+            execution.model_execution.resolved_model = event.resolved_model
+            request.status = ResponseStatus.RUNNING.value
+            request.started_at = request.started_at or now
+            return
+        if event.type is GenerationEventType.HEARTBEAT:
+            execution.lease_expires_at = now + timedelta(minutes=3)
+            return
+        if event.type is GenerationEventType.DELTA:
+            execution.partial_output += event.delta or ""
+            execution.output_tokens = event.output_tokens
+            execution.lease_expires_at = now + timedelta(minutes=3)
+            return
+        if event.type is GenerationEventType.COMPLETED:
+            content = event.content if event.content is not None else execution.partial_output
+            if not content.strip():
+                self._fail_execution(execution, request, thread, now, "empty_generation")
+                return
+            last_ordinal = await self._session.scalar(
+                select(func.max(ThreadEntryModel.ordinal)).where(
+                    ThreadEntryModel.thread_id == thread.id
+                )
+            )
+            result = ThreadEntryModel(
+                id=uuid4(),
+                thread_id=thread.id,
+                author_actor_id=request.target_actor_id,
+                kind=EntryKind.MESSAGE.value,
+                ordinal=(last_ordinal if last_ordinal is not None else -1) + 1,
+            )
+            result.text = EntryTextContentModel(content=content)
+            self._session.add(result)
+            execution.partial_output = content
+            execution.status = ResponseStatus.COMPLETED.value
+            execution.result_entry_id = result.id
+            execution.output_tokens = event.output_tokens
+            execution.finish_reason = event.finish_reason.value if event.finish_reason else None
+            execution.finished_at = now
+            execution.lease_expires_at = None
+            request.status = ResponseStatus.COMPLETED.value
+            request.finished_at = now
+            thread.last_activity_at = now
+            return
+        self._fail_execution(
+            execution,
+            request,
+            thread,
+            now,
+            event.error_code or "generation_failed",
+        )
+
+    @staticmethod
+    def _fail_execution(
+        execution: ExecutionModel,
+        request: ResponseRequestModel,
+        thread: ThreadModel,
+        now: datetime,
+        error_code: str,
+    ) -> None:
+        execution.status = ResponseStatus.FAILED.value
+        execution.error_code = error_code
+        execution.finish_reason = "error"
+        execution.finished_at = now
+        execution.lease_expires_at = None
+        request.status = ResponseStatus.FAILED.value
+        request.finished_at = now
+        thread.last_activity_at = now
+
+    async def expire_executions(
+        self, now: datetime, *, limit: int = 32
+    ) -> list[ExecutionProjection]:
+        statement = (
+            select(ExecutionModel, ResponseRequestModel, ThreadModel, SpaceModel)
+            .join(
+                ResponseRequestModel,
+                ResponseRequestModel.id == ExecutionModel.response_request_id,
+            )
+            .join(ThreadModel, ThreadModel.id == ExecutionModel.thread_id)
+            .join(SpaceModel, SpaceModel.id == ThreadModel.space_id)
+            .where(
+                or_(
+                    and_(
+                        ExecutionModel.status == ResponseStatus.QUEUED.value,
+                        ExecutionModel.deadline_at <= now,
+                    ),
+                    and_(
+                        ExecutionModel.status == ResponseStatus.RUNNING.value,
+                        ExecutionModel.lease_expires_at <= now,
+                    ),
+                )
+            )
+            .order_by(ExecutionModel.deadline_at)
+            .limit(limit)
+            .options(selectinload(ExecutionModel.model_execution))
+            .with_for_update(skip_locked=True)
+        )
+        rows = (await self._session.execute(statement)).all()
+        projections: list[ExecutionProjection] = []
+        for execution, request, thread, space in rows:
+            thread.revision += 1
+            thread.updated_at = now
+            self._fail_execution(execution, request, thread, now, "generation_timeout")
+            projections.append(await self._projection(execution, request, thread, space))
+        await self._session.flush()
+        return projections
+
+    async def _projection(
+        self,
+        execution: ExecutionModel,
+        request: ResponseRequestModel,
+        thread: ThreadModel,
+        space: SpaceModel,
+    ) -> ExecutionProjection:
+        return ExecutionProjection(
+            principals=await self._space_principals(space.id),
+            space_id=space.id,
+            thread_id=thread.id,
+            thread_revision=thread.revision,
+            response_request_id=request.id,
+            execution_id=execution.id,
+            target_actor_id=request.target_actor_id,
+            result_entry_id=execution.result_entry_id,
+            content=execution.partial_output,
+            status=execution.status,
+            error_code=execution.error_code,
+        )
+
+    async def _space_principals(self, space_id: UUID) -> tuple[Principal, ...]:
+        statement = (
+            select(ActorModel.owner_user_id, ActorModel.guest_session_id)
+            .join(SpaceMembershipModel, SpaceMembershipModel.actor_id == ActorModel.id)
+            .where(
+                SpaceMembershipModel.space_id == space_id,
+                SpaceMembershipModel.status == "active",
+                ActorModel.kind == ActorKind.HUMAN.value,
+            )
+        )
+        principals = {
+            Principal(
+                PrincipalKind.USER if user_id is not None else PrincipalKind.GUEST,
+                user_id or guest_id,
+            )
+            for user_id, guest_id in (await self._session.execute(statement)).all()
+            if user_id is not None or guest_id is not None
+        }
+        return tuple(principals)
+
+    async def _latest_response(self, thread_id: UUID) -> ResponseRequest:
+        statement = (
+            select(ResponseRequestModel)
+            .where(ResponseRequestModel.thread_id == thread_id)
+            .order_by(ResponseRequestModel.created_at.desc())
+            .limit(1)
+            .options(
+                selectinload(ResponseRequestModel.target_actor),
+                selectinload(ResponseRequestModel.executions).selectinload(
+                    ExecutionModel.model_execution
+                ),
+            )
+        )
+        model = await self._session.scalar(statement)
+        if model is None:
+            raise RuntimeError("response request was not persisted")
+        return self._to_response(model)
+
+    async def _locked_thread(self, principal: Principal, thread_id: UUID) -> ThreadModel:
+        conditions = [ThreadModel.id == thread_id, self._space_accessible_by(principal)]
+        conditions.append(ThreadModel.status == "active")
+        statement = (
+            select(ThreadModel)
+            .join(SpaceModel, SpaceModel.id == ThreadModel.space_id)
+            .where(*conditions)
+            .with_for_update()
+        )
+        thread = await self._session.scalar(statement)
+        if thread is None:
+            raise ThreadNotFoundError
+        return thread
+
+    @staticmethod
+    def _actor_owned_by(principal: Principal):
+        if principal.kind is PrincipalKind.USER:
+            return ActorModel.owner_user_id == principal.id
+        return ActorModel.guest_session_id == principal.id
+
+    @staticmethod
+    def _space_owned_by(principal: Principal):
+        if principal.kind is PrincipalKind.USER:
+            return SpaceModel.owner_user_id == principal.id
+        return SpaceModel.guest_session_id == principal.id
+
+    @classmethod
+    def _space_accessible_by(cls, principal: Principal):
+        return (
+            select(SpaceMembershipModel.space_id)
+            .join(ActorModel, ActorModel.id == SpaceMembershipModel.actor_id)
+            .where(
+                SpaceMembershipModel.space_id == SpaceModel.id,
+                SpaceMembershipModel.status == "active",
+                cls._actor_owned_by(principal),
+            )
+            .exists()
+        )
+
+    @staticmethod
+    def _to_space(model: SpaceModel) -> SpaceSummary:
+        return SpaceSummary(
+            id=model.id, kind=model.kind, name=model.name, created_at=model.created_at
+        )
+
+    @staticmethod
+    def _to_summary(model: ThreadModel) -> ThreadSummary:
+        return ThreadSummary(
+            id=model.id,
+            space_id=model.space_id,
+            title=model.title,
+            answerer=AnswererId(model.default_answerer),
+            revision=model.revision,
+            created_at=model.created_at,
+            updated_at=model.updated_at,
+            last_activity_at=model.last_activity_at,
+        )
+
+    @classmethod
+    def _to_thread(cls, model: ThreadModel) -> Thread:
+        latest = max(model.response_requests, key=lambda item: item.created_at, default=None)
+        return Thread(
+            id=model.id,
+            space_id=model.space_id,
+            title=model.title,
+            answerer=AnswererId(model.default_answerer),
+            revision=model.revision,
+            entries=tuple(cls._to_entry(entry) for entry in model.entries),
+            latest_response=cls._to_response(latest) if latest is not None else None,
+            created_at=model.created_at,
+            updated_at=model.updated_at,
+            last_activity_at=model.last_activity_at,
+        )
+
+    @staticmethod
+    def _to_entry(model: ThreadEntryModel) -> Entry:
+        return Entry(
+            id=model.id,
+            thread_id=model.thread_id,
+            author=Actor(
+                id=model.author.id,
+                kind=ActorKind(model.author.kind),
+                key=model.author.key,
+                name=model.author.name,
+            ),
+            kind=EntryKind(model.kind),
+            content=model.text.content,
+            ordinal=model.ordinal,
+            created_at=model.created_at,
+        )
+
+    @classmethod
+    def _to_response(cls, model: ResponseRequestModel) -> ResponseRequest:
+        execution = max(model.executions, key=lambda item: item.attempt_no)
+        return ResponseRequest(
+            id=model.id,
+            thread_id=model.thread_id,
+            input_entry_id=model.input_entry_id,
+            requested_answerer=AnswererId(model.requested_answerer),
+            target_actor=Actor(
+                id=model.target_actor.id,
+                kind=ActorKind(model.target_actor.kind),
+                key=model.target_actor.key,
+                name=model.target_actor.name,
+            ),
+            status=ResponseStatus(model.status),
+            execution=cls._to_execution(execution),
+            created_at=model.created_at,
+        )
+
+    @staticmethod
+    def _to_execution(model: ExecutionModel) -> Execution:
+        return Execution(
+            id=model.id,
+            response_request_id=model.response_request_id,
+            thread_id=model.thread_id,
+            result_entry_id=model.result_entry_id,
+            answerer=AnswererId(model.model_execution.requested_model),
+            target=model.execution_target,
+            status=ResponseStatus(model.status),
+            attempt_id=model.attempt_id,
+            partial_output=model.partial_output,
+            resolved_model=model.model_execution.resolved_model,
+            error_code=model.error_code,
+            created_at=model.created_at,
+        )
+
+
+def _title_from(content: str) -> str:
+    compact = " ".join(content.split())
+    return compact if len(compact) <= 36 else f"{compact[:35]}…"

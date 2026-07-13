@@ -12,7 +12,7 @@ COMPOSE_DEV = $(COMPOSE_BASE) -f compose.dev.yaml
 	dev-backend dev-frontend dev-inference import-hina deploy-hina \
 	infra-check-env infra-config infra-up infra-up-internal infra-down infra-logs infra-ps \
 	tunnel-up tunnel-down db-shell redis-cli db-backup db-restore \
-	migrate migrate-auth migrate-app \
+	migrate migrate-auth migrate-app reinitialize-app-schema \
 	test test-integration lint build check
 
 install: install-backend install-frontend install-inference
@@ -116,13 +116,17 @@ migrate-auth:
 migrate-app:
 	cd backend && .venv/bin/alembic upgrade head
 
+reinitialize-app-schema: infra-check-env
+	ENV_FILE="$(abspath $(ENV_FILE))" sh ./infra/postgres/reinitialize-app-schema.sh
+	$(MAKE) migrate-app
+
 test:
 	$(BACKEND_PYTHON) -m pytest packages/contracts/tests
 	cd backend && .venv/bin/pytest
 	cd inference && .venv/bin/pytest
 
 test-integration: infra-check-env migrate-app
-	SODAI_INTEGRATION_TESTS=1 $(BACKEND_PYTHON) -m pytest backend/tests/test_inference_integration.py
+	SODAI_INTEGRATION_TESTS=1 $(BACKEND_PYTHON) -m pytest backend/tests/test_platform_integration.py
 	set -a; . ./$(ENV_FILE); set +a; cd inference && \
 		SODAI_INTEGRATION_TESTS=1 .venv/bin/pytest tests/test_redis_integration.py
 

@@ -6,20 +6,24 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import get_settings
 from app.db.session import dispose_engine
 from app.routers import api_router
-from app.services.conversation import get_conversation_service_singleton
-from app.services.inference.coordinator import get_inference_coordinator
+from app.services.inference.coordinator import create_generation_coordinator
+from app.services.inference.pseudo_worker import create_pseudo_generation_worker
 
 settings = get_settings()
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    coordinator = get_inference_coordinator()
+    coordinator = create_generation_coordinator(settings)
+    pseudo_worker = create_pseudo_generation_worker(settings)
     coordinator.start()
-    yield
-    await coordinator.stop()
-    await get_conversation_service_singleton().shutdown()
-    await dispose_engine()
+    pseudo_worker.start()
+    try:
+        yield
+    finally:
+        await pseudo_worker.stop()
+        await coordinator.stop()
+        await dispose_engine()
 
 
 app = FastAPI(

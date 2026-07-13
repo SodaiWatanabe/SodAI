@@ -1,18 +1,34 @@
 from app.models.account import AuthIdentityModel, UserModel
-from app.models.conversation import (
-    ConversationModel,
+from app.models.platform import (
+    ActorModel,
+    EntryTextContentModel,
+    ExecutionModel,
     GuestSessionModel,
-    InferenceOutboxModel,
-    InferenceRunModel,
-    MessageModel,
+    ModelExecutionModel,
+    OutboxEventModel,
+    ResponseContextItemModel,
+    ResponseRequestModel,
+    SpaceMembershipModel,
+    SpaceModel,
+    ThreadEntryModel,
+    ThreadModel,
+    ThreadParticipantModel,
 )
 
 __all__ = [
+    "ActorModel",
     "AuthIdentityModel",
-    "ConversationModel",
+    "EntryTextContentModel",
+    "ExecutionModel",
     "GuestSessionModel",
-    "InferenceOutboxModel",
-    "InferenceRunModel",
-    "MessageModel",
+    "ModelExecutionModel",
+    "OutboxEventModel",
+    "ResponseContextItemModel",
+    "ResponseRequestModel",
+    "SpaceMembershipModel",
+    "SpaceModel",
+    "ThreadEntryModel",
+    "ThreadModel",
+    "ThreadParticipantModel",
     "UserModel",
 ]

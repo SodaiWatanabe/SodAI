@@ -23,9 +23,10 @@ class Settings(BaseSettings):
         default=REPOSITORY_ROOT / "var" / "models",
         validation_alias=AliasChoices("SODAI_MODEL_ROOT", "model_root"),
     )
-    inference_job_stream: str = "sodai:inference:jobs:v1"
-    inference_event_stream: str = "sodai:inference:events:v1"
-    inference_event_group: str = "sodai-inference-projector-v1"
+    inference_job_stream: str = "sodai:inference:jobs:v2"
+    inference_event_stream: str = "sodai:inference:events:v2"
+    inference_event_group: str = "sodai-inference-projector-v2"
+    inference_worker_group: str = "sodai-inference-workers-v2"
     inference_event_claim_idle_ms: int = Field(default=2_000, ge=500, le=60_000)
     inference_job_timeout_seconds: int = Field(
         default=300, ge=MIN_INFERENCE_JOB_TIMEOUT_SECONDS, le=3600

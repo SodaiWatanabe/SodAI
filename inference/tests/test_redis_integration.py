@@ -49,9 +49,11 @@ async def test_event_publish_and_job_ack_are_atomic_in_redis() -> None:
     )
     worker = InferenceWorker(settings, redis, StubHina())  # type: ignore[arg-type]
     job = GenerationJob.create(
-        run_id=uuid4(),
+        execution_id=uuid4(),
+        response_request_id=uuid4(),
         attempt_id=uuid4(),
-        conversation_id=uuid4(),
+        thread_id=uuid4(),
+        answerer_actor_id=uuid4(),
         model="hina",
         artifact_id="integration",
         turns=(GenerationTurn(InferenceSpeaker.PARTNER, "統合テスト"),),
@@ -63,10 +65,10 @@ async def test_event_publish_and_job_ack_are_atomic_in_redis() -> None:
         await redis.set(lock_key, settings.consumer_name, ex=60)
         event = GenerationEvent.create(
             GenerationEventType.STARTED,
-            run_id=job.run_id,
+            execution_id=job.execution_id,
             attempt_id=job.attempt_id,
             sequence=0,
-            conversation_id=job.conversation_id,
+            thread_id=job.thread_id,
             resolved_model="hina@integration",
         )
         await worker._publish(event, progress_key)

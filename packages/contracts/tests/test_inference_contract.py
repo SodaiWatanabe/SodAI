@@ -16,9 +16,11 @@ from sodai_contracts.inference import (
 
 def test_generation_job_round_trip_preserves_partner_self_vocabulary() -> None:
     job = GenerationJob.create(
-        run_id=uuid4(),
+        execution_id=uuid4(),
+        response_request_id=uuid4(),
         attempt_id=uuid4(),
-        conversation_id=uuid4(),
+        thread_id=uuid4(),
+        answerer_actor_id=uuid4(),
         model="hina",
         artifact_id="8f42c9",
         turns=(
@@ -42,9 +44,11 @@ def test_generation_job_round_trip_preserves_partner_self_vocabulary() -> None:
 def test_generation_job_must_end_with_partner_turn() -> None:
     with pytest.raises(ValueError, match="partner turn"):
         GenerationJob.create(
-            run_id=uuid4(),
+            execution_id=uuid4(),
+            response_request_id=uuid4(),
             attempt_id=uuid4(),
-            conversation_id=uuid4(),
+            thread_id=uuid4(),
+            answerer_actor_id=uuid4(),
             model="hina",
             artifact_id="8f42c9",
             turns=(GenerationTurn(InferenceSpeaker.SELF, "応答"),),
@@ -54,9 +58,11 @@ def test_generation_job_must_end_with_partner_turn() -> None:
 
 def test_generation_job_bounds_history_size() -> None:
     common = {
-        "run_id": uuid4(),
+        "execution_id": uuid4(),
+        "response_request_id": uuid4(),
         "attempt_id": uuid4(),
-        "conversation_id": uuid4(),
+        "thread_id": uuid4(),
+        "answerer_actor_id": uuid4(),
         "model": "hina",
         "artifact_id": "8f42c9",
         "deadline": datetime.now(timezone.utc) + timedelta(minutes=5),
@@ -85,10 +91,10 @@ def test_generation_job_bounds_history_size() -> None:
 def test_generation_event_round_trip_preserves_completion_metadata() -> None:
     event = GenerationEvent.create(
         GenerationEventType.COMPLETED,
-        run_id=uuid4(),
+        execution_id=uuid4(),
         attempt_id=uuid4(),
         sequence=13,
-        conversation_id=uuid4(),
+        thread_id=uuid4(),
         content="応答",
         output_tokens=12,
         finish_reason=FinishReason.STOP,

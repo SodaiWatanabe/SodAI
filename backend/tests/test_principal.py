@@ -5,7 +5,7 @@ import pytest
 from fastapi import HTTPException, Request, Response
 from fastapi.security import HTTPAuthorizationCredentials
 
-from app.auth.principal import get_conversation_principal
+from app.auth.principal import get_principal
 from app.domain.accounts import Account, AccountStatus, ExternalIdentity
 
 ACCOUNT_ID = UUID("018f96d4-7c48-7c27-a71f-591e3cb8748a")
@@ -39,12 +39,12 @@ def anyio_backend() -> str:
 
 
 @pytest.mark.anyio
-async def test_suspended_account_cannot_become_conversation_principal() -> None:
+async def test_suspended_account_cannot_become_principal() -> None:
     request = Request({"type": "http", "headers": []})
     credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials="token")
 
     with pytest.raises(HTTPException) as captured:
-        await get_conversation_principal(
+        await get_principal(
             request=request,
             response=Response(),
             credentials=credentials,

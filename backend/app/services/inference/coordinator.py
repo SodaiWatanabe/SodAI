@@ -4,7 +4,6 @@ import asyncio
 import logging
 import os
 import socket
-from contextlib import suppress
 from datetime import datetime, timedelta, timezone
 
 from redis.asyncio import Redis
@@ -13,15 +12,17 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import Settings, get_settings
 from app.db.session import get_session_factory
-from app.domain.inference import InferenceEventDisposition, InferenceProjection
-from app.repositories.conversations import SqlAlchemyConversationRepository
+from app.domain.execution_events import EventDisposition, ExecutionProjection
+from app.repositories.threads import SqlAlchemyThreadRepository
 from app.services.inference.broker import RedisInferenceBroker, StreamBacklog
 from app.services.realtime import realtime_hub
 
 logger = logging.getLogger(__name__)
 
 
-class InferenceCoordinator:
+class GenerationCoordinator:
+    """Dispatches model jobs and projects every runtime through one state machine."""
+
     def __init__(
         self,
         session_factory: async_sessionmaker[AsyncSession],
@@ -40,9 +41,9 @@ class InferenceCoordinator:
         if self._tasks:
             return
         self._tasks = {
-            asyncio.create_task(self._dispatch_loop(), name="inference-outbox-dispatcher"),
-            asyncio.create_task(self._project_loop(), name="inference-event-projector"),
-            asyncio.create_task(self._reconcile_loop(), name="inference-run-reconciler"),
+            asyncio.create_task(self._dispatch_loop(), name="generation-outbox-dispatcher"),
+            asyncio.create_task(self._project_loop(), name="generation-event-projector"),
+            asyncio.create_task(self._reconcile_loop(), name="generation-reconciler"),
         }
 
     async def stop(self) -> None:
@@ -61,13 +62,14 @@ class InferenceCoordinator:
             except asyncio.CancelledError:
                 raise
             except Exception:
-                logger.exception("Inference outbox dispatch failed")
+                logger.exception("Generation outbox dispatch failed")
                 await asyncio.sleep(1)
 
     async def _dispatch_pending(self) -> int:
         async with self._session_factory() as session:
-            repository = SqlAlchemyConversationRepository(session)
-            pending = await repository.pending_inference_outbox()
+            repository = SqlAlchemyThreadRepository(session)
+            await repository.discard_terminal_outbox()
+            pending = await repository.pending_outbox()
             for message in pending:
                 try:
                     await self._broker.publish_job(message.payload)
@@ -89,22 +91,21 @@ class InferenceCoordinator:
                 raise
             except Exception:
                 self._recovery_complete = False
-                logger.exception("Inference event projection failed")
+                logger.exception("Generation event projection failed")
                 await asyncio.sleep(1)
 
     async def _project(self, message_id: str, payload: str) -> None:
         try:
             event = GenerationEvent.from_json(payload)
         except (TypeError, ValueError):
-            logger.exception("Discarding invalid inference event %s", message_id)
+            logger.exception("Discarding invalid generation event %s", message_id)
             await self._broker.acknowledge_event(message_id)
             self._deferred_messages.discard(message_id)
             return
-
         async with self._session_factory() as session:
-            result = await SqlAlchemyConversationRepository(session).project_inference_event(event)
+            result = await SqlAlchemyThreadRepository(session).project_generation_event(event)
             await session.commit()
-        if result.disposition is InferenceEventDisposition.DEFER:
+        if result.disposition is EventDisposition.DEFER:
             self._deferred_messages.add(message_id)
             return
         if result.projection is not None:
@@ -121,73 +122,89 @@ class InferenceCoordinator:
                         await asyncio.sleep(0.25)
                         continue
                     self._recovery_complete = True
-                projections = await self._expire_runs()
+                projections = await self._expire_executions()
                 delay = 0 if len(projections) == 32 else self._reconciliation_interval_seconds
                 await asyncio.sleep(delay)
             except asyncio.CancelledError:
                 raise
             except Exception:
                 self._recovery_complete = False
-                logger.exception("Inference run reconciliation failed")
+                logger.exception("Generation reconciliation failed")
                 await asyncio.sleep(self._reconciliation_interval_seconds)
 
-    async def _expire_runs(self) -> list[InferenceProjection]:
+    async def _expire_executions(self) -> list[ExecutionProjection]:
         async with self._session_factory() as session:
-            projections = await SqlAlchemyConversationRepository(session).expire_inference_runs(
+            projections = await SqlAlchemyThreadRepository(session).expire_executions(
                 datetime.now(timezone.utc)
                 - timedelta(seconds=self._reconciliation_interval_seconds)
             )
             await session.commit()
         for projection in projections:
-            await realtime_hub.publish(
-                projection.principal,
-                "response.failed",
-                projection.conversation_id,
-                projection.run_id,
-                {
-                    "message_id": str(projection.output_message_id),
-                    "error_code": "inference_timeout",
+            await self._publish_projection(
+                projection,
+                event_type="response.failed",
+                data={
+                    "target_actor_id": str(projection.target_actor_id),
+                    "error_code": projection.error_code,
                 },
             )
         return projections
 
-    @staticmethod
-    async def _publish_realtime(event, projection) -> None:
-        message_id = str(projection.output_message_id)
+    async def _publish_realtime(
+        self, event: GenerationEvent, projection: ExecutionProjection
+    ) -> None:
         if event.type is GenerationEventType.HEARTBEAT:
             return
-        event_type = {
-            GenerationEventType.STARTED: "response.started",
-            GenerationEventType.DELTA: "response.delta",
-            GenerationEventType.COMPLETED: "response.completed",
-            GenerationEventType.FAILED: "response.failed",
-        }[event.type]
-        data = {"message_id": message_id}
-        if event.type is GenerationEventType.STARTED:
+        if projection.status == "failed":
+            event_type = "response.failed"
+        else:
+            event_type = {
+                GenerationEventType.STARTED: "response.started",
+                GenerationEventType.DELTA: "response.delta",
+                GenerationEventType.COMPLETED: "response.completed",
+                GenerationEventType.FAILED: "response.failed",
+            }[event.type]
+        data: dict[str, str | int | None] = {
+            "target_actor_id": str(projection.target_actor_id),
+            "result_entry_id": (
+                str(projection.result_entry_id) if projection.result_entry_id else None
+            ),
+        }
+        if event_type == "response.started":
             data["resolved_model"] = event.resolved_model
-        elif event.type is GenerationEventType.DELTA:
+        elif event_type == "response.delta":
             data.update({"delta": event.delta, "content": projection.content})
-        elif event.type is GenerationEventType.COMPLETED:
-            data.update(
-                {
-                    "content": projection.content,
-                    "finish_reason": event.finish_reason.value if event.finish_reason else None,
-                }
+        elif event_type == "response.completed":
+            data.update({"content": projection.content})
+        else:
+            data["error_code"] = projection.error_code or event.error_code
+        await self._publish_projection(projection, event_type=event_type, data=data)
+
+    @staticmethod
+    async def _publish_projection(
+        projection: ExecutionProjection,
+        *,
+        event_type: str,
+        data: dict[str, object],
+    ) -> None:
+        for principal in projection.principals:
+            await realtime_hub.publish(
+                principal,
+                event_type=event_type,
+                space_id=projection.space_id,
+                thread_id=projection.thread_id,
+                thread_revision=projection.thread_revision,
+                response_request_id=projection.response_request_id,
+                execution_id=projection.execution_id,
+                data=data,
             )
-        await realtime_hub.publish(
-            projection.principal,
-            event_type,
-            projection.conversation_id,
-            projection.run_id,
-            data,
-        )
 
 
 def reconciliation_is_safe(backlog: StreamBacklog, deferred_message_count: int) -> bool:
     return backlog.lag == 0 and backlog.pending <= deferred_message_count
 
 
-def create_inference_coordinator(settings: Settings | None = None) -> InferenceCoordinator:
+def create_generation_coordinator(settings: Settings | None = None) -> GenerationCoordinator:
     settings = settings or get_settings()
     redis = Redis.from_url(
         settings.redis_url,
@@ -202,26 +219,8 @@ def create_inference_coordinator(settings: Settings | None = None) -> InferenceC
         event_consumer=f"{socket.gethostname()}-{os.getpid()}-api",
         event_claim_idle_ms=settings.inference_event_claim_idle_ms,
     )
-    return InferenceCoordinator(
+    return GenerationCoordinator(
         get_session_factory(),
         broker,
         reconciliation_interval_seconds=settings.inference_reconciliation_interval_seconds,
     )
-
-
-_coordinator: InferenceCoordinator | None = None
-
-
-def get_inference_coordinator() -> InferenceCoordinator:
-    global _coordinator
-    if _coordinator is None:
-        _coordinator = create_inference_coordinator()
-    return _coordinator
-
-
-async def reset_inference_coordinator() -> None:
-    global _coordinator
-    if _coordinator is not None:
-        with suppress(Exception):
-            await _coordinator.stop()
-    _coordinator = None

@@ -1,9 +1,12 @@
 import asyncio
 from collections.abc import AsyncIterator
 
+ASUKA_PSEUDO_ARTIFACT_ID = "pseudo-v1"
+ASUKA_PSEUDO_RESOLVED_MODEL = f"asuka-1@{ASUKA_PSEUDO_ARTIFACT_ID}"
 
-class PseudoSodAI:
-    """Development provider with the same streaming contract as a model worker."""
+
+class AsukaPseudoGenerator:
+    """Deterministic stand-in that exercises the production generation path."""
 
     chunk_size = 2
     chunk_interval_seconds = 0.045

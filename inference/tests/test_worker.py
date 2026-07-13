@@ -73,9 +73,11 @@ class FakeRedis:
 
 def job() -> GenerationJob:
     return GenerationJob.create(
-        run_id=uuid4(),
+        execution_id=uuid4(),
+        response_request_id=uuid4(),
         attempt_id=uuid4(),
-        conversation_id=uuid4(),
+        thread_id=uuid4(),
+        answerer_actor_id=uuid4(),
         model="hina",
         artifact_id="artifact",
         turns=(GenerationTurn(InferenceSpeaker.PARTNER, "こんにちは"),),

@@ -7,7 +7,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID, uuid4
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 MAX_GENERATION_TURNS = 32
 MAX_GENERATION_INPUT_BYTES = 64 * 1024
 INFERENCE_ATTEMPT_LOCK_SECONDS = 60
@@ -73,9 +73,11 @@ class GenerationOptions:
 @dataclass(frozen=True, slots=True)
 class GenerationJob:
     id: UUID
-    run_id: UUID
+    execution_id: UUID
+    response_request_id: UUID
     attempt_id: UUID
-    conversation_id: UUID
+    thread_id: UUID
+    answerer_actor_id: UUID
     model: str
     artifact_id: str
     turns: tuple[GenerationTurn, ...]
@@ -91,7 +93,9 @@ class GenerationJob:
         if not self.turns:
             raise ValueError("generation job must contain at least one turn")
         if len(self.turns) > MAX_GENERATION_TURNS:
-            raise ValueError(f"generation job cannot exceed {MAX_GENERATION_TURNS} turns")
+            raise ValueError(
+                f"generation job cannot exceed {MAX_GENERATION_TURNS} turns"
+            )
         input_bytes = sum(len(turn.content.encode("utf-8")) for turn in self.turns)
         if input_bytes > MAX_GENERATION_INPUT_BYTES:
             raise ValueError(
@@ -110,9 +114,11 @@ class GenerationJob:
     def create(
         cls,
         *,
-        run_id: UUID,
+        execution_id: UUID,
+        response_request_id: UUID,
         attempt_id: UUID,
-        conversation_id: UUID,
+        thread_id: UUID,
+        answerer_actor_id: UUID,
         model: str,
         artifact_id: str,
         turns: tuple[GenerationTurn, ...],
@@ -122,9 +128,11 @@ class GenerationJob:
         requested_at = datetime.now(timezone.utc)
         return cls(
             id=uuid4(),
-            run_id=run_id,
+            execution_id=execution_id,
+            response_request_id=response_request_id,
             attempt_id=attempt_id,
-            conversation_id=conversation_id,
+            thread_id=thread_id,
+            answerer_actor_id=answerer_actor_id,
             model=model,
             artifact_id=artifact_id,
             turns=turns,
@@ -138,13 +146,16 @@ class GenerationJob:
             {
                 "schema_version": SCHEMA_VERSION,
                 "id": str(self.id),
-                "run_id": str(self.run_id),
+                "execution_id": str(self.execution_id),
+                "response_request_id": str(self.response_request_id),
                 "attempt_id": str(self.attempt_id),
-                "conversation_id": str(self.conversation_id),
+                "thread_id": str(self.thread_id),
+                "answerer_actor_id": str(self.answerer_actor_id),
                 "model": self.model,
                 "artifact_id": self.artifact_id,
                 "turns": [
-                    {"speaker": turn.speaker.value, "content": turn.content} for turn in self.turns
+                    {"speaker": turn.speaker.value, "content": turn.content}
+                    for turn in self.turns
                 ],
                 "options": asdict(self.options),
                 "requested_at": self.requested_at.isoformat(),
@@ -166,14 +177,18 @@ class GenerationJob:
             raise ValueError("options must be an object")
         return cls(
             id=UUID(_required_string(value, "id")),
-            run_id=UUID(_required_string(value, "run_id")),
+            execution_id=UUID(_required_string(value, "execution_id")),
+            response_request_id=UUID(_required_string(value, "response_request_id")),
             attempt_id=UUID(_required_string(value, "attempt_id")),
-            conversation_id=UUID(_required_string(value, "conversation_id")),
+            thread_id=UUID(_required_string(value, "thread_id")),
+            answerer_actor_id=UUID(_required_string(value, "answerer_actor_id")),
             model=_required_string(value, "model"),
             artifact_id=_required_string(value, "artifact_id"),
             turns=tuple(GenerationTurn.from_dict(turn) for turn in turns),
             options=GenerationOptions.from_dict(options),
-            requested_at=datetime.fromisoformat(_required_string(value, "requested_at")),
+            requested_at=datetime.fromisoformat(
+                _required_string(value, "requested_at")
+            ),
             deadline=datetime.fromisoformat(_required_string(value, "deadline")),
         )
 
@@ -182,10 +197,10 @@ class GenerationJob:
 class GenerationEvent:
     id: UUID
     type: GenerationEventType
-    run_id: UUID
+    execution_id: UUID
     attempt_id: UUID
     sequence: int
-    conversation_id: UUID
+    thread_id: UUID
     occurred_at: datetime
     resolved_model: str | None = None
     delta: str | None = None
@@ -216,19 +231,19 @@ class GenerationEvent:
         cls,
         event_type: GenerationEventType,
         *,
-        run_id: UUID,
+        execution_id: UUID,
         attempt_id: UUID,
         sequence: int,
-        conversation_id: UUID,
+        thread_id: UUID,
         **values: Any,
     ) -> GenerationEvent:
         return cls(
             id=uuid4(),
             type=event_type,
-            run_id=run_id,
+            execution_id=execution_id,
             attempt_id=attempt_id,
             sequence=sequence,
-            conversation_id=conversation_id,
+            thread_id=thread_id,
             occurred_at=datetime.now(timezone.utc),
             **values,
         )
@@ -238,10 +253,10 @@ class GenerationEvent:
             "schema_version": SCHEMA_VERSION,
             "id": str(self.id),
             "type": self.type.value,
-            "run_id": str(self.run_id),
+            "execution_id": str(self.execution_id),
             "attempt_id": str(self.attempt_id),
             "sequence": self.sequence,
-            "conversation_id": str(self.conversation_id),
+            "thread_id": str(self.thread_id),
             "occurred_at": self.occurred_at.isoformat(),
             "resolved_model": self.resolved_model,
             "delta": self.delta,
@@ -261,17 +276,19 @@ class GenerationEvent:
         return cls(
             id=UUID(_required_string(value, "id")),
             type=GenerationEventType(_required_string(value, "type")),
-            run_id=UUID(_required_string(value, "run_id")),
+            execution_id=UUID(_required_string(value, "execution_id")),
             attempt_id=UUID(_required_string(value, "attempt_id")),
             sequence=_required_int(value, "sequence"),
-            conversation_id=UUID(_required_string(value, "conversation_id")),
+            thread_id=UUID(_required_string(value, "thread_id")),
             occurred_at=datetime.fromisoformat(_required_string(value, "occurred_at")),
             resolved_model=_optional_string(value, "resolved_model"),
             delta=_optional_string(value, "delta"),
             content=_optional_string(value, "content"),
             input_tokens=_optional_int(value, "input_tokens"),
             output_tokens=_optional_int(value, "output_tokens"),
-            finish_reason=FinishReason(finish_reason) if finish_reason is not None else None,
+            finish_reason=FinishReason(finish_reason)
+            if finish_reason is not None
+            else None,
             error_code=_optional_string(value, "error_code"),
         )
 
