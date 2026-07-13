@@ -10,7 +10,7 @@ COMPOSE_DEV = $(COMPOSE_BASE) -f compose.dev.yaml
 
 .PHONY: install install-contracts install-backend install-frontend install-inference \
 	dev-backend dev-frontend dev-inference import-hina deploy-hina \
-	inference-status test-inference-e2e \
+	inference-status credits-grant credits-expire test-inference-e2e \
 	infra-check-env infra-config infra-up infra-up-internal infra-down infra-logs infra-ps \
 	tunnel-up tunnel-down db-shell redis-cli db-backup db-restore \
 	migrate migrate-auth migrate-app reinitialize-app-schema \
@@ -64,6 +64,18 @@ deploy-hina: infra-check-env
 
 inference-status:
 	cd backend && .venv/bin/python -m app.cli.inference_status
+
+credits-grant:
+	@test -n "$(USER_ID)" || { echo 'USER_ID=<uuid> を指定してください。' >&2; exit 1; }
+	@test -n "$(AMOUNT)" || { echo 'AMOUNT=<最小クレジット単位> を指定してください。' >&2; exit 1; }
+	@test -n "$(IDEMPOTENCY_KEY)" || { echo 'IDEMPOTENCY_KEY=<一意キー> を指定してください。' >&2; exit 1; }
+	cd backend && .venv/bin/python -m app.cli.credits_grant \
+		--user-id "$(USER_ID)" --amount "$(AMOUNT)" --idempotency-key "$(IDEMPOTENCY_KEY)" \
+		$(if $(SOURCE_KIND),--source-kind "$(SOURCE_KIND)") \
+		$(if $(EXPIRES_AT),--expires-at "$(EXPIRES_AT)")
+
+credits-expire:
+	cd backend && .venv/bin/python -m app.cli.credits_expire
 
 test-inference-e2e: infra-check-env
 	ENV_FILE="$(ENV_FILE)" ./infra/scripts/test-inference-e2e.sh
@@ -133,8 +145,8 @@ test:
 	cd inference && .venv/bin/pytest
 	cd frontend && npm test
 
-test-integration: infra-check-env migrate-app
-	SODAI_INTEGRATION_TESTS=1 $(BACKEND_PYTHON) -m pytest backend/tests/test_platform_integration.py
+test-integration: infra-check-env
+	ENV_FILE="$(ENV_FILE)" ./infra/scripts/test-backend-integration.sh
 	set -a; . ./$(ENV_FILE); set +a; cd inference && \
 		SODAI_INTEGRATION_TESTS=1 .venv/bin/pytest tests/test_redis_integration.py
 
