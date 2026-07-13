@@ -13,6 +13,7 @@ import {
 import { useChatData } from "@/components/chat/chat-data-provider";
 import { ChatHeader } from "@/components/chat/chat-header";
 import { settleComposerFocus } from "@/components/chat/composer-focus";
+import { reduceThreadRealtime } from "@/components/chat/thread-realtime";
 import { ThreadViewport } from "@/components/chat/thread-viewport";
 import { useToast } from "@/components/ui/toast-provider";
 import type {
@@ -57,6 +58,8 @@ export function ThreadShell({ threadId }: ThreadShellProps) {
   const stickToBottomRef = useRef(true);
   const mountedRef = useRef(true);
   const refreshGenerationRef = useRef(0);
+  const pendingExecutionSyncRef = useRef<string | undefined>(undefined);
+  const executionSyncDirtyRef = useRef(false);
   const [thread, setThreadState] = useState<Thread>();
   const [answerer, setAnswerer] = useState<AvailableAnswerer["id"]>();
   const [message, setMessage] = useState("");
@@ -129,6 +132,24 @@ export function ThreadShell({ threadId }: ThreadShellProps) {
       }
     }
 
+    function syncExecutionOnce(executionId: string | null) {
+      const key = executionId ?? "thread";
+      if (pendingExecutionSyncRef.current === key) {
+        executionSyncDirtyRef.current = true;
+        return;
+      }
+      pendingExecutionSyncRef.current = key;
+      void syncThread(false).finally(() => {
+        if (pendingExecutionSyncRef.current === key) {
+          pendingExecutionSyncRef.current = undefined;
+          if (executionSyncDirtyRef.current) {
+            executionSyncDirtyRef.current = false;
+            syncExecutionOnce(executionId);
+          }
+        }
+      });
+    }
+
     function applyRealtime(event: RealtimeEvent) {
       if (event.type === "sync.required") {
         void syncThread(false);
@@ -151,62 +172,12 @@ export function ThreadShell({ threadId }: ThreadShellProps) {
         );
         return;
       }
-      if (
-        event.type !== "response.started" &&
-        event.type !== "response.delta" &&
-        event.type !== "response.completed" &&
-        event.type !== "response.failed"
-      ) {
-        return;
+      const decision = reduceThreadRealtime(threadRef.current, event);
+      if (!decision.handled) return;
+      if (decision.next !== threadRef.current) {
+        updateThread(() => decision.next);
       }
-
-      const terminal =
-        event.type === "response.completed" || event.type === "response.failed";
-      const currentResponse = threadRef.current?.latest_response;
-      if (!currentResponse || currentResponse.id !== event.response_request_id) {
-        if (terminal) void syncThread(false);
-        return;
-      }
-      updateThread((current) => {
-        const response = current?.latest_response;
-        if (
-          !current ||
-          !response ||
-          response.id !== event.response_request_id ||
-          event.thread_revision < current.revision
-        ) {
-          return current;
-        }
-        const status =
-          event.type === "response.completed"
-            ? "completed"
-            : event.type === "response.failed"
-              ? "failed"
-              : "running";
-        return {
-          ...current,
-          revision: event.thread_revision,
-          latest_response: {
-            ...response,
-            status,
-            execution: {
-              ...response.execution,
-              status,
-              partial_output:
-                event.data.content ?? response.execution.partial_output,
-              resolved_model:
-                event.data.resolved_model ?? response.execution.resolved_model,
-              result_entry_id:
-                event.data.result_entry_id ?? response.execution.result_entry_id,
-              error_code:
-                event.data.error_code ?? response.execution.error_code,
-            },
-          },
-        };
-      });
-      if (terminal) {
-        void syncThread(false);
-      }
+      if (decision.shouldSync) syncExecutionOnce(event.execution_id);
     }
 
     const unsubscribeRealtime = subscribeRealtime(applyRealtime);
@@ -214,6 +185,8 @@ export function ThreadShell({ threadId }: ThreadShellProps) {
     return () => {
       cancelled = true;
       refreshGenerationRef.current += 1;
+      pendingExecutionSyncRef.current = undefined;
+      executionSyncDirtyRef.current = false;
       unsubscribeRealtime();
       dismissToast("thread-load");
     };

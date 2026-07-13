@@ -4,6 +4,7 @@ import type { ApiAccessTokenSource } from "@/lib/auth/api-client";
 import { API_BASE_URL } from "@/lib/api/base-url";
 import type {
   AvailableAnswerer,
+  Execution,
   ResponseCreation,
   Thread,
   ThreadSummary,
@@ -96,6 +97,20 @@ export function createChatApi(accessToken: ApiAccessTokenSource) {
     return (await response.json()) as ResponseCreation;
   }
 
+  async function retryResponse(
+    responseRequestId: string,
+    idempotencyKey: string,
+  ): Promise<Execution> {
+    const response = await apiFetch(
+      `/api/v1/response-requests/${responseRequestId}/executions`,
+      {
+        method: "POST",
+        headers: { "Idempotency-Key": idempotencyKey },
+      },
+    );
+    return (await response.json()) as Execution;
+  }
+
   async function createRealtimeSocket(after?: number): Promise<WebSocket> {
     const response = await apiFetch("/api/v1/realtime/tickets", {
       method: "POST",
@@ -119,6 +134,7 @@ export function createChatApi(accessToken: ApiAccessTokenSource) {
     getThread,
     listAnswerers,
     listThreads,
+    retryResponse,
     updateThread,
   };
 }

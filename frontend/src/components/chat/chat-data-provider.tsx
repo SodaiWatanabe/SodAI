@@ -132,6 +132,7 @@ export function ChatDataProvider({ children }: { children: ReactNode }) {
           revision: event.thread_revision,
         });
       } else if (
+        event.type === "response.queued" ||
         event.type === "response.completed" ||
         event.type === "response.failed"
       ) {

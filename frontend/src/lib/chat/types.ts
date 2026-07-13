@@ -33,6 +33,7 @@ export type Execution = {
   answerer: string;
   target: string;
   status: "queued" | "running" | "completed" | "failed";
+  attempt_no: number;
   attempt_id: string;
   partial_output: string;
   resolved_model: string | null;
@@ -76,6 +77,7 @@ export type RealtimeEvent = {
     | "thread.updated"
     | "thread.archived"
     | "entry.created"
+    | "response.queued"
     | "response.started"
     | "response.delta"
     | "response.completed"
@@ -100,5 +102,6 @@ export type RealtimeEvent = {
     created_at?: string;
     updated_at?: string;
     last_activity_at?: string;
+    attempt_no?: number;
   };
 };
