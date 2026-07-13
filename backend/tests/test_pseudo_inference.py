@@ -23,6 +23,14 @@ def test_pseudo_sodai_keeps_partner_message_in_generic_response() -> None:
     assert "疑似AI" in response
 
 
+@pytest.mark.parametrize(
+    "message",
+    ["こんにちは", "ありがとう", "これはどう考えますか？", "今日は設計について考えています"],
+)
+def test_pseudo_sodai_response_is_long_enough_to_observe_streaming(message: str) -> None:
+    assert len(PseudoSodAI.compose(message)) >= 90
+
+
 def test_guest_cannot_select_asuka_1() -> None:
     principal = ConversationPrincipal(
         PrincipalKind.GUEST,
