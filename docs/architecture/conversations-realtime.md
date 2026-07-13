@@ -10,14 +10,15 @@ Next.js
   ├─ HTTP /api/v1/conversations ── FastAPI ── PostgreSQL app schema
   └─ WS   /api/v1/realtime      ── RealtimeHub
                                          │
-                                  PseudoSodAI stream
+                                  Redis event projector
+                                         │
+                                  Hina GPU worker
 ```
 
-現在の`RealtimeHub`と疑似推論taskはFastAPIプロセス内で動作します。これはUIから永続化、
-再接続、streaming providerまでの縦切りを検証する初期実装です。複数APIプロセスまたはGPU
-workerへ展開する際は、同じイベントenvelopeを保ったままRedis Streamsと独立workerへ交換します。
-単一プロセスの再起動時には、前プロセスが残した`queued/running` runを`failed`へ収束させ、
-会話が永久に送信不能にならないようにします。
+Hinaの推論は独立workerで動作します。会話書き込みとoutboxは同一transactionで確定し、Redis
+Streamsを通じてjobと内部生成eventを配送します。FastAPIのprojectorだけがDBと公開WebSocket
+eventを更新します。API再起動時に全running runを失敗扱いにはせず、workerから継続して届く
+`attempt_id + sequence`付きeventを適用します。
 
 ## 話者
 
@@ -54,10 +55,10 @@ hashだけを保存します。会話は必ず内部ユーザーまたは匿名�
 `GET /api/v1/models`が返す`name`、`description`、`is_default`を表示と初期選択に使います。
 現在の契約は次のとおりです。
 
-| ID | 表示名 | 利用主体 | runtime ID |
+| ID | 表示名 | 利用主体 | runtime target |
 | --- | --- | --- | --- |
-| `hina` | Hina | 全主体 | `pseudo-sodai-hina-v1` |
-| `asuka-1` | Asuka 1 | ログインユーザー | `pseudo-sodai-asuka-1-v1` |
+| `hina` | Hina | 全主体 | `local:hina` |
+| `asuka-1` | Asuka 1 | ログインユーザー | `pseudo:asuka-1` |
 
 ゲストのデフォルトは`hina`、ログインユーザーのデフォルトは`asuka-1`です。リクエストで
 `model`を省略した場合も、認証主体から同じ規則で選択します。APIが受け取る`model`には公開ID、
@@ -87,13 +88,13 @@ runtime解決を一貫させます。
 `response.delta.data.content`はその時点の累積本文です。再送やsnapshotとの競合があっても、
 クライアントは文字列を追加するのではなく累積本文で置換できるため重複しません。
 Webクライアントはアプリケーション共通層でWebSocketを1本だけ維持し、会話一覧の変更と
-表示中の生成イベントをそれぞれの購読先へ配信します。
+表示中の生成イベントをそれぞれの購読先へ配信します。再接続時はprocess-local event履歴だけを
+信用せず、会話一覧と表示中会話をHTTPで再取得してPostgreSQL上の正本へ収束します。
 
-## 次の本番化境界
+## 次の拡張境界
 
-1. 推論run作成とRedis enqueueをtransactional outboxで接続する
-2. `PseudoSodAI`を独立GPU workerのproviderへ交換する
-3. Realtime履歴をRedis Streamsへ移し、複数FastAPI instance間で共有する
-4. API key、project、quota、usage ledgerを開発者APIの認証境界として追加する
-5. 匿名会話をログインユーザーへ明示的に引き継ぐ処理を追加する
-6. `Idempotency-Key`をprincipal単位で保存し、公開APIの安全な再送を保証する
+1. Realtime履歴とticketを共有storageへ移し、commit後eventをfan-outして複数FastAPI instance間で共有する
+2. 現在の期限切れfailed収束に加え、明示的な再試行、最大試行回数、dead-letter運用を追加する
+3. API key、project、quota、usage ledgerを開発者APIの認証境界として追加する
+4. 匿名会話をログインユーザーへ明示的に引き継ぐ処理を追加する
+5. `Idempotency-Key`をprincipal単位で保存し、公開APIの安全な再送を保証する

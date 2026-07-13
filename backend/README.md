@@ -34,6 +34,22 @@ Public model IDs are opaque, immutable API identifiers. The current catalog uses
 `hina` as the guest default and `asuka-1` as the authenticated default. Omitting
 `model` resolves through the same principal-aware policy. API requests and
 `inference_runs.requested_model` store the selected public ID; the separately
-versioned `resolved_model` records the concrete provider runtime. Additions start
+versioned `resolved_model` records the immutable artifact, such as
+`hina@<artifact-id>`. Additions start
 in `app.domain.model_catalog` so metadata, audience rules, contextual defaults,
 and runtime resolution do not drift across endpoints.
+
+The browser never starts an inference run. Conversation writes create the run and
+transactional outbox together. The dispatcher publishes committed jobs to Redis,
+and the projector is the only component allowed to apply worker events to the
+database and public WebSocket stream.
+
+Generation jobs carry at most 32 recent turns and 64 KiB of message content.
+PostgreSQL advisory locking enforces the configured guest and global active-run
+limits before a Hina run is committed. Processed Redis entries and published
+outbox payloads are removed because PostgreSQL is the sole conversation record.
+
+The current realtime hub and one-time ticket store are process-local, so the
+supported deployment shape is one FastAPI process. Horizontal API scaling first
+requires a shared ticket store and committed-event fan-out; it must not be enabled
+only by increasing Uvicorn's worker count.

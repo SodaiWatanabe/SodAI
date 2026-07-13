@@ -1,23 +1,23 @@
 # SodAI
 
-SodAI は、独自LLMをチャット・評価・クレジット・将来のモデル公開へつなぐ、データ主権を重視したAIプラットフォームです。現在は、Next.js、Better Auth、FastAPI、PostgreSQLを用いたセルフホスト可能な認証・アカウント基盤を構築しています。
+SodAI は、独自LLMをチャット・評価・クレジット・将来のモデル公開へつなぐ、データ主権を重視したAIプラットフォームです。Next.js、Better Auth、FastAPI、PostgreSQL、Redis、独立GPU推論ワーカーを用いてセルフホストできます。
 
 ## アーキテクチャ
 
 ```text
 Browser
   ├─ Next.js / Better Auth  ── PostgreSQL auth schema
-  └─ FastAPI                ── PostgreSQL app schema
+  └─ FastAPI                ── PostgreSQL app schema / inference outbox
                                   │
-                                  └─ Redis（将来の推論キュー）
+                                  └─ Redis Streams ── Hina GPU worker
 
 Internet ── Cloudflare Tunnel ── 自宅環境
-                                      └─ 将来: SodAI GPU worker
+                                      └─ SodAI GPU worker
 ```
 
 認証プロバイダーのユーザーIDをサービス全体の主キーにせず、SodAI内部の不変UUIDと`(issuer, subject)`の対応として扱います。これによりBetter Authを自前運用しながら、将来Cognitoなどへ段階移行できます。詳細は[認証・アカウント境界](docs/architecture/authentication.md)を参照してください。
 
-会話はHTTPで永続化し、疑似AIまたは将来のSodAI workerからの生成差分をWebSocketで配信します。匿名会話、再読込後の復元、イベント再送、モデル権限の境界は[会話・リアルタイム基盤](docs/architecture/conversations-realtime.md)にまとめています。
+会話はHTTPで永続化し、Hina workerからの生成差分をWebSocketで配信します。匿名会話、再読込後の復元、イベント再送、モデル権限の境界は[会話・リアルタイム基盤](docs/architecture/conversations-realtime.md)、モデル成果物とGPU実行の境界は[推論基盤](docs/architecture/inference.md)にまとめています。
 
 ## ディレクトリ
 
@@ -25,6 +25,9 @@ Internet ── Cloudflare Tunnel ── 自宅環境
 SodAI/
 ├── backend/                 # FastAPI、app schema、認証トークン検証
 ├── frontend/                # Next.js、Better Auth、auth schema
+├── inference/               # HinaのGPU推論worker
+├── packages/contracts/      # APIとworkerのversioned内部契約
+├── var/models/              # Git管理外のimmutableモデル成果物
 ├── infra/
 │   └── postgres/            # 初期権限、バックアップ、復元
 ├── docs/
@@ -74,6 +77,22 @@ cp frontend/.env.example frontend/.env.local
 make migrate
 ```
 
+HinaをBuilding-SLMのv1 SFT成果物から取り込みます。
+
+```bash
+make import-hina \
+  CHECKPOINT=../Building-SLM/checkpoints/v1/gpt_sft.pt \
+  TOKENIZER=../Building-SLM/tokenizer \
+  SOURCE_REPOSITORY=../Building-SLM
+# 別ターミナルで、importが表示したartifactを固定してworkerを先に起動
+make dev-inference HINA_ARTIFACT_ID=<artifact-id>
+# worker ready後に、新規runの向き先を原子的に切り替える
+make deploy-hina ARTIFACT_ID=<importで表示されたartifact-id>
+```
+
+初回導入でも更新時でも、`deploy-hina`より先に対象artifactのworkerを起動します。promotion後は
+そのpinned workerを動かし続けて構いません。次回起動からは`HINA_ARTIFACT_ID`を省略できます。
+
 開発用overrideはPostgreSQLとRedisを`127.0.0.1`だけへ公開します。`compose.yaml`単体では両者をホストへ一切公開しません。
 
 ## 開発サーバー
@@ -83,7 +102,11 @@ make migrate
 ```bash
 make dev-backend
 make dev-frontend
+make dev-inference
 ```
+
+上のimport手順でpinned workerをすでに起動している場合、同じartifactのworkerを重ねて起動する
+必要はありません。
 
 - Frontend: <http://localhost:3000>
 - API: <http://localhost:8000>
