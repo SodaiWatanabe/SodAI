@@ -2,7 +2,7 @@ from uuid import uuid4
 
 import pytest
 
-from app.domain.answerers import AnswererId, RuntimeKind
+from app.domain.answerers import AnswererId, AnswererPricingKind, RuntimeKind
 from app.domain.principals import Principal, PrincipalKind
 from app.services.inference.asuka import AsukaPseudoGenerator
 from app.services.thread import AnswererAccessError, ThreadService
@@ -42,6 +42,21 @@ def test_answerer_catalog_is_the_single_ui_source() -> None:
         (AnswererId.ASUKA_1, "Asuka 1", "会話に最適。", True),
         (AnswererId.HINA, "Hina", "知能の萌芽を捉える。", False),
     ]
+    assert all(item.pricing.kind is AnswererPricingKind.FREE for item in answerers)
+    assert all(
+        (
+            item.pricing.tariff_revision,
+            item.pricing.fixed_charge,
+            item.pricing.input_token_rate,
+            item.pricing.output_token_rate,
+            item.pricing.maximum_charge,
+            item.pricing.unmetered_charge,
+        )
+        == ("free-v1", 0, 0, 0, 0, 0)
+        for item in answerers
+    )
+    guest_answerers = ThreadService.available_answerers(principal(PrincipalKind.GUEST))
+    assert all(item.pricing.kind is AnswererPricingKind.FREE for item in guest_answerers)
 
 
 def test_asuka_pseudo_response_is_long_enough_to_exercise_streaming() -> None:

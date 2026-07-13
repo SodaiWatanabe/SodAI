@@ -28,6 +28,7 @@ from app.repositories.threads import (
     SqlAlchemyThreadRepository,
 )
 from app.services.inference.asuka import ASUKA_PSEUDO_ARTIFACT_ID
+from app.services.inference.billing import InferenceBillingService
 from app.services.inference.deployment import ModelDeploymentError, ModelDeploymentRegistry
 from app.services.realtime import realtime_hub
 
@@ -76,6 +77,11 @@ class ThreadService:
                 execution_target=execution_target,
                 artifact_id=artifact_id,
                 deadline_at=deadline,
+            )
+            await InferenceBillingService(session).register(
+                principal,
+                creation.response.execution,
+                answerer.tariff,
             )
             await self._enqueue_generation(
                 repository,
@@ -132,6 +138,11 @@ class ThreadService:
                 )
             except GenerationCapacityExceededError as error:
                 raise GenerationCapacityError from error
+            await InferenceBillingService(session).register(
+                principal,
+                creation.response.execution,
+                answerer.tariff,
+            )
             await self._enqueue_generation(
                 repository,
                 creation.thread,
@@ -186,6 +197,11 @@ class ThreadService:
             if answerer is None:
                 raise AnswererUnavailableError
             self._validate_retry_artifact(answerer, retry.execution.artifact_id)
+            await InferenceBillingService(session).register(
+                principal,
+                retry.execution,
+                answerer.tariff,
+            )
             await self._enqueue_generation(
                 repository,
                 retry.thread,

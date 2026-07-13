@@ -37,10 +37,17 @@ Threadへの入力時は、次を同じPostgreSQL transactionで確定します�
 3. attempt 1のExecution
 4. その時点のEntryから切り出したcontext snapshot
 5. `model.generation.requested` outbox event
+6. 料金表snapshotと、必要な場合はクレジットの最大額予約
 
 生成中の本文は`Execution.partial_output`です。空のモデルEntryを先に作りません。completed eventの
 projector transactionだけが結果Entryを作り、ExecutionとResponseRequestをcompletedへ移します。
 failed eventはエラー状態だけを確定し、会話履歴へ疑似メッセージを混ぜません。
+
+terminal eventを投影するtransactionでは、使用量記録とクレジット予約の確定も同時に行います。
+completedは計測済みtokenから実額を確定し、failedとtimeoutは予約を全額解放します。イベント再配送で
+二重請求せず、価格改定も開始済みExecutionへ遡及しません。有料推論でtoken計測が欠落した場合は、
+料金表に明記したfallback額へ収束し、暗黙に無料化しません。詳細は[クレジット基盤](credits.md)を
+参照してください。
 
 ## 共通配送路
 

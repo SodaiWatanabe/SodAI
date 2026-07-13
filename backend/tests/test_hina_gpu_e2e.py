@@ -22,6 +22,7 @@ from app.db.session import dispose_engine, get_session_factory
 from app.domain.execution_events import EventDisposition
 from app.domain.principals import Principal, PrincipalKind
 from app.main import app
+from app.models.credits import InferenceUsageRecordModel
 from app.models.platform import (
     ExecutionModel,
     GuestSessionModel,
@@ -139,6 +140,7 @@ async def test_hina_completes_through_api_stream_and_projection() -> None:
                     OutboxEventModel.aggregate_id == execution_id
                 )
             )
+            usage = await session.get(InferenceUsageRecordModel, execution_id)
             assert execution is not None
             assert execution.status == "completed"
             assert (execution.input_tokens or 0) > 0
@@ -150,6 +152,11 @@ async def test_hina_completes_through_api_stream_and_projection() -> None:
             assert execution.last_event_id is not None
             assert execution.last_event_type is not None
             assert execution.finish_reason is not None
+            assert usage is not None
+            assert usage.input_tokens == execution.input_tokens
+            assert usage.output_tokens == execution.output_tokens
+            assert usage.charged_amount == 0
+            assert usage.billing_reason == "free"
 
             replay = GenerationEvent(
                 id=execution.last_event_id,

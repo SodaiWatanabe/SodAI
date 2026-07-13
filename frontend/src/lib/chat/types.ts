@@ -67,6 +67,17 @@ export type AvailableAnswerer = {
   name: string;
   description: string;
   is_default: boolean;
+  pricing: {
+    kind: "free" | "metered";
+    asset_code: string;
+    scale: number;
+    tariff_revision: string;
+    fixed_charge: number;
+    input_token_rate: number;
+    output_token_rate: number;
+    maximum_charge: number;
+    unmetered_charge: number;
+  };
 };
 
 export type RealtimeEvent = {

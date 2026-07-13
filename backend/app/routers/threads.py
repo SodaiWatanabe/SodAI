@@ -4,6 +4,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 
 from app.auth.principal import get_principal
+from app.domain.credits import InsufficientCreditsError
 from app.domain.principals import Principal
 from app.repositories.threads import (
     ResponseNotRetryableError,
@@ -60,6 +61,8 @@ async def create_thread(
         raise HTTPException(status_code=503, detail="Answerer is temporarily unavailable") from exc
     except GenerationCapacityError as exc:
         raise HTTPException(status_code=429, detail="Generation capacity is exhausted") from exc
+    except InsufficientCreditsError as exc:
+        raise HTTPException(status_code=402, detail="Insufficient credits") from exc
     return ResponseCreationResponse.model_validate(creation, from_attributes=True)
 
 
@@ -90,6 +93,8 @@ async def retry_response_execution(
         raise HTTPException(status_code=503, detail="Answerer is temporarily unavailable") from exc
     except GenerationCapacityError as exc:
         raise HTTPException(status_code=429, detail="Generation capacity is exhausted") from exc
+    except InsufficientCreditsError as exc:
+        raise HTTPException(status_code=402, detail="Insufficient credits") from exc
     return ExecutionResponse.model_validate(execution, from_attributes=True)
 
 
@@ -168,6 +173,8 @@ async def create_response_request(
         raise HTTPException(status_code=503, detail="Answerer is temporarily unavailable") from exc
     except GenerationCapacityError as exc:
         raise HTTPException(status_code=429, detail="Generation capacity is exhausted") from exc
+    except InsufficientCreditsError as exc:
+        raise HTTPException(status_code=402, detail="Insufficient credits") from exc
     return ResponseCreationResponse.model_validate(creation, from_attributes=True)
 
 

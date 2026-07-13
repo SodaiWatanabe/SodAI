@@ -59,3 +59,17 @@ The current realtime hub and one-time ticket store are process-local, so the
 supported deployment shape is one FastAPI process. Horizontal API scaling first
 requires a shared ticket store and committed-event fan-out; it must not be enabled
 only by increasing Uvicorn's worker count.
+
+## Credit contract
+
+Credits use an append-only, double-entry ledger. Balances are derived from postings;
+they are never updated directly. Grants create source-aware lots with optional expiry,
+and metered inference reserves the catalog's maximum charge before its outbox job is
+committed. Terminal projection settles the measured charge or releases the reservation
+in the same database transaction as its usage record.
+
+The current Hina and Asuka 1 tariffs are free, but they still create immutable billing
+intent snapshots and terminal usage records. Public balance and cursor-paginated history
+are exposed at `GET /api/v1/credits` and `GET /api/v1/credits/transactions`. Operational
+grants and expiration use `make credits-grant` and `make credits-expire`; the complete
+invariants and lifecycle are documented in `docs/architecture/credits.md`.

@@ -20,6 +20,7 @@ from app.core.config import Settings, get_settings
 from app.db.session import get_session_factory
 from app.domain.execution_events import EventDisposition, ExecutionProjection
 from app.repositories.threads import SqlAlchemyThreadRepository
+from app.services.inference.billing import InferenceBillingService
 from app.services.inference.broker import RedisInferenceBroker, StreamBacklog
 from app.services.realtime import realtime_hub
 
@@ -131,6 +132,12 @@ class GenerationCoordinator:
                 result = await SqlAlchemyThreadRepository(session).project_generation_event(
                     event
                 )
+                if (
+                    result.disposition is EventDisposition.APPLY
+                    and result.projection is not None
+                    and result.projection.status in {"completed", "failed"}
+                ):
+                    await InferenceBillingService(session).finalize(event.execution_id)
                 await session.commit()
         except Exception as error:
             log_inference_event(
@@ -190,6 +197,9 @@ class GenerationCoordinator:
                 datetime.now(timezone.utc)
                 - timedelta(seconds=self._reconciliation_interval_seconds)
             )
+            billing = InferenceBillingService(session)
+            for projection in projections:
+                await billing.finalize(projection.execution_id)
             await session.commit()
         for projection in projections:
             log_inference_event(

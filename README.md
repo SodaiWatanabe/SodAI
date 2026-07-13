@@ -17,7 +17,7 @@ Internet ── Cloudflare Tunnel ── 自宅環境
 
 認証プロバイダーのユーザーIDをサービス全体の主キーにせず、SodAI内部の不変UUIDと`(issuer, subject)`の対応として扱います。これによりBetter Authを自前運用しながら、将来Cognitoなどへ段階移行できます。詳細は[認証・アカウント境界](docs/architecture/authentication.md)を参照してください。
 
-作業文脈はSpaceとThreadとしてHTTPで永続化し、Hina／Asukaの生成差分をWebSocketで配信します。匿名利用、再読込後の復元、イベント再同期、応答主体の権限境界は[Space・Thread・リアルタイム基盤](docs/architecture/spaces-threads-realtime.md)、モデル成果物とGPU実行の境界は[推論基盤](docs/architecture/inference.md)にまとめています。
+作業文脈はSpaceとThreadとしてHTTPで永続化し、Hina／Asukaの生成差分をWebSocketで配信します。匿名利用、再読込後の復元、イベント再同期、応答主体の権限境界は[Space・Thread・リアルタイム基盤](docs/architecture/spaces-threads-realtime.md)、モデル成果物とGPU実行の境界は[推論基盤](docs/architecture/inference.md)にまとめています。複式簿記、期限付きLot、推論予約、将来の購入・報酬との接続は[クレジット基盤](docs/architecture/credits.md)を参照してください。
 
 ## ディレクトリ
 
@@ -129,6 +129,8 @@ make infra-down
 ```bash
 make check
 make infra-config
+# 実PostgreSQLで台帳不変条件とmigration往復を検証
+make test-integration
 # local CUDA上で実Hinaを含む隔離E2E
 make test-inference-e2e
 # 公開しない詳細な推論運用状態

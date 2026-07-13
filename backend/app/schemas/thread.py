@@ -4,7 +4,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
-from app.domain.answerers import AnswererId
+from app.domain.answerers import AnswererId, AnswererPricingKind
 
 ANSWERER_SELECTION_DESCRIPTION = (
     "Answerer ID. Omit to use Hina for guests or Asuka 1 for authenticated accounts."
@@ -125,6 +125,20 @@ class ThreadListResponse(BaseModel):
     items: list[ThreadSummaryResponse]
 
 
+class AnswererPricingResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    kind: AnswererPricingKind
+    asset_code: str
+    scale: int
+    tariff_revision: str
+    fixed_charge: int
+    input_token_rate: int
+    output_token_rate: int
+    maximum_charge: int
+    unmetered_charge: int
+
+
 class AnswererResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -132,6 +146,7 @@ class AnswererResponse(BaseModel):
     name: str
     description: str
     is_default: bool
+    pricing: AnswererPricingResponse
 
 
 class AnswererListResponse(BaseModel):
