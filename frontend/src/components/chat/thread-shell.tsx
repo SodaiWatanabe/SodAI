@@ -13,8 +13,10 @@ import {
 import { useChatData } from "@/components/chat/chat-data-provider";
 import { ChatHeader } from "@/components/chat/chat-header";
 import { settleComposerFocus } from "@/components/chat/composer-focus";
+import { handleMessageSubmitKeyDown } from "@/components/chat/message-submit-keydown";
 import { reduceThreadRealtime } from "@/components/chat/thread-realtime";
 import { ThreadViewport } from "@/components/chat/thread-viewport";
+import { useMessageSendPreference } from "@/components/preferences/message-send-preference-provider";
 import { useToast } from "@/components/ui/toast-provider";
 import type {
   AvailableAnswerer,
@@ -50,6 +52,7 @@ export function ThreadShell({ threadId }: ThreadShellProps) {
     subscribeRealtime,
   } = useChatData();
   const { dismissToast, showToast } = useToast();
+  const { preference: messageSendPreference } = useMessageSendPreference();
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const threadRef = useRef<Thread | undefined>(undefined);
@@ -320,6 +323,9 @@ export function ThreadShell({ threadId }: ThreadShellProps) {
             autoComplete="off"
             spellCheck="true"
             onChange={(event) => setMessage(event.target.value)}
+            onKeyDown={(event) =>
+              handleMessageSubmitKeyDown(event, messageSendPreference)
+            }
             className="chat-input block h-14 w-full rounded-full border border-[var(--field-border)] bg-[var(--surface)] pl-6 pr-14 text-[16px] text-[var(--text)] shadow-[0_8px_30px_var(--input-shadow)] outline-none transition-shadow placeholder:text-[var(--muted)] focus:shadow-[0_10px_38px_var(--input-shadow)]"
           />
           <button

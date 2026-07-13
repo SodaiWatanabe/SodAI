@@ -10,6 +10,7 @@ import {
 type ChatAuthContextValue = {
   authenticated: boolean;
   openAuth: () => void;
+  settingsAccessible: boolean;
 };
 
 const ChatAuthContext = createContext<ChatAuthContextValue | null>(null);
@@ -22,10 +23,11 @@ export function ChatAuthProvider({
   authenticated,
   children,
   openAuth,
+  settingsAccessible,
 }: ChatAuthProviderProps) {
   const value = useMemo(
-    () => ({ authenticated, openAuth }),
-    [authenticated, openAuth],
+    () => ({ authenticated, openAuth, settingsAccessible }),
+    [authenticated, openAuth, settingsAccessible],
   );
 
   return (

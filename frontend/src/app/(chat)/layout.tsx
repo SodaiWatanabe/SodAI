@@ -14,7 +14,11 @@ import {
 
 export default async function ChatLayout({
   children,
-}: Readonly<{ children: React.ReactNode }>) {
+  settings,
+}: Readonly<{
+  children: React.ReactNode;
+  settings: React.ReactNode;
+}>) {
   const [session, cookieStore] = await Promise.all([
     getCurrentSession(),
     cookies(),
@@ -48,6 +52,7 @@ export default async function ChatLayout({
             initialUser={user}
           >
             {children}
+            {settings}
           </ChatFrame>
         </ChatDataProvider>
       </ApiAccessTokenProvider>

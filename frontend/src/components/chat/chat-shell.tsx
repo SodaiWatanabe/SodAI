@@ -7,6 +7,8 @@ import { type FormEvent, useEffect, useRef, useState } from "react";
 import { useChatData } from "@/components/chat/chat-data-provider";
 import { ChatHeader } from "@/components/chat/chat-header";
 import { settleComposerFocus } from "@/components/chat/composer-focus";
+import { handleMessageSubmitKeyDown } from "@/components/chat/message-submit-keydown";
+import { useMessageSendPreference } from "@/components/preferences/message-send-preference-provider";
 import { useToast } from "@/components/ui/toast-provider";
 import type { AvailableAnswerer } from "@/lib/chat/types";
 import { useChatApi } from "@/lib/chat/use-chat-api";
@@ -20,6 +22,7 @@ export function ChatShell(props: ChatShellProps) {
   const { createThread } = useChatApi();
   const { answerers, upsertThread } = useChatData();
   const { dismissToast, showToast } = useToast();
+  const { preference: messageSendPreference } = useMessageSendPreference();
   const inputRef = useRef<HTMLInputElement>(null);
   const mountedRef = useRef(true);
   const [message, setMessage] = useState("");
@@ -93,6 +96,9 @@ export function ChatShell(props: ChatShellProps) {
               value={message}
               autoFocus
               onChange={(event) => setMessage(event.target.value)}
+              onKeyDown={(event) =>
+                handleMessageSubmitKeyDown(event, messageSendPreference)
+              }
               placeholder="話しかけてください"
               autoComplete="off"
               spellCheck="true"

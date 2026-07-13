@@ -1,6 +1,6 @@
 "use client";
 
-import { LogOut, UserRound } from "lucide-react";
+import { LogOut, Settings, UserRound } from "lucide-react";
 import Image from "next/image";
 import { useState } from "react";
 
@@ -10,7 +10,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { ThemeSelector } from "@/components/theme/theme-selector";
 
 export type SidebarUser = {
   email: string;
@@ -21,6 +20,7 @@ export type SidebarUser = {
 type SidebarAccountProps = {
   compact: boolean;
   contentVisible: boolean;
+  onOpenSettings: () => void;
   onSignOut: () => void;
   signingOut: boolean;
   user: SidebarUser;
@@ -50,6 +50,7 @@ function AccountAvatar({ image }: Pick<SidebarUser, "image">) {
 export function SidebarAccount({
   compact,
   contentVisible,
+  onOpenSettings,
   onSignOut,
   signingOut,
   user,
@@ -101,7 +102,15 @@ export function SidebarAccount({
           </div>
         </div>
         <div className="mx-2 my-1 h-px bg-[var(--divider)]" />
-        <ThemeSelector />
+        <PopoverClose
+          className="flex h-9 w-full items-center rounded-xl text-left text-sm text-[var(--text)] transition-colors hover:bg-[var(--hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)]"
+          onClick={onOpenSettings}
+        >
+          <span className="grid w-10 shrink-0 place-items-center" aria-hidden="true">
+            <Settings className="size-[17px]" />
+          </span>
+          <span>設定</span>
+        </PopoverClose>
         <div className="mx-2 my-1 h-px bg-[var(--divider)]" />
         <PopoverClose
           disabled={signingOut}

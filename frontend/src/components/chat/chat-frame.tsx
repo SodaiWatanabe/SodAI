@@ -7,7 +7,7 @@ import {
   SquarePen,
   X,
 } from "lucide-react";
-import { usePathname, useRouter } from "next/navigation";
+import { useRouter, useSelectedLayoutSegments } from "next/navigation";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 
 import { AuthDialog } from "@/components/auth/auth-dialog";
@@ -44,6 +44,7 @@ type SidebarProps = {
   onClose: () => void;
   onArchiveThread: (id: string) => void;
   onOpenAuth: () => void;
+  onOpenSettings: () => void;
   onSelectThread: (id: string) => void;
   onSignOut: () => void;
   signingOut: boolean;
@@ -59,6 +60,7 @@ function Sidebar({
   onClose,
   onArchiveThread,
   onOpenAuth,
+  onOpenSettings,
   onSelectThread,
   onSignOut,
   signingOut,
@@ -149,6 +151,7 @@ function Sidebar({
           <SidebarAccount
             compact={compact}
             contentVisible={contentVisible}
+            onOpenSettings={onOpenSettings}
             onSignOut={onSignOut}
             signingOut={signingOut}
             user={user}
@@ -184,8 +187,8 @@ export function ChatFrame({
   initialProfileIncomplete,
   initialUser,
 }: ChatFrameProps) {
-  const pathname = usePathname();
   const router = useRouter();
+  const childSegments = useSelectedLayoutSegments();
   const { invalidate: invalidateAccessToken } = useApiAccessToken();
   const { subscribeRealtime, threads } = useChatData();
   const menuButtonRef = useRef<HTMLButtonElement>(null);
@@ -212,9 +215,8 @@ export function ChatFrame({
     setMobileGuestActionsVisible(false);
     setMobileOpen(false);
   }, []);
-  const activeThreadId = pathname.startsWith("/t/")
-    ? pathname.slice("/t/".length)
-    : undefined;
+  const activeThreadId =
+    childSegments.at(0) === "t" ? childSegments.at(1) : undefined;
 
   useEffect(() => {
     const url = new URL(window.location.href);
@@ -300,6 +302,11 @@ export function ChatFrame({
     router.push(id ? `/t/${id}` : "/");
   }
 
+  function navigateToSettings() {
+    closeMobileSidebar();
+    router.push("/settings");
+  }
+
   function leaveArchivedThread(id: string) {
     closeMobileSidebar();
     if (id === activeThreadId) router.replace("/");
@@ -335,6 +342,7 @@ export function ChatFrame({
       onClose={onClose}
       onArchiveThread={leaveArchivedThread}
       onOpenAuth={openAuth}
+      onOpenSettings={navigateToSettings}
       onSelectThread={navigate}
       onSignOut={signOut}
       signingOut={signingOut}
@@ -346,6 +354,11 @@ export function ChatFrame({
     <ChatAuthProvider
       authenticated={Boolean(initialUser)}
       openAuth={openAuth}
+      settingsAccessible={
+        Boolean(initialUser) &&
+        !initialAccountUnavailable &&
+        !initialProfileIncomplete
+      }
     >
       <div className="flex h-[100dvh] overflow-hidden bg-[var(--canvas)]">
       <aside
