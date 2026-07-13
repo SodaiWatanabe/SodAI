@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=78.1.1"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sodai-contracts"
+version = "0.1.0"
+description = "Versioned internal contracts shared by SodAI services"
+requires-python = ">=3.10"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+

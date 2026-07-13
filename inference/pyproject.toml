@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=78.1.1"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sodai-inference"
+version = "0.1.0"
+description = "Private model inference worker for SodAI"
+requires-python = ">=3.10"
+dependencies = [
+    "redis>=5.2,<7.0",
+    "safetensors>=0.5,<1.0",
+    "sodai-contracts==0.1.0",
+    "torch==2.5.1",
+    "transformers==5.13.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=9.0,<10.0",
+    "pytest-asyncio>=1.0,<2.0",
+    "ruff>=0.9,<1.0",
+]
+
+[project.scripts]
+sodai-inference = "sodai_inference.worker:main"
+sodai-import-hina = "sodai_inference.import_hina:main"
+sodai-deploy-hina = "sodai_inference.deployment:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
