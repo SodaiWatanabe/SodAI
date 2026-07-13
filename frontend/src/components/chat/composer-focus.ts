@@ -1,6 +1,8 @@
 const DESKTOP_VIEWPORT = "(min-width: 64rem)";
 
-export function settleComposerFocus(input: HTMLInputElement | null) {
+export function settleComposerFocus(
+  input: HTMLInputElement | HTMLTextAreaElement | null,
+) {
   requestAnimationFrame(() => {
     if (!input?.isConnected) return;
     if (window.matchMedia(DESKTOP_VIEWPORT).matches) {

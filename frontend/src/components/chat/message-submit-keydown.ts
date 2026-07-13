@@ -6,24 +6,22 @@ import {
 } from "@/lib/preferences/message-send";
 
 export function handleMessageSubmitKeyDown(
-  event: KeyboardEvent<HTMLInputElement>,
+  event: KeyboardEvent<HTMLTextAreaElement>,
   preference: MessageSendPreference,
 ) {
-  if (event.key !== "Enter") return;
+  const shouldSubmit = matchesMessageSendShortcut(
+    {
+      ctrlKey: event.ctrlKey,
+      isComposing: event.nativeEvent.isComposing,
+      key: event.key,
+      keyCode: event.nativeEvent.keyCode,
+      metaKey: event.metaKey,
+      shiftKey: event.shiftKey,
+    },
+    preference,
+  );
+  if (!shouldSubmit) return;
 
   event.preventDefault();
-  if (
-    matchesMessageSendShortcut(
-      {
-        ctrlKey: event.ctrlKey,
-        isComposing: event.nativeEvent.isComposing,
-        key: event.key,
-        keyCode: event.nativeEvent.keyCode,
-        metaKey: event.metaKey,
-      },
-      preference,
-    )
-  ) {
-    event.currentTarget.form?.requestSubmit();
-  }
+  event.currentTarget.form?.requestSubmit();
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowDown, ArrowUp } from "lucide-react";
+import { ArrowDown } from "lucide-react";
 import {
   type FormEvent,
   useCallback,
@@ -13,7 +13,7 @@ import {
 import { useChatData } from "@/components/chat/chat-data-provider";
 import { ChatHeader } from "@/components/chat/chat-header";
 import { settleComposerFocus } from "@/components/chat/composer-focus";
-import { handleMessageSubmitKeyDown } from "@/components/chat/message-submit-keydown";
+import { MessageComposer } from "@/components/chat/message-composer";
 import { reduceThreadRealtime } from "@/components/chat/thread-realtime";
 import { ThreadViewport } from "@/components/chat/thread-viewport";
 import { useMessageSendPreference } from "@/components/preferences/message-send-preference-provider";
@@ -54,7 +54,7 @@ export function ThreadShell({ threadId }: ThreadShellProps) {
   const { dismissToast, showToast } = useToast();
   const { preference: messageSendPreference } = useMessageSendPreference();
   const scrollRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const threadRef = useRef<Thread | undefined>(undefined);
   const initialScrollPositionedRef = useRef(false);
   const answererInitializedRef = useRef(false);
@@ -309,34 +309,19 @@ export function ThreadShell({ threadId }: ThreadShellProps) {
         >
           <ArrowDown aria-hidden="true" className="size-4" strokeWidth={2} />
         </button>
-        <form onSubmit={submit} className="relative z-10 mx-auto max-w-[760px]">
-          <label htmlFor="thread-message" className="sr-only">
-            対話を続ける
-          </label>
-          <input
-            ref={inputRef}
-            id="thread-message"
-            type="text"
-            value={message}
-            autoFocus
-            placeholder="対話を続ける"
-            autoComplete="off"
-            spellCheck="true"
-            onChange={(event) => setMessage(event.target.value)}
-            onKeyDown={(event) =>
-              handleMessageSubmitKeyDown(event, messageSendPreference)
-            }
-            className="chat-input block h-14 w-full rounded-full border border-[var(--field-border)] bg-[var(--surface)] pl-6 pr-14 text-[16px] text-[var(--text)] shadow-[0_8px_30px_var(--input-shadow)] outline-none transition-shadow placeholder:text-[var(--muted)] focus:shadow-[0_10px_38px_var(--input-shadow)]"
-          />
-          <button
-            type="submit"
-            aria-label="送信"
-            disabled={!message.trim() || !answerer || responding}
-            className="absolute right-2 top-2 grid size-10 place-items-center rounded-full bg-[var(--primary)] text-[var(--on-primary)] transition-opacity disabled:opacity-25"
-          >
-            <ArrowUp className="size-[18px]" strokeWidth={2.2} />
-          </button>
-        </form>
+        <MessageComposer
+          autoFocus
+          className="relative z-10 mx-auto max-w-[760px]"
+          disabled={!message.trim() || !answerer || responding}
+          inputId="thread-message"
+          inputLabel="対話を続ける"
+          onChange={setMessage}
+          onSubmit={submit}
+          placeholder="対話を続ける"
+          sendPreference={messageSendPreference}
+          textareaRef={inputRef}
+          value={message}
+        />
         <p className="relative z-10 mx-auto mt-2 max-w-[760px] text-center text-xs text-[var(--muted)]">
           SodAIは息をするように嘘をつきます。安易に信用しないでください。
         </p>

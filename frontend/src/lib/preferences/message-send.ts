@@ -11,6 +11,7 @@ type MessageSendKey = {
   key: string;
   keyCode?: number;
   metaKey: boolean;
+  shiftKey?: boolean;
 };
 
 const DEFAULT_MESSAGE_SEND_PREFERENCE: MessageSendPreference = "enter";
@@ -51,6 +52,6 @@ export function matchesMessageSendShortcut(
   ) {
     return false;
   }
-  if (preference === "enter") return true;
+  if (preference === "enter") return !event.shiftKey;
   return event.ctrlKey || event.metaKey;
 }

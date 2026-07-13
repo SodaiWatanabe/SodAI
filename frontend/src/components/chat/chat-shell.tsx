@@ -1,13 +1,12 @@
 "use client";
 
-import { ArrowUp } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 
 import { useChatData } from "@/components/chat/chat-data-provider";
 import { ChatHeader } from "@/components/chat/chat-header";
 import { settleComposerFocus } from "@/components/chat/composer-focus";
-import { handleMessageSubmitKeyDown } from "@/components/chat/message-submit-keydown";
+import { MessageComposer } from "@/components/chat/message-composer";
 import { useMessageSendPreference } from "@/components/preferences/message-send-preference-provider";
 import { useToast } from "@/components/ui/toast-provider";
 import type { AvailableAnswerer } from "@/lib/chat/types";
@@ -23,7 +22,7 @@ export function ChatShell(props: ChatShellProps) {
   const { answerers, upsertThread } = useChatData();
   const { dismissToast, showToast } = useToast();
   const { preference: messageSendPreference } = useMessageSendPreference();
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const mountedRef = useRef(true);
   const [message, setMessage] = useState("");
   const [requestedAnswerer, setRequestedAnswerer] =
@@ -81,38 +80,20 @@ export function ChatShell(props: ChatShellProps) {
           <h1 className="hidden text-center text-[28px] font-normal tracking-[-0.04em] text-[var(--text)] lg:block">
             {props.greeting}
           </h1>
-          <form
+          <MessageComposer
+            ariaLabel="新しい会話"
+            autoFocus
             className="relative lg:mt-7"
+            disabled={!message.trim() || !answerer || submitting}
+            inputId="chat-message"
+            inputLabel="SodAIへのメッセージ"
+            onChange={setMessage}
             onSubmit={submit}
-            aria-label="新しい会話"
-          >
-            <label htmlFor="chat-message" className="sr-only">
-              SodAIへのメッセージ
-            </label>
-            <input
-              ref={inputRef}
-              id="chat-message"
-              type="text"
-              value={message}
-              autoFocus
-              onChange={(event) => setMessage(event.target.value)}
-              onKeyDown={(event) =>
-                handleMessageSubmitKeyDown(event, messageSendPreference)
-              }
-              placeholder="話しかけてください"
-              autoComplete="off"
-              spellCheck="true"
-              className="chat-input block h-14 w-full rounded-full border border-[var(--field-border)] bg-[var(--surface)] pl-6 pr-14 text-[16px] text-[var(--text)] shadow-[0_8px_30px_var(--input-shadow)] outline-none transition-shadow placeholder:text-[var(--muted)] focus:shadow-[0_10px_38px_var(--input-shadow)]"
-            />
-            <button
-              type="submit"
-              aria-label="送信"
-              disabled={!message.trim() || !answerer || submitting}
-              className="absolute right-2 top-2 grid size-10 place-items-center rounded-full bg-[var(--primary)] text-[var(--on-primary)] transition-opacity disabled:opacity-25"
-            >
-              <ArrowUp className="size-[18px]" strokeWidth={2.2} />
-            </button>
-          </form>
+            placeholder="話しかけてください"
+            sendPreference={messageSendPreference}
+            textareaRef={inputRef}
+            value={message}
+          />
         </div>
       </section>
     </>

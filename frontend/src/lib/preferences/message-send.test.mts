@@ -20,6 +20,18 @@ test("Enter設定ではEnter単体で送信する", () => {
     ),
     true,
   );
+  assert.equal(
+    matchesMessageSendShortcut(
+      {
+        key: "Enter",
+        ctrlKey: false,
+        metaKey: false,
+        shiftKey: true,
+      },
+      "enter",
+    ),
+    false,
+  );
 });
 
 test("修飾キー設定ではCtrlまたはCommandとEnterで送信する", () => {
