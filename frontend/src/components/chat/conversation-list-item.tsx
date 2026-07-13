@@ -25,7 +25,7 @@ type ConversationListItemProps = {
   onSelect: () => void;
 };
 
-type MenuView = "actions" | "archive" | "rename";
+type MenuView = "actions" | "rename";
 
 export function ConversationListItem({
   active,
@@ -141,13 +141,12 @@ export function ConversationListItem({
           ref={contentRef}
           role="dialog"
           aria-label={`${conversation.title}の操作`}
-          className="w-56 rounded-[16px]"
         >
           {menuView === "actions" ? (
             <div className="grid gap-0.5">
               <button
                 type="button"
-                className="flex h-9 w-full items-center rounded-xl text-left text-sm text-[var(--text)] transition-colors hover:bg-[var(--hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--focus)]"
+                className="flex h-9 w-full items-center rounded-xl pr-3 text-left text-sm text-[var(--text)] transition-colors hover:bg-[var(--hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--focus)]"
                 onClick={showRename}
               >
                 <span className="grid w-9 shrink-0 place-items-center">
@@ -157,13 +156,14 @@ export function ConversationListItem({
               </button>
               <button
                 type="button"
-                className="flex h-9 w-full items-center rounded-xl text-left text-sm text-[var(--text)] transition-colors hover:bg-[var(--hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--focus)]"
-                onClick={() => setMenuView("archive")}
+                disabled={submitting}
+                className="flex h-9 w-full items-center rounded-xl pr-3 text-left text-sm text-[var(--text)] transition-colors hover:bg-[var(--hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--focus)]"
+                onClick={() => void archive()}
               >
                 <span className="grid w-9 shrink-0 place-items-center">
                   <Archive aria-hidden="true" className="size-4" />
                 </span>
-                <span>会話をアーカイブ</span>
+                <span>アーカイブ</span>
               </button>
             </div>
           ) : null}
@@ -206,34 +206,6 @@ export function ConversationListItem({
             </form>
           ) : null}
 
-          {menuView === "archive" ? (
-            <div className="p-2">
-              <p className="text-sm font-medium text-[var(--text)]">
-                この会話をアーカイブしますか？
-              </p>
-              <p className="mt-1 text-xs leading-5 text-[var(--muted)]">
-                会話一覧から非表示になります。
-              </p>
-              <div className="mt-3 flex justify-end gap-1">
-                <button
-                  type="button"
-                  disabled={submitting}
-                  className="h-8 rounded-[10px] px-3 text-xs font-medium text-[var(--muted)] transition-colors hover:bg-[var(--hover)] hover:text-[var(--text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)] disabled:opacity-35"
-                  onClick={() => setMenuView("actions")}
-                >
-                  戻る
-                </button>
-                <button
-                  type="button"
-                  disabled={submitting}
-                  className="h-8 rounded-[10px] bg-[var(--primary)] px-3 text-xs font-medium text-[var(--on-primary)] transition-opacity disabled:opacity-35"
-                  onClick={() => void archive()}
-                >
-                  {submitting ? "処理中…" : "アーカイブ"}
-                </button>
-              </div>
-            </div>
-          ) : null}
         </PopoverContent>
       </Popover>
     </div>

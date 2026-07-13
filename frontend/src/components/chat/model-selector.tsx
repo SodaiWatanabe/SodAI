@@ -44,7 +44,6 @@ export function ModelSelector({
       <PopoverContent
         role="radiogroup"
         aria-label="モデル"
-        className="w-[min(19rem,calc(100vw-1.5rem))] rounded-[18px]"
       >
         <div className="grid gap-0.5">
           {models.map((option) => {
