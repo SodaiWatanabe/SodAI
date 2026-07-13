@@ -85,7 +85,7 @@ export function SidebarAccount({
       <PopoverContent
         role="dialog"
         aria-label="アカウントメニュー"
-        className={compact ? "w-60" : ""}
+        className={compact ? "grid w-60 gap-0.5" : "grid gap-0.5"}
       >
         <div className="flex items-center">
           <span className="grid shrink-0 place-items-center px-2.5" aria-hidden="true">
