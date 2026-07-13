@@ -23,7 +23,7 @@ function ConversationMessage({ message }: { message: ChatMessage }) {
       >
         {message.content}
         {message.status === "failed" ? (
-          <span className="text-sm text-[var(--danger-text)]">
+          <span className="text-[var(--danger-text)]">
             応答を完了できませんでした。
           </span>
         ) : null}
@@ -59,7 +59,7 @@ export function ConversationViewport({
       ) : null}
 
       {conversation ? (
-        <div className="relative z-10 mx-auto w-full max-w-[760px] px-5 py-10 sm:px-8">
+        <div className="relative z-10 mx-auto w-full max-w-[760px] px-5 pb-12 pt-10 sm:px-8">
           <div className="space-y-8">
             {conversation.messages.map((message) => (
               <ConversationMessage key={message.id} message={message} />

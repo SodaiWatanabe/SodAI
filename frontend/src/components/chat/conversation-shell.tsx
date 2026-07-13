@@ -12,6 +12,7 @@ import {
 
 import { useChatData } from "@/components/chat/chat-data-provider";
 import { ChatHeader } from "@/components/chat/chat-header";
+import { settleComposerFocus } from "@/components/chat/composer-focus";
 import { ConversationViewport } from "@/components/chat/conversation-viewport";
 import { useToast } from "@/components/ui/toast-provider";
 import type {
@@ -72,6 +73,7 @@ export function ConversationShell(props: ConversationShellProps) {
   const { models, patchConversation, subscribeRealtime } = useChatData();
   const { dismissToast, showToast } = useToast();
   const scrollRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const initialScrollPositionedRef = useRef(false);
   const stickToBottomRef = useRef(true);
   const mountedRef = useRef(true);
@@ -221,6 +223,7 @@ export function ConversationShell(props: ConversationShellProps) {
     setShowScrollToBottom(false);
     setMessage("");
     setSending(true);
+    settleComposerFocus(inputRef.current);
     dismissToast("message-send");
     try {
       const created = await createTurn(conversationId, input, model);
@@ -241,7 +244,7 @@ export function ConversationShell(props: ConversationShellProps) {
       });
     } catch {
       if (!mountedRef.current) return;
-      setMessage(input);
+      setMessage((current) => (current.trim() ? current : input));
       setSending(false);
       showToast({
         id: "message-send",
@@ -307,10 +310,11 @@ export function ConversationShell(props: ConversationShellProps) {
             対話を続ける
           </label>
           <input
+            ref={inputRef}
             id="conversation-message"
             type="text"
             value={message}
-            disabled={sending}
+            autoFocus
             placeholder="対話を続ける"
             autoComplete="off"
             spellCheck="true"

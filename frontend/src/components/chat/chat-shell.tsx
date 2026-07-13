@@ -6,6 +6,7 @@ import { type FormEvent, useEffect, useRef, useState } from "react";
 
 import { useChatData } from "@/components/chat/chat-data-provider";
 import { ChatHeader } from "@/components/chat/chat-header";
+import { settleComposerFocus } from "@/components/chat/composer-focus";
 import { useToast } from "@/components/ui/toast-provider";
 import type { AvailableModel } from "@/lib/chat/types";
 import { useChatApi } from "@/lib/chat/use-chat-api";
@@ -42,6 +43,7 @@ export function ChatShell(props: ChatShellProps) {
     const input = message.trim();
     if (!input || !model || submitting) return;
     setSubmitting(true);
+    settleComposerFocus(inputRef.current);
     dismissToast("conversation-create");
     try {
       const created = await createConversation(input, model);
@@ -88,7 +90,7 @@ export function ChatShell(props: ChatShellProps) {
               id="chat-message"
               type="text"
               value={message}
-              disabled={submitting}
+              autoFocus
               onChange={(event) => setMessage(event.target.value)}
               placeholder="話しかけてください"
               autoComplete="off"
