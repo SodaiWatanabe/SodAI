@@ -69,11 +69,11 @@ function mergeMessages(current: ChatMessage[], incoming: ChatMessage[]) {
 
 export function ConversationShell(props: ConversationShellProps) {
   const { conversationId } = props;
-  const { createTurn, getConversation, startRun } = useChatApi();
+  const { createTurn, getConversation } = useChatApi();
   const {
     models,
     patchConversation,
-    realtimeReady,
+    realtimeReadyRevision,
     subscribeRealtime,
   } = useChatData();
   const { dismissToast, showToast } = useToast();
@@ -84,14 +84,12 @@ export function ConversationShell(props: ConversationShellProps) {
   const mountedRef = useRef(true);
   const realtimeRevisionRef = useRef(0);
   const refreshGenerationRef = useRef(0);
-  const startingRunRef = useRef<string | undefined>(undefined);
   const [conversation, setConversation] = useState<Conversation>();
   const [model, setModel] = useState<AvailableModel["id"]>();
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
-  const [startAttempt, setStartAttempt] = useState(0);
 
   const loadConversation = useCallback(
     () => getConversation(conversationId),
@@ -103,7 +101,6 @@ export function ConversationShell(props: ConversationShellProps) {
     return () => {
       mountedRef.current = false;
       dismissToast("message-send");
-      dismissToast("response-start");
     };
   }, [dismissToast]);
 
@@ -195,7 +192,6 @@ export function ConversationShell(props: ConversationShellProps) {
         };
       });
       if (terminalEvent) {
-        startingRunRef.current = undefined;
         setSending(false);
         void syncConversation(false);
       }
@@ -213,58 +209,9 @@ export function ConversationShell(props: ConversationShellProps) {
     conversationId,
     dismissToast,
     loadConversation,
+    realtimeReadyRevision,
     showToast,
     subscribeRealtime,
-  ]);
-
-  const queuedRun =
-    conversation?.active_run?.status === "queued"
-      ? conversation.active_run
-      : undefined;
-
-  useEffect(() => {
-    if (!realtimeReady || !queuedRun) return;
-    if (startingRunRef.current === queuedRun.id) return;
-    startingRunRef.current = queuedRun.id;
-    let cancelled = false;
-
-    void startRun(conversationId, queuedRun.id).then(
-      (startedRun) => {
-        if (cancelled) return;
-        dismissToast("response-start");
-        setConversation((current) =>
-          current?.active_run?.id === startedRun.id
-            ? { ...current, active_run: startedRun }
-            : current,
-        );
-      },
-      () => {
-        if (cancelled) return;
-        startingRunRef.current = undefined;
-        showToast({
-          id: "response-start",
-          message: "応答を開始できませんでした。",
-          tone: "error",
-          duration: null,
-          action: {
-            label: "再試行",
-            onClick: () => setStartAttempt((attempt) => attempt + 1),
-          },
-        });
-      },
-    );
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    conversationId,
-    dismissToast,
-    queuedRun,
-    realtimeReady,
-    showToast,
-    startAttempt,
-    startRun,
   ]);
 
   useLayoutEffect(() => {

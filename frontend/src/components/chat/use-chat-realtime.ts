@@ -13,6 +13,7 @@ const TOAST_DELAY = 1800;
 export function useChatRealtime(
   createSocket: RealtimeSocketFactory,
   onEvent: (event: RealtimeEvent) => void,
+  onReady: () => void,
 ) {
   const { dismissToast, showToast } = useToast();
   const [ready, setReady] = useState(false);
@@ -60,6 +61,7 @@ export function useChatRealtime(
           if (payload.type === "ready") {
             cursor = Math.max(cursor, payload.cursor ?? 0);
             setReady(true);
+            onReady();
             clearToastDelay();
             dismissToast("realtime-connection");
           } else if (payload.type !== "ping" && "sequence" in payload) {
@@ -95,7 +97,7 @@ export function useChatRealtime(
       clearToastDelay();
       dismissToast("realtime-connection");
     };
-  }, [createSocket, dismissToast, onEvent, showToast]);
+  }, [createSocket, dismissToast, onEvent, onReady, showToast]);
 
   return ready;
 }

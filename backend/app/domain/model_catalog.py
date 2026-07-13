@@ -17,7 +17,7 @@ class ModelDefinition:
     id: ModelId
     name: str
     description: str
-    runtime_id: str
+    runtime_target: str
     audiences: frozenset[ModelAudience]
     default_for: frozenset[ModelAudience] = frozenset()
 
@@ -35,7 +35,7 @@ MODEL_CATALOG = (
         id=ModelId.ASUKA_1,
         name="Asuka 1",
         description="会話に最適。",
-        runtime_id="pseudo-sodai-asuka-1-v1",
+        runtime_target="pseudo:asuka-1",
         audiences=frozenset({ModelAudience.AUTHENTICATED}),
         default_for=frozenset({ModelAudience.AUTHENTICATED}),
     ),
@@ -43,7 +43,7 @@ MODEL_CATALOG = (
         id=ModelId.HINA,
         name="Hina",
         description="知能の萌芽を捉える。",
-        runtime_id="pseudo-sodai-hina-v1",
+        runtime_target="local:hina",
         audiences=frozenset(ModelAudience),
         default_for=frozenset({ModelAudience.GUEST}),
     ),

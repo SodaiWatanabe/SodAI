@@ -48,8 +48,8 @@ def test_authenticated_user_can_select_asuka_1() -> None:
     )
 
     assert (
-        ConversationService.select_model(principal, ModelId.ASUKA_1).runtime_id
-        == "pseudo-sodai-asuka-1-v1"
+        ConversationService.select_model(principal, ModelId.ASUKA_1).runtime_target
+        == "pseudo:asuka-1"
     )
 
 

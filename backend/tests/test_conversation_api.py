@@ -1,4 +1,3 @@
-from dataclasses import replace
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -21,7 +20,11 @@ from app.domain.conversations import (
 from app.domain.model_catalog import ModelId
 from app.main import app
 from app.repositories.conversations import ConversationBusyError
-from app.services.conversation import ConversationService, get_conversation_service
+from app.services.conversation import (
+    ConversationService,
+    InferenceCapacityError,
+    get_conversation_service,
+)
 
 PRINCIPAL = ConversationPrincipal(
     PrincipalKind.GUEST,
@@ -31,6 +34,7 @@ CONVERSATION_ID = UUID("018f96d4-7c48-7c27-a71f-591e3cb8748b")
 INPUT_ID = UUID("018f96d4-7c48-7c27-a71f-591e3cb8748c")
 OUTPUT_ID = UUID("018f96d4-7c48-7c27-a71f-591e3cb8748d")
 RUN_ID = UUID("018f96d4-7c48-7c27-a71f-591e3cb8748e")
+ATTEMPT_ID = UUID("018f96d4-7c48-7c27-a71f-591e3cb8748f")
 NOW = datetime(2026, 7, 12, 13, 0, tzinfo=timezone.utc)
 
 
@@ -62,8 +66,9 @@ def creation_fixture() -> ConversationCreation:
         conversation_id=CONVERSATION_ID,
         input_message_id=INPUT_ID,
         output_message_id=OUTPUT_ID,
+        attempt_id=ATTEMPT_ID,
         requested_model=ModelId.HINA,
-        resolved_model="pseudo-sodai-hina-v1",
+        resolved_model="hina@artifact",
         status=RunStatus.QUEUED,
         created_at=NOW,
     )
@@ -83,14 +88,16 @@ def creation_fixture() -> ConversationCreation:
 
 
 class StubConversationService:
-    def __init__(self, *, busy: bool = False) -> None:
+    def __init__(self, *, busy: bool = False, capacity_exhausted: bool = False) -> None:
         self.busy = busy
+        self.capacity_exhausted = capacity_exhausted
         self.received: tuple[ConversationPrincipal, str, ModelId] | None = None
-        self.started: tuple[ConversationPrincipal, UUID, UUID] | None = None
 
     async def create(
         self, principal: ConversationPrincipal, content: str, model: ModelId | None
     ) -> ConversationCreation:
+        if self.capacity_exhausted:
+            raise InferenceCapacityError
         selected = ConversationService.select_model(principal, model)
         self.received = (principal, content, selected.id)
         return creation_fixture()
@@ -102,6 +109,8 @@ class StubConversationService:
         content: str,
         model: ModelId | None,
     ) -> ConversationCreation:
+        if self.capacity_exhausted:
+            raise InferenceCapacityError
         if self.busy:
             raise ConversationBusyError
         selected = ConversationService.select_model(principal, model)
@@ -132,15 +141,6 @@ class StubConversationService:
     ) -> None:
         self.received = (principal, str(conversation_id), ModelId.HINA)
 
-    async def start_run(
-        self,
-        principal: ConversationPrincipal,
-        conversation_id: UUID,
-        run_id: UUID,
-    ) -> InferenceRun:
-        self.started = (principal, conversation_id, run_id)
-        return replace(creation_fixture().run, status=RunStatus.RUNNING)
-
 
 @pytest.fixture
 def anyio_backend() -> str:
@@ -170,7 +170,7 @@ async def test_create_conversation_uses_sodai_partner_vocabulary() -> None:
         "partner",
         "sodai",
     ]
-    assert response.json()["run"]["resolved_model"] == "pseudo-sodai-hina-v1"
+    assert response.json()["run"]["resolved_model"] == "hina@artifact"
     assert service.received == (PRINCIPAL, "こんにちは", ModelId.HINA)
 
 
@@ -206,19 +206,20 @@ async def test_create_turn_reports_active_generation_conflict() -> None:
 
 
 @pytest.mark.anyio
-async def test_start_run_uses_explicit_idempotent_endpoint() -> None:
-    service = StubConversationService()
+async def test_create_conversation_rejects_work_beyond_inference_capacity() -> None:
     app.dependency_overrides[get_conversation_principal] = lambda: PRINCIPAL
-    app.dependency_overrides[get_conversation_service] = lambda: service
+    app.dependency_overrides[get_conversation_service] = lambda: StubConversationService(
+        capacity_exhausted=True
+    )
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         response = await client.post(
-            f"/api/v1/conversations/{CONVERSATION_ID}/runs/{RUN_ID}/start"
+            "/api/v1/conversations",
+            json={"input": "こんにちは", "model": "hina"},
         )
 
-    assert response.status_code == 202
-    assert response.json()["status"] == "running"
-    assert service.started == (PRINCIPAL, CONVERSATION_ID, RUN_ID)
+    assert response.status_code == 429
+    assert response.json() == {"detail": "Inference capacity is exhausted"}
 
 
 @pytest.mark.anyio
@@ -261,9 +262,7 @@ async def test_archive_conversation() -> None:
     app.dependency_overrides[get_conversation_service] = lambda: service
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        response = await client.post(
-            f"/api/v1/conversations/{CONVERSATION_ID}/archive"
-        )
+        response = await client.post(f"/api/v1/conversations/{CONVERSATION_ID}/archive")
 
     assert response.status_code == 204
     assert response.content == b""

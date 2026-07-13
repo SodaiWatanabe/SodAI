@@ -32,7 +32,7 @@ type ChatDataContextValue = {
   conversations: ConversationSummary[];
   models: AvailableModel[];
   patchConversation: (id: string, patch: ConversationPatch) => void;
-  realtimeReady: boolean;
+  realtimeReadyRevision: number;
   renameConversation: (id: string, title: string) => Promise<ConversationSummary>;
   refresh: () => void;
   subscribeRealtime: (listener: RealtimeListener) => () => void;
@@ -56,6 +56,7 @@ export function ChatDataProvider({ children }: { children: ReactNode }) {
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [models, setModels] = useState<AvailableModel[]>([]);
   const [loadVersion, setLoadVersion] = useState(0);
+  const [realtimeReadyRevision, setRealtimeReadyRevision] = useState(0);
   const realtimeListenersRef = useRef(new Set<RealtimeListener>());
 
   const refresh = useCallback(() => {
@@ -138,9 +139,14 @@ export function ChatDataProvider({ children }: { children: ReactNode }) {
     [patchConversation, removeConversation, upsertConversation],
   );
 
-  const realtimeReady = useChatRealtime(
+  const handleRealtimeReady = useCallback(() => {
+    setRealtimeReadyRevision((revision) => revision + 1);
+  }, []);
+
+  useChatRealtime(
     chatApi.createRealtimeSocket,
     handleRealtime,
+    handleRealtimeReady,
   );
 
   useEffect(() => {
@@ -166,7 +172,14 @@ export function ChatDataProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [chatApi, dismissToast, loadVersion, refresh, showToast]);
+  }, [
+    chatApi,
+    dismissToast,
+    loadVersion,
+    realtimeReadyRevision,
+    refresh,
+    showToast,
+  ]);
 
   const value = useMemo<ChatDataContextValue>(
     () => ({
@@ -177,7 +190,7 @@ export function ChatDataProvider({ children }: { children: ReactNode }) {
       conversations,
       models,
       patchConversation,
-      realtimeReady,
+      realtimeReadyRevision,
       renameConversation: async (id, title) => {
         const conversation = await chatApi.updateConversation(id, title);
         patchConversation(id, conversation);
@@ -192,7 +205,7 @@ export function ChatDataProvider({ children }: { children: ReactNode }) {
       conversations,
       models,
       patchConversation,
-      realtimeReady,
+      realtimeReadyRevision,
       refresh,
       removeConversation,
       subscribeRealtime,

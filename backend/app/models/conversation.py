@@ -5,6 +5,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -120,6 +121,7 @@ class InferenceRunModel(Base):
     __tablename__ = "inference_runs"
     __table_args__ = (
         CheckConstraint("status IN ('queued', 'running', 'completed', 'failed')", name="status"),
+        Index("ix_inference_runs_status_lease_expires_at", "status", "lease_expires_at"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -135,11 +137,21 @@ class InferenceRunModel(Base):
     output_message_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey(f"{APPLICATION_SCHEMA}.messages.id"), nullable=False
     )
+    attempt_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), nullable=False, default=uuid.uuid4
+    )
     requested_model: Mapped[str] = mapped_column(String(64), nullable=False)
     resolved_model: Mapped[str] = mapped_column(String(128), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="queued")
     partial_output: Mapped[str] = mapped_column(Text, nullable=False, default="")
     error_code: Mapped[str | None] = mapped_column(String(64))
+    last_event_sequence: Mapped[int] = mapped_column(Integer, nullable=False, default=-1)
+    last_event_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    last_event_type: Mapped[str | None] = mapped_column(String(32))
+    input_tokens: Mapped[int | None] = mapped_column(Integer)
+    output_tokens: Mapped[int | None] = mapped_column(Integer)
+    finish_reason: Mapped[str | None] = mapped_column(String(32))
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=sql_func.now()
     )
@@ -149,3 +161,22 @@ class InferenceRunModel(Base):
     conversation: Mapped[ConversationModel] = relationship(
         back_populates="runs", foreign_keys=[conversation_id]
     )
+
+
+class InferenceOutboxModel(Base):
+    __tablename__ = "inference_outbox"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey(f"{APPLICATION_SCHEMA}.inference_runs.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
+    payload: Mapped[str] = mapped_column(Text, nullable=False)
+    publish_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_error: Mapped[str | None] = mapped_column(String(500))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=sql_func.now()
+    )
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)

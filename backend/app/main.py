@@ -7,14 +7,17 @@ from app.core.config import get_settings
 from app.db.session import dispose_engine
 from app.routers import api_router
 from app.services.conversation import get_conversation_service_singleton
+from app.services.inference.coordinator import get_inference_coordinator
 
 settings = get_settings()
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    await get_conversation_service_singleton().recover_interrupted_runs()
+    coordinator = get_inference_coordinator()
+    coordinator.start()
     yield
+    await coordinator.stop()
     await get_conversation_service_singleton().shutdown()
     await dispose_engine()
 

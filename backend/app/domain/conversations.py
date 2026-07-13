@@ -65,6 +65,7 @@ class InferenceRun:
     conversation_id: UUID
     input_message_id: UUID
     output_message_id: UUID
+    attempt_id: UUID
     requested_model: ModelId
     resolved_model: str
     status: RunStatus

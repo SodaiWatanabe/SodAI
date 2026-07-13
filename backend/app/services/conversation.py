@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import datetime, timedelta, timezone
 from functools import lru_cache
-from uuid import UUID
+from uuid import UUID, uuid4
 
+from sodai_contracts.inference import GenerationJob
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.core.config import get_settings
 from app.db.session import get_session_factory
 from app.domain.conversations import (
     Conversation,
@@ -26,6 +29,10 @@ from app.domain.model_catalog import (
     list_available_models,
 )
 from app.repositories.conversations import SqlAlchemyConversationRepository
+from app.services.inference.deployment import (
+    ModelDeploymentError,
+    ModelDeploymentRegistry,
+)
 from app.services.pseudo_inference import PseudoSodAI
 from app.services.realtime import realtime_hub
 
@@ -36,24 +43,46 @@ class ModelAccessError(Exception):
     pass
 
 
+class ModelUnavailableError(Exception):
+    pass
+
+
+class InferenceCapacityError(Exception):
+    pass
+
+
 class ConversationService:
     def __init__(
         self,
         session_factory: async_sessionmaker[AsyncSession],
         provider: PseudoSodAI,
+        deployments: ModelDeploymentRegistry,
     ) -> None:
         self._session_factory = session_factory
         self._provider = provider
+        self._deployments = deployments
         self._tasks: set[asyncio.Task[None]] = set()
 
     async def create(
         self, principal: ConversationPrincipal, content: str, model: ModelId | None
     ) -> ConversationCreation:
         selected = self.select_model(principal, model)
+        attempt_id = uuid4()
+        resolved_model, artifact_id = self._resolve_runtime(selected)
+        deadline = self._inference_deadline()
         async with self._session_factory() as session:
-            creation = await SqlAlchemyConversationRepository(session).create(
-                principal, content.strip(), selected.id, selected.runtime_id
+            repository = SqlAlchemyConversationRepository(session)
+            await self._reserve_capacity(repository, principal, selected, artifact_id)
+            creation = await repository.create(
+                principal,
+                content.strip(),
+                selected.id,
+                resolved_model,
+                attempt_id,
+                deadline,
             )
+            if artifact_id is not None:
+                await self._create_outbox(repository, creation, selected, artifact_id, deadline)
             await session.commit()
         await realtime_hub.publish(
             principal,
@@ -68,6 +97,8 @@ class ConversationService:
                 "last_activity_at": creation.conversation.last_activity_at.isoformat(),
             },
         )
+        if artifact_id is None:
+            await self._start_pseudo(principal, creation)
         return creation
 
     async def list(self, principal: ConversationPrincipal) -> list[ConversationSummary]:
@@ -128,14 +159,23 @@ class ConversationService:
         model: ModelId | None,
     ) -> ConversationCreation:
         selected = self.select_model(principal, model)
+        attempt_id = uuid4()
+        resolved_model, artifact_id = self._resolve_runtime(selected)
+        deadline = self._inference_deadline()
         async with self._session_factory() as session:
-            creation = await SqlAlchemyConversationRepository(session).append_turn(
+            repository = SqlAlchemyConversationRepository(session)
+            await self._reserve_capacity(repository, principal, selected, artifact_id)
+            creation = await repository.append_turn(
                 principal,
                 conversation_id,
                 content.strip(),
                 selected.id,
-                selected.runtime_id,
+                resolved_model,
+                attempt_id,
+                deadline,
             )
+            if artifact_id is not None:
+                await self._create_outbox(repository, creation, selected, artifact_id, deadline)
             await session.commit()
         await realtime_hub.publish(
             principal,
@@ -149,24 +189,79 @@ class ConversationService:
                 "last_activity_at": creation.conversation.last_activity_at.isoformat(),
             },
         )
+        if artifact_id is None:
+            await self._start_pseudo(principal, creation)
         return creation
 
-    async def start_run(
-        self,
-        principal: ConversationPrincipal,
-        conversation_id: UUID,
-        run_id: UUID,
-    ) -> InferenceRun:
+    async def _start_pseudo(
+        self, principal: ConversationPrincipal, creation: ConversationCreation
+    ) -> None:
         async with self._session_factory() as session:
             run, content = await SqlAlchemyConversationRepository(session).claim_queued_run(
                 principal,
-                conversation_id,
-                run_id,
+                creation.conversation.id,
+                creation.run.id,
             )
             await session.commit()
         if content is not None:
             self._start_generation(principal, run, content)
-        return run
+
+    async def _create_outbox(
+        self,
+        repository: SqlAlchemyConversationRepository,
+        creation: ConversationCreation,
+        selected: ModelDefinition,
+        artifact_id: str,
+        deadline: datetime,
+    ) -> None:
+        turns = await repository.generation_turns(creation.conversation.id)
+        job = GenerationJob.create(
+            run_id=creation.run.id,
+            attempt_id=creation.run.attempt_id,
+            conversation_id=creation.conversation.id,
+            model=selected.id.value,
+            artifact_id=artifact_id,
+            turns=turns,
+            deadline=deadline,
+        )
+        await repository.add_inference_outbox(creation.run.id, job.to_json())
+
+    @staticmethod
+    async def _reserve_capacity(
+        repository: SqlAlchemyConversationRepository,
+        principal: ConversationPrincipal,
+        selected: ModelDefinition,
+        artifact_id: str | None,
+    ) -> None:
+        if artifact_id is None:
+            return
+        settings = get_settings()
+        admitted = await repository.reserve_inference_capacity(
+            principal,
+            selected.id,
+            global_limit=settings.inference_global_active_limit,
+            guest_limit=settings.inference_guest_active_limit,
+        )
+        if not admitted:
+            raise InferenceCapacityError
+
+    @staticmethod
+    def _inference_deadline() -> datetime:
+        return datetime.now(timezone.utc) + timedelta(
+            seconds=get_settings().inference_job_timeout_seconds
+        )
+
+    def _resolve_runtime(self, selected: ModelDefinition) -> tuple[str, str | None]:
+        provider, model = selected.runtime_target.split(":", maxsplit=1)
+        if provider == "pseudo":
+            return f"pseudo:{model}", None
+        if provider != "local":
+            raise ModelUnavailableError
+        try:
+            deployment = self._deployments.resolve(model)
+        except ModelDeploymentError as error:
+            raise ModelUnavailableError from error
+        return deployment.resolved_model, deployment.artifact_id
 
     @staticmethod
     def available_models(principal: ConversationPrincipal) -> list[AvailableModel]:
@@ -273,20 +368,15 @@ class ConversationService:
             task.cancel()
         await asyncio.gather(*self._tasks, return_exceptions=True)
 
-    async def recover_interrupted_runs(self) -> int:
-        """Fail running work orphaned by a previous single-process API instance."""
-
-        async with self._session_factory() as session:
-            count = await SqlAlchemyConversationRepository(session).fail_interrupted_runs()
-            await session.commit()
-        if count:
-            logger.warning("Marked %d interrupted inference runs as failed", count)
-        return count
-
 
 @lru_cache
 def get_conversation_service_singleton() -> ConversationService:
-    return ConversationService(get_session_factory(), PseudoSodAI())
+    settings = get_settings()
+    return ConversationService(
+        get_session_factory(),
+        PseudoSodAI(),
+        ModelDeploymentRegistry(settings.model_root),
+    )
 
 
 def get_conversation_service() -> ConversationService:

@@ -1,7 +1,12 @@
 from functools import lru_cache
+from pathlib import Path
 
-from pydantic import Field, field_validator
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sodai_contracts.inference import MIN_INFERENCE_JOB_TIMEOUT_SECONDS
+
+BACKEND_ROOT = Path(__file__).resolve().parents[2]
+REPOSITORY_ROOT = BACKEND_ROOT.parent
 
 
 class Settings(BaseSettings):
@@ -12,6 +17,22 @@ class Settings(BaseSettings):
     guest_cookie_secure: bool = False
 
     database_url: str = "postgresql+asyncpg://sodai_app:sodai@localhost:5432/sodai"
+    redis_url: str = "redis://127.0.0.1:6379/0"
+    redis_password: str | None = None
+    model_root: Path = Field(
+        default=REPOSITORY_ROOT / "var" / "models",
+        validation_alias=AliasChoices("SODAI_MODEL_ROOT", "model_root"),
+    )
+    inference_job_stream: str = "sodai:inference:jobs:v1"
+    inference_event_stream: str = "sodai:inference:events:v1"
+    inference_event_group: str = "sodai-inference-projector-v1"
+    inference_event_claim_idle_ms: int = Field(default=2_000, ge=500, le=60_000)
+    inference_job_timeout_seconds: int = Field(
+        default=300, ge=MIN_INFERENCE_JOB_TIMEOUT_SECONDS, le=3600
+    )
+    inference_global_active_limit: int = Field(default=32, ge=1, le=10_000)
+    inference_guest_active_limit: int = Field(default=1, ge=1, le=100)
+    inference_reconciliation_interval_seconds: float = Field(default=5, gt=0, le=60)
 
     auth_issuer: str = "http://localhost:3000"
     auth_audience: str = "http://localhost:3000"
@@ -22,7 +43,7 @@ class Settings(BaseSettings):
     auth_jwks_timeout_seconds: float = Field(default=5.0, gt=0, le=30)
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=(REPOSITORY_ROOT / ".env", BACKEND_ROOT / ".env"),
         env_file_encoding="utf-8",
         extra="ignore",
     )
@@ -41,6 +62,19 @@ class Settings(BaseSettings):
         if not value:
             raise ValueError("authentication endpoint settings must not be empty")
         return value
+
+    @field_validator("redis_url")
+    @classmethod
+    def validate_redis_url(cls, value: str) -> str:
+        value = value.strip()
+        if not value.startswith(("redis://", "rediss://")):
+            raise ValueError("REDIS_URL must use redis:// or rediss://")
+        return value
+
+    @field_validator("model_root")
+    @classmethod
+    def resolve_model_root_from_repository(cls, value: Path) -> Path:
+        return (value if value.is_absolute() else REPOSITORY_ROOT / value).resolve()
 
     @field_validator("auth_jwt_algorithm")
     @classmethod

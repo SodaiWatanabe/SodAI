@@ -1,33 +1,65 @@
 PYTHON ?= python3
 BACKEND_VENV := backend/.venv
 BACKEND_PYTHON := $(BACKEND_VENV)/bin/python
+INFERENCE_VENV := inference/.venv
+INFERENCE_PYTHON := $(INFERENCE_VENV)/bin/python
 ENV_FILE ?= .env
 COMPOSE ?= docker compose
 COMPOSE_BASE = $(COMPOSE) --env-file $(ENV_FILE) -f compose.yaml
 COMPOSE_DEV = $(COMPOSE_BASE) -f compose.dev.yaml
 
-.PHONY: install install-backend install-frontend \
-	dev-backend dev-frontend \
+.PHONY: install install-contracts install-backend install-frontend install-inference \
+	dev-backend dev-frontend dev-inference import-hina deploy-hina \
 	infra-check-env infra-config infra-up infra-up-internal infra-down infra-logs infra-ps \
 	tunnel-up tunnel-down db-shell redis-cli db-backup db-restore \
 	migrate migrate-auth migrate-app \
-	test lint build check
+	test test-integration lint build check
 
-install: install-backend install-frontend
+install: install-backend install-frontend install-inference
 
-install-backend:
+install-contracts: $(BACKEND_VENV)/bin/python
+	$(BACKEND_PYTHON) -m pip install -e packages/contracts
+
+$(BACKEND_VENV)/bin/python:
 	$(PYTHON) -m venv $(BACKEND_VENV)
+
+install-backend: $(BACKEND_VENV)/bin/python
 	$(BACKEND_PYTHON) -m pip install --upgrade pip 'setuptools>=78.1.1'
+	$(BACKEND_PYTHON) -m pip install -e packages/contracts
 	$(BACKEND_PYTHON) -m pip install -e 'backend[dev]'
 
 install-frontend:
 	cd frontend && npm install
+
+install-inference:
+	$(PYTHON) -m venv $(INFERENCE_VENV)
+	$(INFERENCE_PYTHON) -m pip install --upgrade pip 'setuptools>=78.1.1'
+	$(INFERENCE_PYTHON) -m pip install 'torch==2.5.1' --index-url https://download.pytorch.org/whl/cu121
+	$(INFERENCE_PYTHON) -m pip install -e packages/contracts
+	$(INFERENCE_PYTHON) -m pip install -e 'inference[dev]'
 
 dev-backend:
 	cd backend && .venv/bin/uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 
 dev-frontend:
 	cd frontend && npm run dev
+
+dev-inference: infra-check-env
+	set -a; . ./$(ENV_FILE); set +a; exec env \
+		$(if $(HINA_ARTIFACT_ID),HINA_ARTIFACT_ID="$(HINA_ARTIFACT_ID)") \
+		$(INFERENCE_VENV)/bin/sodai-inference
+
+import-hina: infra-check-env
+	@test -n "$(CHECKPOINT)" || { echo 'CHECKPOINT=/path/to/gpt_sft.pt を指定してください。' >&2; exit 1; }
+	@test -n "$(TOKENIZER)" || { echo 'TOKENIZER=/path/to/tokenizer を指定してください。' >&2; exit 1; }
+	set -a; . ./$(ENV_FILE); set +a; exec $(INFERENCE_VENV)/bin/sodai-import-hina \
+		--checkpoint "$(CHECKPOINT)" \
+		--tokenizer "$(TOKENIZER)" \
+		$(if $(SOURCE_REPOSITORY),--source-repository "$(SOURCE_REPOSITORY)")
+
+deploy-hina: infra-check-env
+	@test -n "$(ARTIFACT_ID)" || { echo 'ARTIFACT_ID=<artifact-id> を指定してください。' >&2; exit 1; }
+	set -a; . ./$(ENV_FILE); set +a; exec $(INFERENCE_VENV)/bin/sodai-deploy-hina "$(ARTIFACT_ID)"
 
 infra-check-env:
 	@test -f "$(ENV_FILE)" || { \
@@ -85,10 +117,19 @@ migrate-app:
 	cd backend && .venv/bin/alembic upgrade head
 
 test:
+	$(BACKEND_PYTHON) -m pytest packages/contracts/tests
 	cd backend && .venv/bin/pytest
+	cd inference && .venv/bin/pytest
+
+test-integration: infra-check-env migrate-app
+	SODAI_INTEGRATION_TESTS=1 $(BACKEND_PYTHON) -m pytest backend/tests/test_inference_integration.py
+	set -a; . ./$(ENV_FILE); set +a; cd inference && \
+		SODAI_INTEGRATION_TESTS=1 .venv/bin/pytest tests/test_redis_integration.py
 
 lint:
+	$(BACKEND_PYTHON) -m ruff check packages/contracts
 	cd backend && .venv/bin/ruff check .
+	cd inference && .venv/bin/ruff check .
 	cd frontend && npm run lint
 
 build:

@@ -7,7 +7,6 @@ import type {
   Conversation,
   ConversationCreation,
   ConversationSummary,
-  InferenceRun,
 } from "@/lib/chat/types";
 
 export class ChatApiError extends Error {
@@ -102,17 +101,6 @@ export function createChatApi(accessToken: ApiAccessTokenSource) {
     return (await response.json()) as ConversationCreation;
   }
 
-  async function startRun(
-    conversationId: string,
-    runId: string,
-  ): Promise<InferenceRun> {
-    const response = await apiFetch(
-      `/api/v1/conversations/${conversationId}/runs/${runId}/start`,
-      { method: "POST" },
-    );
-    return (await response.json()) as InferenceRun;
-  }
-
   async function createRealtimeSocket(after?: number): Promise<WebSocket> {
     const response = await apiFetch("/api/v1/realtime/tickets", {
       method: "POST",
@@ -136,7 +124,6 @@ export function createChatApi(accessToken: ApiAccessTokenSource) {
     getConversation,
     listConversations,
     listModels,
-    startRun,
     updateConversation,
   };
 }
