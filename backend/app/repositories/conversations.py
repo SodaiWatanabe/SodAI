@@ -206,17 +206,40 @@ class SqlAlchemyConversationRepository:
             run=self._to_run(run),
         )
 
-    async def begin_run(self, run_id: UUID) -> tuple[InferenceRunModel, MessageModel]:
-        run = await self._session.get(InferenceRunModel, run_id)
+    async def claim_queued_run(
+        self,
+        principal: ConversationPrincipal,
+        conversation_id: UUID,
+        run_id: UUID,
+    ) -> tuple[InferenceRun, str | None]:
+        statement = (
+            select(InferenceRunModel)
+            .join(
+                ConversationModel,
+                ConversationModel.id == InferenceRunModel.conversation_id,
+            )
+            .where(
+                InferenceRunModel.id == run_id,
+                InferenceRunModel.conversation_id == conversation_id,
+                ConversationModel.status == "active",
+                self._owned_by(principal),
+            )
+            .with_for_update()
+        )
+        run = await self._session.scalar(statement)
         if run is None:
             raise ConversationNotFoundError
+        if run.status != RunStatus.QUEUED.value:
+            return self._to_run(run), None
+
+        input_message = await self._session.get(MessageModel, run.input_message_id)
         output = await self._session.get(MessageModel, run.output_message_id)
-        if output is None:
+        if input_message is None or output is None:
             raise ConversationNotFoundError
         run.status = RunStatus.RUNNING.value
         run.started_at = datetime.now(timezone.utc)
         await self._session.flush()
-        return run, output
+        return self._to_run(run), input_message.content
 
     async def save_delta(self, run_id: UUID, content: str) -> None:
         run = await self._session.get(InferenceRunModel, run_id)
@@ -263,9 +286,7 @@ class SqlAlchemyConversationRepository:
         output_ids = list(
             await self._session.scalars(
                 update(InferenceRunModel)
-                .where(
-                    InferenceRunModel.status.in_([RunStatus.QUEUED.value, RunStatus.RUNNING.value])
-                )
+                .where(InferenceRunModel.status == RunStatus.RUNNING.value)
                 .values(
                     status=RunStatus.FAILED.value,
                     error_code="worker_interrupted",

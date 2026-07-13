@@ -15,6 +15,7 @@ from app.schemas.conversation import (
     CreateTurnRequest,
     ModelListResponse,
     RealtimeTicketResponse,
+    RunResponse,
     UpdateConversationRequest,
 )
 from app.services.conversation import (
@@ -134,6 +135,24 @@ async def create_turn(
     except ModelAccessError as exc:
         raise HTTPException(status_code=403, detail="Model is not available") from exc
     return ConversationCreationResponse.model_validate(creation, from_attributes=True)
+
+
+@router.post(
+    "/conversations/{conversation_id}/runs/{run_id}/start",
+    response_model=RunResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def start_run(
+    conversation_id: UUID,
+    run_id: UUID,
+    principal: ConversationPrincipal = Depends(get_conversation_principal),
+    service: ConversationService = Depends(get_conversation_service),
+) -> RunResponse:
+    try:
+        run = await service.start_run(principal, conversation_id, run_id)
+    except ConversationNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Inference run not found") from exc
+    return RunResponse.model_validate(run, from_attributes=True)
 
 
 @router.get("/models", response_model=ModelListResponse)

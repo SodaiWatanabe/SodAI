@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -85,6 +86,7 @@ class StubConversationService:
     def __init__(self, *, busy: bool = False) -> None:
         self.busy = busy
         self.received: tuple[ConversationPrincipal, str, ModelId] | None = None
+        self.started: tuple[ConversationPrincipal, UUID, UUID] | None = None
 
     async def create(
         self, principal: ConversationPrincipal, content: str, model: ModelId | None
@@ -129,6 +131,15 @@ class StubConversationService:
         conversation_id: UUID,
     ) -> None:
         self.received = (principal, str(conversation_id), ModelId.HINA)
+
+    async def start_run(
+        self,
+        principal: ConversationPrincipal,
+        conversation_id: UUID,
+        run_id: UUID,
+    ) -> InferenceRun:
+        self.started = (principal, conversation_id, run_id)
+        return replace(creation_fixture().run, status=RunStatus.RUNNING)
 
 
 @pytest.fixture
@@ -192,6 +203,22 @@ async def test_create_turn_reports_active_generation_conflict() -> None:
 
     assert response.status_code == 409
     assert response.json() == {"detail": "A response is already being generated"}
+
+
+@pytest.mark.anyio
+async def test_start_run_uses_explicit_idempotent_endpoint() -> None:
+    service = StubConversationService()
+    app.dependency_overrides[get_conversation_principal] = lambda: PRINCIPAL
+    app.dependency_overrides[get_conversation_service] = lambda: service
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post(
+            f"/api/v1/conversations/{CONVERSATION_ID}/runs/{RUN_ID}/start"
+        )
+
+    assert response.status_code == 202
+    assert response.json()["status"] == "running"
+    assert service.started == (PRINCIPAL, CONVERSATION_ID, RUN_ID)
 
 
 @pytest.mark.anyio

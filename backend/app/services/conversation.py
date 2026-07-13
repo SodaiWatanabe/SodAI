@@ -13,6 +13,7 @@ from app.domain.conversations import (
     ConversationCreation,
     ConversationPrincipal,
     ConversationSummary,
+    InferenceRun,
     PrincipalKind,
 )
 from app.domain.model_catalog import (
@@ -67,7 +68,6 @@ class ConversationService:
                 "last_activity_at": creation.conversation.last_activity_at.isoformat(),
             },
         )
-        self._start_generation(principal, creation.run.id, content.strip())
         return creation
 
     async def list(self, principal: ConversationPrincipal) -> list[ConversationSummary]:
@@ -149,8 +149,24 @@ class ConversationService:
                 "last_activity_at": creation.conversation.last_activity_at.isoformat(),
             },
         )
-        self._start_generation(principal, creation.run.id, content.strip())
         return creation
+
+    async def start_run(
+        self,
+        principal: ConversationPrincipal,
+        conversation_id: UUID,
+        run_id: UUID,
+    ) -> InferenceRun:
+        async with self._session_factory() as session:
+            run, content = await SqlAlchemyConversationRepository(session).claim_queued_run(
+                principal,
+                conversation_id,
+                run_id,
+            )
+            await session.commit()
+        if content is not None:
+            self._start_generation(principal, run, content)
+        return run
 
     @staticmethod
     def available_models(principal: ConversationPrincipal) -> list[AvailableModel]:
@@ -177,22 +193,23 @@ class ConversationService:
         return ModelAudience.GUEST
 
     def _start_generation(
-        self, principal: ConversationPrincipal, run_id: UUID, content: str
+        self, principal: ConversationPrincipal, run: InferenceRun, content: str
     ) -> None:
-        task = asyncio.create_task(self._generate(principal, run_id, content))
+        task = asyncio.create_task(self._generate(principal, run, content))
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
 
-    async def _generate(self, principal: ConversationPrincipal, run_id: UUID, content: str) -> None:
+    async def _generate(
+        self,
+        principal: ConversationPrincipal,
+        run: InferenceRun,
+        content: str,
+    ) -> None:
         generated = ""
-        conversation_id: UUID | None = None
-        output_message_id: UUID | None = None
+        run_id = run.id
+        conversation_id = run.conversation_id
+        output_message_id = run.output_message_id
         try:
-            async with self._session_factory() as session:
-                run, _ = await SqlAlchemyConversationRepository(session).begin_run(run_id)
-                await session.commit()
-                conversation_id = run.conversation_id
-                output_message_id = run.output_message_id
             await realtime_hub.publish(
                 principal,
                 "response.started",
@@ -241,14 +258,13 @@ class ConversationService:
             async with self._session_factory() as session:
                 await SqlAlchemyConversationRepository(session).fail_run(run_id)
                 await session.commit()
-            if conversation_id is not None:
-                await realtime_hub.publish(
-                    principal,
-                    "response.failed",
-                    conversation_id,
-                    run_id,
-                    {"message_id": str(output_message_id) if output_message_id else None},
-                )
+            await realtime_hub.publish(
+                principal,
+                "response.failed",
+                conversation_id,
+                run_id,
+                {"message_id": str(output_message_id)},
+            )
 
     async def shutdown(self) -> None:
         if not self._tasks:
@@ -258,7 +274,7 @@ class ConversationService:
         await asyncio.gather(*self._tasks, return_exceptions=True)
 
     async def recover_interrupted_runs(self) -> int:
-        """Fail work orphaned by a previous single-process API instance."""
+        """Fail running work orphaned by a previous single-process API instance."""
 
         async with self._session_factory() as session:
             count = await SqlAlchemyConversationRepository(session).fail_interrupted_runs()
