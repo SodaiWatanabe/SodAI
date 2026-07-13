@@ -3,10 +3,10 @@
 import type { ApiAccessTokenSource } from "@/lib/auth/api-client";
 import { API_BASE_URL } from "@/lib/api/base-url";
 import type {
-  AvailableModel,
-  Conversation,
-  ConversationCreation,
-  ConversationSummary,
+  AvailableAnswerer,
+  ResponseCreation,
+  Thread,
+  ThreadSummary,
 } from "@/lib/chat/types";
 
 export class ChatApiError extends Error {
@@ -44,61 +44,56 @@ export function createChatApi(accessToken: ApiAccessTokenSource) {
     return response;
   }
 
-  async function listConversations(): Promise<ConversationSummary[]> {
-    const response = await apiFetch("/api/v1/conversations");
-    const payload = (await response.json()) as { items: ConversationSummary[] };
+  async function listThreads(): Promise<ThreadSummary[]> {
+    const response = await apiFetch("/api/v1/threads");
+    const payload = (await response.json()) as { items: ThreadSummary[] };
     return payload.items;
   }
 
-  async function listModels(): Promise<AvailableModel[]> {
-    const response = await apiFetch("/api/v1/models");
-    const payload = (await response.json()) as { items: AvailableModel[] };
+  async function listAnswerers(): Promise<AvailableAnswerer[]> {
+    const response = await apiFetch("/api/v1/answerers");
+    const payload = (await response.json()) as { items: AvailableAnswerer[] };
     return payload.items;
   }
 
-  async function createConversation(
+  async function createThread(
     input: string,
-    model: AvailableModel["id"],
-  ): Promise<ConversationCreation> {
-    const response = await apiFetch("/api/v1/conversations", {
+    answerer: AvailableAnswerer["id"],
+  ): Promise<ResponseCreation> {
+    const response = await apiFetch("/api/v1/threads", {
       method: "POST",
-      body: JSON.stringify({ input, model }),
+      body: JSON.stringify({ input, answerer }),
     });
-    return (await response.json()) as ConversationCreation;
+    return (await response.json()) as ResponseCreation;
   }
 
-  async function getConversation(id: string): Promise<Conversation> {
-    const response = await apiFetch(`/api/v1/conversations/${id}`);
-    return (await response.json()) as Conversation;
+  async function getThread(id: string): Promise<Thread> {
+    const response = await apiFetch(`/api/v1/threads/${id}`);
+    return (await response.json()) as Thread;
   }
 
-  async function updateConversation(
-    id: string,
-    title: string,
-  ): Promise<ConversationSummary> {
-    const response = await apiFetch(`/api/v1/conversations/${id}`, {
+  async function updateThread(id: string, title: string): Promise<ThreadSummary> {
+    const response = await apiFetch(`/api/v1/threads/${id}`, {
       method: "PATCH",
       body: JSON.stringify({ title }),
     });
-    return (await response.json()) as ConversationSummary;
+    return (await response.json()) as ThreadSummary;
   }
 
-  async function archiveConversation(id: string): Promise<void> {
-    await apiFetch(`/api/v1/conversations/${id}/archive`, {
-      method: "POST",
-    });
+  async function archiveThread(id: string): Promise<void> {
+    await apiFetch(`/api/v1/threads/${id}/archive`, { method: "POST" });
   }
 
-  async function createTurn(
-    id: string,
+  async function createResponse(
+    threadId: string,
     input: string,
-    model: AvailableModel["id"],
-  ): Promise<ConversationCreation> {
-    const response = await apiFetch(`/api/v1/conversations/${id}/turns`, {
+    answerer: AvailableAnswerer["id"],
+  ): Promise<ResponseCreation> {
+    const response = await apiFetch("/api/v1/response-requests", {
       method: "POST",
-      body: JSON.stringify({ input, model }),
+      body: JSON.stringify({ thread_id: threadId, input, answerer }),
     });
-    return (await response.json()) as ConversationCreation;
+    return (await response.json()) as ResponseCreation;
   }
 
   async function createRealtimeSocket(after?: number): Promise<WebSocket> {
@@ -117,14 +112,14 @@ export function createChatApi(accessToken: ApiAccessTokenSource) {
   }
 
   return {
-    archiveConversation,
-    createConversation,
+    archiveThread,
     createRealtimeSocket,
-    createTurn,
-    getConversation,
-    listConversations,
-    listModels,
-    updateConversation,
+    createResponse,
+    createThread,
+    getThread,
+    listAnswerers,
+    listThreads,
+    updateThread,
   };
 }
 

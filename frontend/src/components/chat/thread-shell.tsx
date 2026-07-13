@@ -13,88 +13,68 @@ import {
 import { useChatData } from "@/components/chat/chat-data-provider";
 import { ChatHeader } from "@/components/chat/chat-header";
 import { settleComposerFocus } from "@/components/chat/composer-focus";
-import { ConversationViewport } from "@/components/chat/conversation-viewport";
+import { ThreadViewport } from "@/components/chat/thread-viewport";
 import { useToast } from "@/components/ui/toast-provider";
 import type {
-  AvailableModel,
-  ChatMessage,
-  Conversation,
+  AvailableAnswerer,
   RealtimeEvent,
+  Thread,
+  ThreadEntry,
 } from "@/lib/chat/types";
 import { useChatApi } from "@/lib/chat/use-chat-api";
 
-type ConversationShellProps = {
-  conversationId: string;
+type ThreadShellProps = {
+  threadId: string;
 };
 
 const STICK_TO_BOTTOM_THRESHOLD = 120;
 
-function mergeMessages(current: ChatMessage[], incoming: ChatMessage[]) {
-  const byId = new Map(current.map((message) => [message.id, message]));
-  for (const message of incoming) {
-    const existing = byId.get(message.id);
-    if (!existing) {
-      byId.set(message.id, message);
-      continue;
-    }
-    const existingTerminal = existing.status !== "streaming";
-    const incomingTerminal = message.status !== "streaming";
-    if (existingTerminal && !incomingTerminal) continue;
-    if (!existingTerminal && incomingTerminal) {
-      byId.set(message.id, {
-        ...message,
-        content:
-          message.content.length >= existing.content.length
-            ? message.content
-            : existing.content,
-      });
-      continue;
-    }
-    if (!existingTerminal && !incomingTerminal) {
-      byId.set(
-        message.id,
-        message.content.length >= existing.content.length ? message : existing,
-      );
-      continue;
-    }
-    byId.set(
-      message.id,
-      Date.parse(message.updated_at) >= Date.parse(existing.updated_at)
-        ? message
-        : existing,
-    );
-  }
+function mergeEntries(current: ThreadEntry[], incoming: ThreadEntry[]) {
+  const byId = new Map(current.map((entry) => [entry.id, entry]));
+  for (const entry of incoming) byId.set(entry.id, entry);
   return [...byId.values()].sort((left, right) => left.ordinal - right.ordinal);
 }
 
-export function ConversationShell(props: ConversationShellProps) {
-  const { conversationId } = props;
-  const { createTurn, getConversation } = useChatApi();
+function isResponding(thread?: Thread) {
+  const status = thread?.latest_response?.status;
+  return status === "queued" || status === "running";
+}
+
+export function ThreadShell({ threadId }: ThreadShellProps) {
+  const { createResponse, getThread } = useChatApi();
   const {
-    models,
-    patchConversation,
+    answerers,
+    patchThread,
     realtimeReadyRevision,
     subscribeRealtime,
   } = useChatData();
   const { dismissToast, showToast } = useToast();
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const threadRef = useRef<Thread | undefined>(undefined);
   const initialScrollPositionedRef = useRef(false);
+  const answererInitializedRef = useRef(false);
   const stickToBottomRef = useRef(true);
   const mountedRef = useRef(true);
-  const realtimeRevisionRef = useRef(0);
   const refreshGenerationRef = useRef(0);
-  const [conversation, setConversation] = useState<Conversation>();
-  const [model, setModel] = useState<AvailableModel["id"]>();
+  const [thread, setThreadState] = useState<Thread>();
+  const [answerer, setAnswerer] = useState<AvailableAnswerer["id"]>();
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
-  const [sending, setSending] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const responding = submitting || isResponding(thread);
 
-  const loadConversation = useCallback(
-    () => getConversation(conversationId),
-    [conversationId, getConversation],
+  const updateThread = useCallback(
+    (update: (current?: Thread) => Thread | undefined) => {
+      const next = update(threadRef.current);
+      threadRef.current = next;
+      setThreadState(next);
+    },
+    [],
   );
+
+  const loadThread = useCallback(() => getThread(threadId), [getThread, threadId]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -107,36 +87,39 @@ export function ConversationShell(props: ConversationShellProps) {
   useEffect(() => {
     let cancelled = false;
 
-    async function syncConversation(showLoading: boolean) {
+    async function syncThread(showLoading: boolean) {
       if (cancelled) return;
       const generation = ++refreshGenerationRef.current;
-      const realtimeRevision = realtimeRevisionRef.current;
       if (showLoading) setLoading(true);
       try {
-        const current = await loadConversation();
+        const current = await loadThread();
         if (cancelled || generation !== refreshGenerationRef.current) return;
-        setConversation((previous) => ({
-          ...current,
-          messages:
-            previous?.id === current.id
-              ? mergeMessages(previous.messages, current.messages)
-              : current.messages,
-        }));
-        if (realtimeRevision === realtimeRevisionRef.current) {
-          setModel(current.model);
-          setSending(Boolean(current.active_run));
+        updateThread((previous) =>
+          previous?.id === current.id && previous.revision > current.revision
+            ? previous
+            : {
+                ...current,
+                entries:
+                  previous?.id === current.id
+                    ? mergeEntries(previous.entries, current.entries)
+                    : current.entries,
+              },
+        );
+        if (!answererInitializedRef.current) {
+          answererInitializedRef.current = true;
+          setAnswerer(current.answerer);
         }
-        dismissToast("conversation-load");
+        dismissToast("thread-load");
       } catch {
         if (cancelled || generation !== refreshGenerationRef.current) return;
         showToast({
-          id: "conversation-load",
+          id: "thread-load",
           message: "会話を読み込めませんでした。",
           tone: "error",
           duration: null,
           action: {
             label: "再試行",
-            onClick: () => void syncConversation(true),
+            onClick: () => void syncThread(true),
           },
         });
       } finally {
@@ -147,76 +130,106 @@ export function ConversationShell(props: ConversationShellProps) {
     }
 
     function applyRealtime(event: RealtimeEvent) {
-      if (event.conversation_id !== conversationId) return;
-      realtimeRevisionRef.current += 1;
-      if (event.type === "conversation.updated" && event.data.title) {
-        setConversation((current) =>
-          current ? { ...current, title: event.data.title ?? current.title } : current,
+      if (event.type === "sync.required") {
+        void syncThread(false);
+        return;
+      }
+      if (event.thread_id !== threadId) return;
+      if (event.type === "entry.created") {
+        void syncThread(false);
+        return;
+      }
+      if (event.type === "thread.updated" && event.data.title) {
+        updateThread((current) =>
+          current && event.thread_revision >= current.revision
+            ? {
+                ...current,
+                title: event.data.title ?? current.title,
+                revision: event.thread_revision,
+              }
+            : current,
         );
         return;
       }
-      if (event.type === "message.created") {
-        void syncConversation(false);
+      if (
+        event.type !== "response.started" &&
+        event.type !== "response.delta" &&
+        event.type !== "response.completed" &&
+        event.type !== "response.failed"
+      ) {
         return;
       }
-      if (!event.data.message_id) return;
-      if (event.type === "response.started" || event.type === "response.delta") {
-        setSending(true);
-      }
-      const terminalEvent =
+
+      const terminal =
         event.type === "response.completed" || event.type === "response.failed";
-      setConversation((current) => {
-        if (!current) return current;
+      const currentResponse = threadRef.current?.latest_response;
+      if (!currentResponse || currentResponse.id !== event.response_request_id) {
+        if (terminal) void syncThread(false);
+        return;
+      }
+      updateThread((current) => {
+        const response = current?.latest_response;
+        if (
+          !current ||
+          !response ||
+          response.id !== event.response_request_id ||
+          event.thread_revision < current.revision
+        ) {
+          return current;
+        }
+        const status =
+          event.type === "response.completed"
+            ? "completed"
+            : event.type === "response.failed"
+              ? "failed"
+              : "running";
         return {
           ...current,
-          active_run: terminalEvent
-            ? null
-            : event.type === "response.started" &&
-                current.active_run?.id === event.run_id
-              ? { ...current.active_run, status: "running" }
-              : current.active_run,
-          messages: current.messages.map((item) =>
-            item.id === event.data.message_id
-              ? {
-                  ...item,
-                  content: event.data.content ?? item.content,
-                  status:
-                    event.type === "response.completed"
-                      ? "completed"
-                      : event.type === "response.failed"
-                        ? "failed"
-                        : "streaming",
-                }
-              : item,
-          ),
+          revision: event.thread_revision,
+          latest_response: {
+            ...response,
+            status,
+            execution: {
+              ...response.execution,
+              status,
+              partial_output:
+                event.data.content ?? response.execution.partial_output,
+              resolved_model:
+                event.data.resolved_model ?? response.execution.resolved_model,
+              result_entry_id:
+                event.data.result_entry_id ?? response.execution.result_entry_id,
+              error_code:
+                event.data.error_code ?? response.execution.error_code,
+            },
+          },
         };
       });
-      if (terminalEvent) {
-        setSending(false);
-        void syncConversation(false);
+      if (terminal) {
+        void syncThread(false);
       }
     }
 
     const unsubscribeRealtime = subscribeRealtime(applyRealtime);
-    void syncConversation(false);
+    void syncThread(false);
     return () => {
       cancelled = true;
       refreshGenerationRef.current += 1;
       unsubscribeRealtime();
-      dismissToast("conversation-load");
+      dismissToast("thread-load");
     };
   }, [
-    conversationId,
     dismissToast,
-    loadConversation,
+    loadThread,
     realtimeReadyRevision,
     showToast,
     subscribeRealtime,
+    threadId,
+    updateThread,
   ]);
 
   useLayoutEffect(() => {
     const element = scrollRef.current;
-    if (!element || !conversation) return;
+    if (!element || !thread) return;
     if (!initialScrollPositionedRef.current) {
       element.scrollTop = element.scrollHeight;
       initialScrollPositionedRef.current = true;
@@ -227,39 +240,47 @@ export function ConversationShell(props: ConversationShellProps) {
     if (stickToBottomRef.current) {
       element.scrollTo({ top: element.scrollHeight, behavior: "smooth" });
     }
-  }, [conversation]);
+  }, [thread]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     const input = message.trim();
-    if (!input || !model || sending) return;
+    if (!input || !answerer || responding) return;
     stickToBottomRef.current = true;
     setShowScrollToBottom(false);
     setMessage("");
-    setSending(true);
+    setSubmitting(true);
     settleComposerFocus(inputRef.current);
     dismissToast("message-send");
     try {
-      const created = await createTurn(conversationId, input, model);
+      const created = await createResponse(threadId, input, answerer);
       if (!mountedRef.current) return;
-      setConversation((current) =>
-        current
-          ? {
-              ...current,
-              model,
-              messages: mergeMessages(current.messages, created.conversation.messages),
-              active_run: created.run,
-            }
-          : current,
-      );
-      patchConversation(conversationId, {
-        last_activity_at: new Date().toISOString(),
-        model,
+      updateThread((current) => {
+        const entries = current
+          ? mergeEntries(current.entries, created.thread.entries)
+          : created.thread.entries;
+        if (current && current.revision > created.thread.revision) {
+          return {
+            ...current,
+            entries,
+            latest_response:
+              current.latest_response?.id === created.response.id
+                ? current.latest_response
+                : created.response,
+          };
+        }
+        return { ...created.thread, entries, latest_response: created.response };
+      });
+      setSubmitting(false);
+      patchThread(threadId, {
+        answerer,
+        last_activity_at: created.thread.last_activity_at,
+        revision: created.thread.revision,
       });
     } catch {
       if (!mountedRef.current) return;
       setMessage((current) => (current.trim() ? current : input));
-      setSending(false);
+      setSubmitting(false);
       showToast({
         id: "message-send",
         message: "送信できませんでした。もう一度お試しください。",
@@ -290,18 +311,14 @@ export function ConversationShell(props: ConversationShellProps) {
       }}
     >
       <ChatHeader
-        model={model}
-        models={models}
-        onModelChange={setModel}
+        answerer={answerer}
+        answerers={answerers}
+        onAnswererChange={setAnswerer}
       />
 
-      <ConversationViewport
-        conversation={conversation}
-        loading={loading}
-        responding={sending}
-      />
+      <ThreadViewport thread={thread} loading={loading} responding={responding} />
 
-      <div className="conversation-composer sticky bottom-0 z-20 shrink-0 px-5 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-8">
+      <div className="thread-composer sticky bottom-0 z-20 shrink-0 px-5 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-8">
         <button
           type="button"
           aria-label="会話の最下部へ移動"
@@ -316,16 +333,13 @@ export function ConversationShell(props: ConversationShellProps) {
         >
           <ArrowDown aria-hidden="true" className="size-4" strokeWidth={2} />
         </button>
-        <form
-          onSubmit={submit}
-          className="relative z-10 mx-auto max-w-[760px]"
-        >
-          <label htmlFor="conversation-message" className="sr-only">
+        <form onSubmit={submit} className="relative z-10 mx-auto max-w-[760px]">
+          <label htmlFor="thread-message" className="sr-only">
             対話を続ける
           </label>
           <input
             ref={inputRef}
-            id="conversation-message"
+            id="thread-message"
             type="text"
             value={message}
             autoFocus
@@ -338,7 +352,7 @@ export function ConversationShell(props: ConversationShellProps) {
           <button
             type="submit"
             aria-label="送信"
-            disabled={!message.trim() || !model || sending}
+            disabled={!message.trim() || !answerer || responding}
             className="absolute right-2 top-2 grid size-10 place-items-center rounded-full bg-[var(--primary)] text-[var(--on-primary)] transition-opacity disabled:opacity-25"
           >
             <ArrowUp className="size-[18px]" strokeWidth={2.2} />

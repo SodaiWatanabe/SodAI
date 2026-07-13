@@ -16,29 +16,29 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { useToast } from "@/components/ui/toast-provider";
-import type { ConversationSummary } from "@/lib/chat/types";
+import type { ThreadSummary } from "@/lib/chat/types";
 
-type ConversationListItemProps = {
+type ThreadListItemProps = {
   active: boolean;
-  conversation: ConversationSummary;
+  thread: ThreadSummary;
   onArchive: () => void;
   onSelect: () => void;
 };
 
 type MenuView = "actions" | "rename";
 
-export function ConversationListItem({
+export function ThreadListItem({
   active,
-  conversation,
+  thread,
   onArchive,
   onSelect,
-}: ConversationListItemProps) {
-  const { archiveConversation, renameConversation } = useChatData();
+}: ThreadListItemProps) {
+  const { archiveThread, renameThread } = useChatData();
   const { showToast } = useToast();
   const contentRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const [menuView, setMenuView] = useState<MenuView>("actions");
-  const [title, setTitle] = useState(conversation.title);
+  const [title, setTitle] = useState(thread.title);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -55,24 +55,24 @@ export function ConversationListItem({
   }
 
   function showRename() {
-    setTitle(conversation.title);
+    setTitle(thread.title);
     setMenuView("rename");
   }
 
   async function submitRename(event: FormEvent) {
     event.preventDefault();
     const nextTitle = title.trim();
-    if (!nextTitle || nextTitle === conversation.title || submitting) {
-      if (nextTitle === conversation.title) closePopover();
+    if (!nextTitle || nextTitle === thread.title || submitting) {
+      if (nextTitle === thread.title) closePopover();
       return;
     }
     setSubmitting(true);
     try {
-      await renameConversation(conversation.id, nextTitle);
+      await renameThread(thread.id, nextTitle);
       closePopover();
     } catch {
       showToast({
-        id: `conversation-rename-${conversation.id}`,
+        id: `thread-rename-${thread.id}`,
         message: "会話の名前を変更できませんでした。",
         tone: "error",
       });
@@ -85,12 +85,12 @@ export function ConversationListItem({
     if (submitting) return;
     setSubmitting(true);
     try {
-      await archiveConversation(conversation.id);
+      await archiveThread(thread.id);
       closePopover();
       onArchive();
     } catch {
       showToast({
-        id: `conversation-archive-${conversation.id}`,
+        id: `thread-archive-${thread.id}`,
         message: "会話をアーカイブできませんでした。",
         tone: "error",
       });
@@ -117,7 +117,7 @@ export function ConversationListItem({
         className="h-full min-w-0 flex-1 truncate rounded-xl pl-2.5 pr-10 text-left text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--focus)]"
         onClick={onSelect}
       >
-        {conversation.title}
+        {thread.title}
       </button>
 
       <Popover
@@ -127,11 +127,11 @@ export function ConversationListItem({
         onOpenChange={(open) => {
           if (open) return;
           setMenuView("actions");
-          setTitle(conversation.title);
+          setTitle(thread.title);
         }}
       >
         <PopoverTrigger
-          aria-label={`${conversation.title}の操作`}
+          aria-label={`${thread.title}の操作`}
           className="absolute right-0.5 grid size-8 place-items-center rounded-[10px] text-[var(--muted)] opacity-100 transition-[color,opacity] hover:text-[var(--text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--focus)] aria-expanded:text-[var(--text)] lg:opacity-0 lg:group-hover:opacity-100 lg:group-focus-within:opacity-100 lg:aria-expanded:opacity-100"
         >
           <Ellipsis aria-hidden="true" className="size-[18px]" />
@@ -140,7 +140,7 @@ export function ConversationListItem({
         <PopoverContent
           ref={contentRef}
           role="dialog"
-          aria-label={`${conversation.title}の操作`}
+          aria-label={`${thread.title}の操作`}
         >
           {menuView === "actions" ? (
             <div className="grid gap-0.5">
@@ -171,14 +171,14 @@ export function ConversationListItem({
           {menuView === "rename" ? (
             <form className="p-1" onSubmit={submitRename}>
               <label
-                htmlFor={`conversation-title-${conversation.id}`}
+                htmlFor={`thread-title-${thread.id}`}
                 className="mb-2 block px-1 text-xs font-medium text-[var(--muted)]"
               >
                 会話の名前
               </label>
               <input
                 ref={inputRef}
-                id={`conversation-title-${conversation.id}`}
+                id={`thread-title-${thread.id}`}
                 value={title}
                 maxLength={120}
                 disabled={submitting}

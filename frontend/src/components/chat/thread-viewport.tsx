@@ -3,10 +3,10 @@
 import { useLayoutEffect, useRef, useState } from "react";
 
 import { IOSSpinner } from "@/components/ui/ios-spinner";
-import type { ChatMessage, Conversation } from "@/lib/chat/types";
+import type { Thread, ThreadEntry } from "@/lib/chat/types";
 
-type ConversationViewportProps = {
-  conversation?: Conversation;
+type ThreadViewportProps = {
+  thread?: Thread;
   loading: boolean;
   responding: boolean;
 };
@@ -15,6 +15,10 @@ type StreamSegment = {
   entering: boolean;
   key: number;
   text: string;
+};
+
+type DisplayEntry = ThreadEntry & {
+  responseStatus: "completed" | "streaming" | "failed";
 };
 
 function StreamedText({ content }: { content: string }) {
@@ -42,9 +46,7 @@ function StreamedText({ content }: { content: string }) {
       return;
     }
 
-    setSegments([
-      { entering: false, key: sequenceRef.current, text: content },
-    ]);
+    setSegments([{ entering: false, key: sequenceRef.current, text: content }]);
   }, [content]);
 
   function settleSegment(key: number) {
@@ -84,24 +86,23 @@ function StreamedText({ content }: { content: string }) {
   );
 }
 
-function ConversationMessage({ message }: { message: ChatMessage }) {
+function ThreadMessage({ entry }: { entry: DisplayEntry }) {
+  const isPartner = entry.author.kind === "human";
   return (
-    <article
-      className={message.speaker === "partner" ? "flex justify-end" : "flex justify-start"}
-    >
+    <article className={isPartner ? "flex justify-end" : "flex justify-start"}>
       <div
         className={
-          message.speaker === "partner"
+          isPartner
             ? "max-w-[82%] rounded-[22px] rounded-br-md bg-[var(--field)] px-4 py-2.5 text-[15px] leading-6 text-[var(--text)]"
             : "max-w-[92%] whitespace-pre-wrap text-[15px] leading-7 text-[var(--text)]"
         }
       >
-        {message.speaker === "sodai" ? (
-          <StreamedText content={message.content} />
+        {!isPartner && entry.responseStatus === "streaming" ? (
+          <StreamedText content={entry.content} />
         ) : (
-          message.content
+          entry.content
         )}
-        {message.status === "failed" ? (
+        {entry.responseStatus === "failed" ? (
           <span className="text-[var(--danger-text)]">
             応答を完了できませんでした。
           </span>
@@ -111,11 +112,42 @@ function ConversationMessage({ message }: { message: ChatMessage }) {
   );
 }
 
-export function ConversationViewport({
-  conversation,
+function displayEntries(thread: Thread): DisplayEntry[] {
+  const entries: DisplayEntry[] = thread.entries.map((entry) => ({
+    ...entry,
+    responseStatus: "completed",
+  }));
+  const response = thread.latest_response;
+  if (!response) return entries;
+  const resultIsPersisted = response.execution.result_entry_id
+    ? entries.some((entry) => entry.id === response.execution.result_entry_id)
+    : false;
+  if (response.status === "completed" && resultIsPersisted) return entries;
+  const latestOrdinal = entries.at(-1)?.ordinal ?? -1;
+  entries.push({
+    id: response.execution.result_entry_id ?? `execution:${response.execution.id}`,
+    thread_id: thread.id,
+    author: response.target_actor,
+    kind: "message",
+    content: response.execution.partial_output,
+    ordinal: latestOrdinal + 1,
+    created_at: response.created_at,
+    responseStatus:
+      response.status === "failed"
+        ? "failed"
+        : response.status === "completed"
+          ? "completed"
+          : "streaming",
+  });
+  return entries;
+}
+
+export function ThreadViewport({
+  thread,
   loading,
   responding,
-}: ConversationViewportProps) {
+}: ThreadViewportProps) {
+  const entries = thread ? displayEntries(thread) : [];
   return (
     <section
       aria-label="会話"
@@ -137,17 +169,13 @@ export function ConversationViewport({
         </span>
       ) : null}
 
-      {conversation ? (
+      {thread ? (
         <div className="relative z-10 mx-auto w-full max-w-[760px] px-5 pb-12 pt-10 sm:px-8">
           <div className="space-y-8">
-            {conversation.messages.map((message) => (
-              <ConversationMessage key={message.id} message={message} />
+            {entries.map((entry) => (
+              <ThreadMessage key={entry.id} entry={entry} />
             ))}
           </div>
-        </div>
-      ) : !loading ? (
-        <div className="grid flex-1 place-items-center px-5 text-sm text-[var(--muted)]">
-          この会話を表示できません。
         </div>
       ) : null}
 

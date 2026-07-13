@@ -10,21 +10,21 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import type { AvailableModel } from "@/lib/chat/types";
+import type { AvailableAnswerer } from "@/lib/chat/types";
 
-type ModelSelectorProps = {
-  model?: AvailableModel["id"];
-  models: AvailableModel[];
-  onChange: (model: AvailableModel["id"]) => void;
+type AnswererSelectorProps = {
+  answerer?: AvailableAnswerer["id"];
+  answerers: AvailableAnswerer[];
+  onChange: (answerer: AvailableAnswerer["id"]) => void;
 };
 
-export function ModelSelector({
-  model,
-  models,
+export function AnswererSelector({
+  answerer,
+  answerers,
   onChange,
-}: ModelSelectorProps) {
+}: AnswererSelectorProps) {
   const { authenticated, openAuth } = useChatAuth();
-  const selected = models.find((option) => option.id === model);
+  const selected = answerers.find((option) => option.id === answerer);
   const label = selected?.name ?? "モデル";
 
   return (
@@ -49,7 +49,7 @@ export function ModelSelector({
       >
         {authenticated ? (
           <div className="grid gap-0.5">
-            {models.map((option) => {
+            {answerers.map((option) => {
               const checked = option.id === selected?.id;
               return (
                 <PopoverClose

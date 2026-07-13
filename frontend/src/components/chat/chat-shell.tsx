@@ -8,7 +8,7 @@ import { useChatData } from "@/components/chat/chat-data-provider";
 import { ChatHeader } from "@/components/chat/chat-header";
 import { settleComposerFocus } from "@/components/chat/composer-focus";
 import { useToast } from "@/components/ui/toast-provider";
-import type { AvailableModel } from "@/lib/chat/types";
+import type { AvailableAnswerer } from "@/lib/chat/types";
 import { useChatApi } from "@/lib/chat/use-chat-api";
 
 type ChatShellProps = {
@@ -17,44 +17,45 @@ type ChatShellProps = {
 
 export function ChatShell(props: ChatShellProps) {
   const router = useRouter();
-  const { createConversation } = useChatApi();
-  const { models, upsertConversation } = useChatData();
+  const { createThread } = useChatApi();
+  const { answerers, upsertThread } = useChatData();
   const { dismissToast, showToast } = useToast();
   const inputRef = useRef<HTMLInputElement>(null);
   const mountedRef = useRef(true);
   const [message, setMessage] = useState("");
-  const [requestedModel, setRequestedModel] = useState<AvailableModel["id"]>();
+  const [requestedAnswerer, setRequestedAnswerer] =
+    useState<AvailableAnswerer["id"]>();
   const [submitting, setSubmitting] = useState(false);
-  const model =
-    requestedModel ??
-    models.find((availableModel) => availableModel.is_default)?.id ??
-    models[0]?.id;
+  const answerer =
+    requestedAnswerer ??
+    answerers.find((availableAnswerer) => availableAnswerer.is_default)?.id ??
+    answerers[0]?.id;
 
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
-      dismissToast("conversation-create");
+      dismissToast("thread-create");
     };
   }, [dismissToast]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     const input = message.trim();
-    if (!input || !model || submitting) return;
+    if (!input || !answerer || submitting) return;
     setSubmitting(true);
     settleComposerFocus(inputRef.current);
-    dismissToast("conversation-create");
+    dismissToast("thread-create");
     try {
-      const created = await createConversation(input, model);
-      upsertConversation(created.conversation);
+      const created = await createThread(input, answerer);
+      upsertThread(created.thread);
       if (!mountedRef.current) return;
-      router.push(`/c/${created.conversation.id}`);
+      router.push(`/t/${created.thread.id}`);
     } catch {
       if (!mountedRef.current) return;
       setSubmitting(false);
       showToast({
-        id: "conversation-create",
+        id: "thread-create",
         message: "会話を始められませんでした。APIの接続を確認してください。",
         tone: "error",
       });
@@ -65,9 +66,9 @@ export function ChatShell(props: ChatShellProps) {
   return (
     <>
       <ChatHeader
-        model={model}
-        models={models}
-        onModelChange={setRequestedModel}
+        answerer={answerer}
+        answerers={answerers}
+        onAnswererChange={setRequestedAnswerer}
       />
       <section className="mx-auto grid w-full max-w-[760px] flex-1 grid-rows-[1fr_auto] px-5 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-8 lg:flex lg:flex-col lg:justify-center lg:pb-16">
         <h1 className="self-center -translate-y-[3vh] text-center text-2xl font-normal tracking-[-0.04em] text-[var(--text)] sm:text-[28px] lg:hidden">
@@ -100,7 +101,7 @@ export function ChatShell(props: ChatShellProps) {
             <button
               type="submit"
               aria-label="送信"
-              disabled={!message.trim() || !model || submitting}
+              disabled={!message.trim() || !answerer || submitting}
               className="absolute right-2 top-2 grid size-10 place-items-center rounded-full bg-[var(--primary)] text-[var(--on-primary)] transition-opacity disabled:opacity-25"
             >
               <ArrowUp className="size-[18px]" strokeWidth={2.2} />

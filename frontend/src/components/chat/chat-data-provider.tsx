@@ -11,82 +11,85 @@ import {
   useState,
 } from "react";
 
-import { useToast } from "@/components/ui/toast-provider";
 import { useChatRealtime } from "@/components/chat/use-chat-realtime";
+import { useToast } from "@/components/ui/toast-provider";
 import type {
-  AvailableModel,
-  ConversationSummary,
+  AvailableAnswerer,
   RealtimeEvent,
+  ThreadSummary,
 } from "@/lib/chat/types";
 import { useChatApi } from "@/lib/chat/use-chat-api";
 
-type ConversationPatch = Partial<
+type ThreadPatch = Partial<
   Pick<
-    ConversationSummary,
-    "last_activity_at" | "model" | "title" | "updated_at"
+    ThreadSummary,
+    "answerer" | "last_activity_at" | "revision" | "title" | "updated_at"
   >
 >;
 
 type ChatDataContextValue = {
-  archiveConversation: (id: string) => Promise<void>;
-  conversations: ConversationSummary[];
-  models: AvailableModel[];
-  patchConversation: (id: string, patch: ConversationPatch) => void;
+  answerers: AvailableAnswerer[];
+  archiveThread: (id: string) => Promise<void>;
+  patchThread: (id: string, patch: ThreadPatch) => void;
   realtimeReadyRevision: number;
-  renameConversation: (id: string, title: string) => Promise<ConversationSummary>;
   refresh: () => void;
+  renameThread: (id: string, title: string) => Promise<ThreadSummary>;
   subscribeRealtime: (listener: RealtimeListener) => () => void;
-  upsertConversation: (conversation: ConversationSummary) => void;
+  threads: ThreadSummary[];
+  upsertThread: (thread: ThreadSummary) => void;
 };
 
 type RealtimeListener = (event: RealtimeEvent) => void;
 
 const ChatDataContext = createContext<ChatDataContextValue | null>(null);
 
-function byLatestActivity(
-  left: ConversationSummary,
-  right: ConversationSummary,
-) {
+function byLatestActivity(left: ThreadSummary, right: ThreadSummary) {
   return Date.parse(right.last_activity_at) - Date.parse(left.last_activity_at);
 }
 
 export function ChatDataProvider({ children }: { children: ReactNode }) {
   const chatApi = useChatApi();
   const { dismissToast, showToast } = useToast();
-  const [conversations, setConversations] = useState<ConversationSummary[]>([]);
-  const [models, setModels] = useState<AvailableModel[]>([]);
+  const [threads, setThreads] = useState<ThreadSummary[]>([]);
+  const [answerers, setAnswerers] = useState<AvailableAnswerer[]>([]);
   const [loadVersion, setLoadVersion] = useState(0);
   const [realtimeReadyRevision, setRealtimeReadyRevision] = useState(0);
   const realtimeListenersRef = useRef(new Set<RealtimeListener>());
+  const threadMutationVersionRef = useRef(0);
 
   const refresh = useCallback(() => {
     setLoadVersion((version) => version + 1);
   }, []);
 
-  const patchConversation = useCallback(
-    (id: string, patch: ConversationPatch) => {
-      setConversations((current) => {
-        const next = current.map((conversation) =>
-          conversation.id === id ? { ...conversation, ...patch } : conversation,
-        );
-        return patch.last_activity_at ? next.sort(byLatestActivity) : next;
+  const patchThread = useCallback((id: string, patch: ThreadPatch) => {
+    threadMutationVersionRef.current += 1;
+    setThreads((current) => {
+      const next = current.map((thread) => {
+        if (thread.id !== id) return thread;
+        if (patch.revision !== undefined && patch.revision < thread.revision) {
+          return thread;
+        }
+        return { ...thread, ...patch };
       });
-    },
-    [],
-  );
-
-  const removeConversation = useCallback((id: string) => {
-    setConversations((current) =>
-      current.filter((conversation) => conversation.id !== id),
-    );
+      return patch.last_activity_at ? next.sort(byLatestActivity) : next;
+    });
   }, []);
 
-  const upsertConversation = useCallback((conversation: ConversationSummary) => {
-    setConversations((current) =>
-      [conversation, ...current.filter((item) => item.id !== conversation.id)].sort(
+  const removeThread = useCallback((id: string) => {
+    threadMutationVersionRef.current += 1;
+    setThreads((current) => current.filter((thread) => thread.id !== id));
+  }, []);
+
+  const upsertThread = useCallback((thread: ThreadSummary) => {
+    threadMutationVersionRef.current += 1;
+    setThreads((current) => {
+      const existing = current.find((item) => item.id === thread.id);
+      const freshest =
+        existing && existing.revision > thread.revision ? existing : thread;
+      return [freshest, ...current.filter((item) => item.id !== thread.id)].sort(
         byLatestActivity,
-      ),
-    );
+      );
+    });
   }, []);
 
   const subscribeRealtime = useCallback((listener: RealtimeListener) => {
@@ -97,46 +100,52 @@ export function ChatDataProvider({ children }: { children: ReactNode }) {
   const handleRealtime = useCallback(
     (event: RealtimeEvent) => {
       if (
-        event.type === "conversation.created" &&
+        event.type === "thread.created" &&
         event.data.title &&
-        event.data.model &&
+        event.data.answerer &&
         event.data.created_at &&
         event.data.updated_at &&
         event.data.last_activity_at
       ) {
-        upsertConversation({
-          id: event.conversation_id,
+        upsertThread({
+          id: event.thread_id,
+          space_id: event.space_id,
           title: event.data.title,
-          model: event.data.model,
+          answerer: event.data.answerer,
+          revision: event.thread_revision,
           created_at: event.data.created_at,
           updated_at: event.data.updated_at,
           last_activity_at: event.data.last_activity_at,
         });
-      } else if (event.type === "conversation.updated" && event.data.title) {
-        patchConversation(event.conversation_id, {
+      } else if (event.type === "thread.updated" && event.data.title) {
+        patchThread(event.thread_id, {
           title: event.data.title,
+          revision: event.thread_revision,
           updated_at: event.data.updated_at,
         });
-      } else if (event.type === "conversation.archived") {
-        removeConversation(event.conversation_id);
-      } else if (event.type === "message.created") {
-        const patch: ConversationPatch = {
+      } else if (event.type === "thread.archived") {
+        removeThread(event.thread_id);
+      } else if (event.type === "entry.created") {
+        patchThread(event.thread_id, {
+          answerer: event.data.answerer,
           last_activity_at: event.data.last_activity_at ?? event.occurred_at,
-        };
-        if (event.data.model) patch.model = event.data.model;
-        patchConversation(event.conversation_id, patch);
+          revision: event.thread_revision,
+        });
       } else if (
         event.type === "response.completed" ||
         event.type === "response.failed"
       ) {
-        patchConversation(event.conversation_id, {
+        patchThread(event.thread_id, {
           last_activity_at: event.occurred_at,
+          revision: event.thread_revision,
         });
+      } else if (event.type === "sync.required") {
+        refresh();
       }
 
       for (const listener of realtimeListenersRef.current) listener(event);
     },
-    [patchConversation, removeConversation, upsertConversation],
+    [patchThread, refresh, removeThread, upsertThread],
   );
 
   const handleRealtimeReady = useCallback(() => {
@@ -151,17 +160,22 @@ export function ChatDataProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
-    void Promise.all([chatApi.listConversations(), chatApi.listModels()]).then(
-      ([conversations, models]) => {
+    const mutationVersion = threadMutationVersionRef.current;
+    void Promise.all([chatApi.listThreads(), chatApi.listAnswerers()]).then(
+      ([loadedThreads, loadedAnswerers]) => {
         if (cancelled) return;
-        setConversations(conversations);
-        setModels(models);
-        dismissToast("conversation-list-load");
+        if (mutationVersion !== threadMutationVersionRef.current) {
+          refresh();
+          return;
+        }
+        setThreads(loadedThreads);
+        setAnswerers(loadedAnswerers);
+        dismissToast("thread-list-load");
       },
       () => {
         if (cancelled) return;
         showToast({
-          id: "conversation-list-load",
+          id: "thread-list-load",
           message: "会話一覧を読み込めませんでした。",
           tone: "error",
           duration: null,
@@ -183,33 +197,33 @@ export function ChatDataProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<ChatDataContextValue>(
     () => ({
-      archiveConversation: async (id) => {
-        await chatApi.archiveConversation(id);
-        removeConversation(id);
+      answerers,
+      archiveThread: async (id) => {
+        await chatApi.archiveThread(id);
+        removeThread(id);
       },
-      conversations,
-      models,
-      patchConversation,
+      patchThread,
       realtimeReadyRevision,
-      renameConversation: async (id, title) => {
-        const conversation = await chatApi.updateConversation(id, title);
-        patchConversation(id, conversation);
-        return conversation;
-      },
       refresh,
+      renameThread: async (id, title) => {
+        const thread = await chatApi.updateThread(id, title);
+        patchThread(id, thread);
+        return thread;
+      },
       subscribeRealtime,
-      upsertConversation,
+      threads,
+      upsertThread,
     }),
     [
+      answerers,
       chatApi,
-      conversations,
-      models,
-      patchConversation,
+      patchThread,
       realtimeReadyRevision,
       refresh,
-      removeConversation,
+      removeThread,
       subscribeRealtime,
-      upsertConversation,
+      threads,
+      upsertThread,
     ],
   );
 

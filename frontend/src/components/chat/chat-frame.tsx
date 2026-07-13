@@ -18,10 +18,10 @@ import {
 } from "@/components/chat/sidebar-account";
 import { ChatAuthProvider } from "@/components/chat/chat-auth-context";
 import { useChatData } from "@/components/chat/chat-data-provider";
-import { ConversationListItem } from "@/components/chat/conversation-list-item";
+import { ThreadListItem } from "@/components/chat/thread-list-item";
 import { ToastViewport } from "@/components/ui/toast-provider";
 import { authClient } from "@/lib/auth/client";
-import type { ConversationSummary } from "@/lib/chat/types";
+import type { ThreadSummary } from "@/lib/chat/types";
 import { saveDesktopSidebarPreference } from "@/lib/preferences/sidebar";
 
 const SIDEBAR_TRANSITION_DURATION = 300;
@@ -36,30 +36,30 @@ export type ChatFrameProps = {
 };
 
 type SidebarProps = {
-  activeConversationId?: string;
+  activeThreadId?: string;
   compact: boolean;
   contentVisible: boolean;
-  conversations: ConversationSummary[];
+  threads: ThreadSummary[];
   guestActionsVisible: boolean;
   onClose: () => void;
-  onArchiveConversation: (id: string) => void;
+  onArchiveThread: (id: string) => void;
   onOpenAuth: () => void;
-  onSelectConversation: (id: string) => void;
+  onSelectThread: (id: string) => void;
   onSignOut: () => void;
   signingOut: boolean;
   user: SidebarUser | null;
 };
 
 function Sidebar({
-  activeConversationId,
+  activeThreadId,
   compact,
   contentVisible,
-  conversations,
+  threads,
   guestActionsVisible,
   onClose,
-  onArchiveConversation,
+  onArchiveThread,
   onOpenAuth,
-  onSelectConversation,
+  onSelectThread,
   onSignOut,
   signingOut,
   user,
@@ -100,14 +100,14 @@ function Sidebar({
       </div>
 
       <nav
-        className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-1.5 pt-2"
+        className="flex min-h-0 flex-1 flex-col overflow-hidden px-1.5 pt-2"
         aria-label="会話"
       >
         <button
           type="button"
           title="新しい会話"
-          className="flex h-9 w-full items-center rounded-xl text-left text-sm font-medium text-[var(--text)] transition-colors hover:bg-[var(--hover)]"
-          onClick={() => onSelectConversation("")}
+          className="flex h-9 w-full shrink-0 items-center rounded-xl text-left text-sm font-medium text-[var(--text)] transition-colors hover:bg-[var(--hover)]"
+          onClick={() => onSelectThread("")}
         >
           <span className="grid shrink-0 place-items-center px-2.5">
             <SquarePen className="size-5" />
@@ -120,23 +120,23 @@ function Sidebar({
           </span>
         </button>
 
-        {conversations.length > 0 ? (
+        {threads.length > 0 ? (
           <div
             aria-hidden={!contentVisible}
             inert={!contentVisible}
-            className={`mt-6 transition-opacity duration-150 ${contentVisibility}`}
+            className={`mt-6 min-h-0 flex-1 overflow-x-hidden overflow-y-auto transition-opacity duration-150 ${contentVisibility}`}
           >
             <p className="mb-2 pl-2.5 pr-2 text-sm font-bold text-[var(--text)]">
               会話
             </p>
             <div className="space-y-0.5">
-              {conversations.map((conversation) => (
-                <ConversationListItem
-                  key={conversation.id}
-                  active={conversation.id === activeConversationId}
-                  conversation={conversation}
-                  onArchive={() => onArchiveConversation(conversation.id)}
-                  onSelect={() => onSelectConversation(conversation.id)}
+              {threads.map((thread) => (
+                <ThreadListItem
+                  key={thread.id}
+                  active={thread.id === activeThreadId}
+                  thread={thread}
+                  onArchive={() => onArchiveThread(thread.id)}
+                  onSelect={() => onSelectThread(thread.id)}
                 />
               ))}
             </div>
@@ -144,7 +144,7 @@ function Sidebar({
         ) : null}
       </nav>
 
-      <div className="px-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom))]">
+      <div className="px-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom))] pt-1.5">
         {user ? (
           <SidebarAccount
             compact={compact}
@@ -187,7 +187,7 @@ export function ChatFrame({
   const pathname = usePathname();
   const router = useRouter();
   const { invalidate: invalidateAccessToken } = useApiAccessToken();
-  const { conversations, subscribeRealtime } = useChatData();
+  const { subscribeRealtime, threads } = useChatData();
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const mobileSidebarRef = useRef<HTMLElement>(null);
   const [desktopCollapsed, setDesktopCollapsed] = useState(
@@ -212,8 +212,8 @@ export function ChatFrame({
     setMobileGuestActionsVisible(false);
     setMobileOpen(false);
   }, []);
-  const activeConversationId = pathname.startsWith("/c/")
-    ? pathname.slice("/c/".length)
+  const activeThreadId = pathname.startsWith("/t/")
+    ? pathname.slice("/t/".length)
     : undefined;
 
   useEffect(() => {
@@ -284,25 +284,25 @@ export function ChatFrame({
     () =>
       subscribeRealtime((event) => {
         if (
-          event.type !== "conversation.archived" ||
-          event.conversation_id !== activeConversationId
+          event.type !== "thread.archived" ||
+          event.thread_id !== activeThreadId
         ) {
           return;
         }
         closeMobileSidebar();
         router.replace("/");
       }),
-    [activeConversationId, closeMobileSidebar, router, subscribeRealtime],
+    [activeThreadId, closeMobileSidebar, router, subscribeRealtime],
   );
 
   function navigate(id: string) {
     closeMobileSidebar();
-    router.push(id ? `/c/${id}` : "/");
+    router.push(id ? `/t/${id}` : "/");
   }
 
-  function leaveArchivedConversation(id: string) {
+  function leaveArchivedThread(id: string) {
     closeMobileSidebar();
-    if (id === activeConversationId) router.replace("/");
+    if (id === activeThreadId) router.replace("/");
   }
 
   function toggleDesktop() {
@@ -327,15 +327,15 @@ export function ChatFrame({
     onClose: () => void,
   ) => (
     <Sidebar
-      activeConversationId={activeConversationId}
+      activeThreadId={activeThreadId}
       compact={compact}
       contentVisible={contentVisible}
-      conversations={conversations}
+      threads={threads}
       guestActionsVisible={guestActionsVisible}
       onClose={onClose}
-      onArchiveConversation={leaveArchivedConversation}
+      onArchiveThread={leaveArchivedThread}
       onOpenAuth={openAuth}
-      onSelectConversation={navigate}
+      onSelectThread={navigate}
       onSignOut={signOut}
       signingOut={signingOut}
       user={initialUser}
@@ -371,7 +371,7 @@ export function ChatFrame({
       />
       <aside
         ref={mobileSidebarRef}
-        id="mobile-conversation-sidebar"
+        id="mobile-thread-sidebar"
         role="dialog"
         aria-label="会話メニュー"
         aria-hidden={!mobileOpen}
@@ -394,7 +394,7 @@ export function ChatFrame({
           ref={menuButtonRef}
           type="button"
           aria-label="サイドバーを開く"
-          aria-controls="mobile-conversation-sidebar"
+          aria-controls="mobile-thread-sidebar"
           aria-expanded={mobileOpen}
           className="absolute left-1.5 top-1 z-20 grid place-items-center rounded-xl p-2.5 text-[var(--muted)] hover:bg-[var(--hover)] lg:hidden"
           onClick={openMobileSidebar}

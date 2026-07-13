@@ -1,45 +1,67 @@
-export type ConversationSummary = {
+export type ThreadSummary = {
   id: string;
+  space_id: string;
   title: string;
-  model: string;
+  answerer: string;
+  revision: number;
   created_at: string;
   updated_at: string;
   last_activity_at: string;
 };
 
-export type ChatMessage = {
+export type Actor = {
   id: string;
-  conversation_id: string;
-  speaker: "sodai" | "partner";
+  kind: "human" | "model" | "agent" | "tool" | "system";
+  name: string;
+};
+
+export type ThreadEntry = {
+  id: string;
+  thread_id: string;
+  author: Actor;
+  kind: "message";
   content: string;
-  status: "streaming" | "completed" | "failed";
   ordinal: number;
   created_at: string;
-  updated_at: string;
 };
 
-export type InferenceRun = {
+export type Execution = {
   id: string;
-  conversation_id: string;
-  input_message_id: string;
-  output_message_id: string;
-  requested_model: string;
-  resolved_model: string;
+  response_request_id: string;
+  thread_id: string;
+  result_entry_id: string | null;
+  answerer: string;
+  target: string;
   status: "queued" | "running" | "completed" | "failed";
+  attempt_id: string;
+  partial_output: string;
+  resolved_model: string | null;
+  error_code: string | null;
   created_at: string;
 };
 
-export type Conversation = ConversationSummary & {
-  messages: ChatMessage[];
-  active_run: InferenceRun | null;
+export type ResponseRequest = {
+  id: string;
+  thread_id: string;
+  input_entry_id: string;
+  requested_answerer: string;
+  target_actor: Actor;
+  status: "queued" | "running" | "completed" | "failed";
+  execution: Execution;
+  created_at: string;
 };
 
-export type ConversationCreation = {
-  conversation: Conversation;
-  run: InferenceRun;
+export type Thread = ThreadSummary & {
+  entries: ThreadEntry[];
+  latest_response: ResponseRequest | null;
 };
 
-export type AvailableModel = {
+export type ResponseCreation = {
+  thread: Thread;
+  response: ResponseRequest;
+};
+
+export type AvailableAnswerer = {
   id: string;
   name: string;
   description: string;
@@ -50,23 +72,31 @@ export type RealtimeEvent = {
   id: string;
   sequence: number;
   type:
-    | "conversation.created"
-    | "conversation.updated"
-    | "conversation.archived"
-    | "message.created"
+    | "thread.created"
+    | "thread.updated"
+    | "thread.archived"
+    | "entry.created"
     | "response.started"
     | "response.delta"
     | "response.completed"
-    | "response.failed";
-  conversation_id: string;
-  run_id: string | null;
+    | "response.failed"
+    | "sync.required";
+  space_id: string;
+  thread_id: string;
+  thread_revision: number;
+  response_request_id: string | null;
+  execution_id: string | null;
   occurred_at: string;
   data: {
-    message_id?: string;
+    input_entry_id?: string;
+    target_actor_id?: string;
+    result_entry_id?: string | null;
     delta?: string;
     content?: string;
     title?: string;
-    model?: string;
+    answerer?: string;
+    resolved_model?: string;
+    error_code?: string;
     created_at?: string;
     updated_at?: string;
     last_activity_at?: string;
