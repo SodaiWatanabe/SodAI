@@ -8,7 +8,7 @@ import {
   X,
 } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 
 import { AuthDialog, type AuthMode } from "@/components/auth/auth-dialog";
 import { useApiAccessToken } from "@/components/auth/api-access-token-provider";
@@ -16,12 +16,15 @@ import {
   SidebarAccount,
   type SidebarUser,
 } from "@/components/chat/sidebar-account";
+import { ChatAuthProvider } from "@/components/chat/chat-auth-context";
 import { useChatData } from "@/components/chat/chat-data-provider";
 import { ConversationListItem } from "@/components/chat/conversation-list-item";
 import { ToastViewport } from "@/components/ui/toast-provider";
 import { authClient } from "@/lib/auth/client";
 import type { ConversationSummary } from "@/lib/chat/types";
 import { saveDesktopSidebarPreference } from "@/lib/preferences/sidebar";
+
+const SIDEBAR_TRANSITION_DURATION = 300;
 
 export type ChatFrameProps = {
   children: ReactNode;
@@ -35,6 +38,7 @@ type SidebarProps = {
   compact: boolean;
   contentVisible: boolean;
   conversations: ConversationSummary[];
+  guestActionsVisible: boolean;
   onClose: () => void;
   onArchiveConversation: (id: string) => void;
   onOpenAuth: (mode: AuthMode) => void;
@@ -49,6 +53,7 @@ function Sidebar({
   compact,
   contentVisible,
   conversations,
+  guestActionsVisible,
   onClose,
   onArchiveConversation,
   onOpenAuth,
@@ -146,7 +151,7 @@ function Sidebar({
             signingOut={signingOut}
             user={user}
           />
-        ) : contentVisible ? (
+        ) : guestActionsVisible ? (
           <div className="space-y-1.5">
             <button
               type="button"
@@ -184,10 +189,22 @@ export function ChatFrame({
   const [desktopCollapsed, setDesktopCollapsed] = useState(
     initialDesktopSidebarCollapsed,
   );
+  const [desktopGuestActionsVisible, setDesktopGuestActionsVisible] = useState(
+    !initialDesktopSidebarCollapsed,
+  );
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [mobileGuestActionsVisible, setMobileGuestActionsVisible] = useState(false);
   const [authMode, setAuthMode] = useState<AuthMode>();
   const [googleAuthError, setGoogleAuthError] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
+  const openMobileSidebar = useCallback(() => {
+    setMobileGuestActionsVisible(false);
+    setMobileOpen(true);
+  }, []);
+  const closeMobileSidebar = useCallback(() => {
+    setMobileGuestActionsVisible(false);
+    setMobileOpen(false);
+  }, []);
   const activeConversationId = pathname.startsWith("/c/")
     ? pathname.slice("/c/".length)
     : undefined;
@@ -204,6 +221,24 @@ export function ChatFrame({
   }, []);
 
   useEffect(() => {
+    if (desktopCollapsed || desktopGuestActionsVisible) return;
+    const timer = setTimeout(
+      () => setDesktopGuestActionsVisible(true),
+      SIDEBAR_TRANSITION_DURATION,
+    );
+    return () => clearTimeout(timer);
+  }, [desktopCollapsed, desktopGuestActionsVisible]);
+
+  useEffect(() => {
+    if (!mobileOpen || mobileGuestActionsVisible) return;
+    const timer = setTimeout(
+      () => setMobileGuestActionsVisible(true),
+      SIDEBAR_TRANSITION_DURATION,
+    );
+    return () => clearTimeout(timer);
+  }, [mobileGuestActionsVisible, mobileOpen]);
+
+  useEffect(() => {
     if (!mobileOpen) return;
     requestAnimationFrame(() => mobileSidebarRef.current?.focus());
 
@@ -212,7 +247,7 @@ export function ChatFrame({
       if (!sidebar) return;
       if (event.key === "Escape") {
         event.preventDefault();
-        setMobileOpen(false);
+        closeMobileSidebar();
         requestAnimationFrame(() => menuButtonRef.current?.focus());
         return;
       }
@@ -236,7 +271,7 @@ export function ChatFrame({
 
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [mobileOpen]);
+  }, [closeMobileSidebar, mobileOpen]);
 
   useEffect(
     () =>
@@ -247,24 +282,25 @@ export function ChatFrame({
         ) {
           return;
         }
-        setMobileOpen(false);
+        closeMobileSidebar();
         router.replace("/");
       }),
-    [activeConversationId, router, subscribeRealtime],
+    [activeConversationId, closeMobileSidebar, router, subscribeRealtime],
   );
 
   function navigate(id: string) {
-    setMobileOpen(false);
+    closeMobileSidebar();
     router.push(id ? `/c/${id}` : "/");
   }
 
   function leaveArchivedConversation(id: string) {
-    setMobileOpen(false);
+    closeMobileSidebar();
     if (id === activeConversationId) router.replace("/");
   }
 
   function toggleDesktop() {
     const next = !desktopCollapsed;
+    if (next) setDesktopGuestActionsVisible(false);
     setDesktopCollapsed(next);
     saveDesktopSidebarPreference(next ? "collapsed" : "expanded");
   }
@@ -277,12 +313,18 @@ export function ChatFrame({
     router.refresh();
   }
 
-  const sidebar = (compact: boolean, contentVisible: boolean, onClose: () => void) => (
+  const sidebar = (
+    compact: boolean,
+    contentVisible: boolean,
+    guestActionsVisible: boolean,
+    onClose: () => void,
+  ) => (
     <Sidebar
       activeConversationId={activeConversationId}
       compact={compact}
       contentVisible={contentVisible}
       conversations={conversations}
+      guestActionsVisible={guestActionsVisible}
       onClose={onClose}
       onArchiveConversation={leaveArchivedConversation}
       onOpenAuth={setAuthMode}
@@ -294,14 +336,23 @@ export function ChatFrame({
   );
 
   return (
-    <div className="flex h-[100dvh] overflow-hidden bg-[var(--canvas)]">
+    <ChatAuthProvider
+      authenticated={Boolean(initialUser)}
+      openAuth={setAuthMode}
+    >
+      <div className="flex h-[100dvh] overflow-hidden bg-[var(--canvas)]">
       <aside
         aria-label="会話サイドバー"
         className={`hidden shrink-0 flex-col overflow-hidden bg-[var(--sidebar)] shadow-[inset_-1px_0_0_var(--separator)] transition-[width] duration-300 lg:flex ${
           desktopCollapsed ? "w-[52px]" : "w-[256px]"
         }`}
       >
-        {sidebar(desktopCollapsed, !desktopCollapsed, toggleDesktop)}
+        {sidebar(
+          desktopCollapsed,
+          !desktopCollapsed,
+          desktopGuestActionsVisible,
+          toggleDesktop,
+        )}
       </aside>
 
       <div
@@ -309,7 +360,7 @@ export function ChatFrame({
         className={`fixed inset-0 z-30 bg-[var(--overlay)] transition-opacity duration-300 lg:hidden ${
           mobileOpen ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"
         }`}
-        onClick={() => setMobileOpen(false)}
+        onClick={closeMobileSidebar}
       />
       <aside
         ref={mobileSidebarRef}
@@ -324,7 +375,7 @@ export function ChatFrame({
           mobileOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >
-        {sidebar(false, true, () => setMobileOpen(false))}
+        {sidebar(false, true, mobileGuestActionsVisible, closeMobileSidebar)}
       </aside>
 
       <main
@@ -339,7 +390,7 @@ export function ChatFrame({
           aria-controls="mobile-conversation-sidebar"
           aria-expanded={mobileOpen}
           className="absolute left-1.5 top-1 z-20 grid place-items-center rounded-xl p-2.5 text-[var(--muted)] hover:bg-[var(--hover)] lg:hidden"
-          onClick={() => setMobileOpen(true)}
+          onClick={openMobileSidebar}
         >
           <Equal className="size-[21px]" />
         </button>
@@ -362,6 +413,7 @@ export function ChatFrame({
           }}
         />
       ) : null}
-    </div>
+      </div>
+    </ChatAuthProvider>
   );
 }

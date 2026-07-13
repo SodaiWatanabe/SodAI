@@ -316,7 +316,7 @@ export function AuthDialog({
 
                 <div className="my-5 flex items-center gap-3" aria-hidden="true">
                   <span className="h-px flex-1 bg-[var(--divider)]" />
-                  <span className="text-[11px] text-[var(--muted)]">または</span>
+                  <span className="text-xs text-[var(--muted)]">または</span>
                   <span className="h-px flex-1 bg-[var(--divider)]" />
                 </div>
 
