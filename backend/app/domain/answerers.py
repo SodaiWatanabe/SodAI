@@ -67,6 +67,14 @@ class AvailableAnswerer:
 
 HINA_ACTOR_ID = UUID("00000000-0000-4000-8000-000000000001")
 ASUKA_1_ACTOR_ID = UUID("00000000-0000-4000-8000-000000000002")
+ASUKA_1_FIXED_CHARGE = CREDIT_SCALE // 10
+
+ASUKA_1_TARIFF = InferenceTariff(
+    revision="asuka-1-flat-v2",
+    fixed_charge=ASUKA_1_FIXED_CHARGE,
+    maximum_charge=ASUKA_1_FIXED_CHARGE,
+    unmetered_charge=ASUKA_1_FIXED_CHARGE,
+)
 
 ANSWERER_CATALOG = (
     AnswererDefinition(
@@ -76,7 +84,7 @@ ANSWERER_CATALOG = (
         description="会話に最適。",
         runtime_kind=RuntimeKind.PSEUDO_MODEL,
         runtime_name="asuka-1",
-        tariff=FREE_INFERENCE_TARIFF,
+        tariff=ASUKA_1_TARIFF,
         audiences=frozenset({AnswererAudience.AUTHENTICATED}),
         default_for=frozenset({AnswererAudience.AUTHENTICATED}),
     ),

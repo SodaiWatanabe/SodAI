@@ -37,6 +37,7 @@ from app.repositories.threads import (
     ThreadBusyError,
 )
 from app.services.inference.asuka import AsukaPseudoGenerator
+from app.services.inference.billing import InferenceBillingService
 from app.services.inference.broker import RedisInferenceBroker
 from app.services.inference.coordinator import GenerationCoordinator
 from app.services.inference.deployment import ModelDeploymentRegistry
@@ -325,6 +326,7 @@ async def test_failed_response_retry_is_idempotent_and_preserves_context() -> No
                     error_code="second_failure",
                 )
             )
+            await InferenceBillingService(session).finalize(second.id)
             await session.commit()
         assert result.disposition is EventDisposition.APPLY
 
@@ -356,6 +358,8 @@ async def test_failed_response_retry_is_idempotent_and_preserves_context() -> No
         for event in terminal_events:
             async with factory() as session:
                 result = await SqlAlchemyThreadRepository(session).project_generation_event(event)
+                if event.type is GenerationEventType.COMPLETED:
+                    await InferenceBillingService(session).finalize(third.id)
                 await session.commit()
                 assert result.disposition is EventDisposition.APPLY
         with pytest.raises(ResponseNotRetryableError):
@@ -441,6 +445,23 @@ async def test_append_and_retry_serialize_without_deadlock() -> None:
         assert len(successes) == 1
         assert len(failures) == 1
         assert isinstance(failures[0], (ResponseNotRetryableError, ThreadBusyError))
+        success = successes[0]
+        active_execution = (
+            success.response.execution if hasattr(success, "response") else success
+        )
+        async with factory() as session:
+            await SqlAlchemyThreadRepository(session).project_generation_event(
+                GenerationEvent.create(
+                    GenerationEventType.FAILED,
+                    execution_id=active_execution.id,
+                    attempt_id=active_execution.attempt_id,
+                    sequence=0,
+                    thread_id=creation.thread.id,
+                    error_code="test_cleanup",
+                )
+            )
+            await InferenceBillingService(session).finalize(active_execution.id)
+            await session.commit()
     finally:
         async with factory() as session:
             actor = await session.scalar(

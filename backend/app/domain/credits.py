@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from uuid import UUID
 
 CREDIT_ASSET_CODE = "sodai-credit"
 CREDIT_SCALE = 1_000_000
+FREE_CREDIT_ALLOWANCE_DURATION = timedelta(hours=168)
 
 ISSUANCE_ACCOUNT_ID = UUID("00000000-0000-4000-9000-000000000001")
 RESERVE_ACCOUNT_ID = UUID("00000000-0000-4000-9000-000000000002")
@@ -78,6 +79,67 @@ class CreditBalance:
 
 
 @dataclass(frozen=True, slots=True)
+class CreditAllowanceWindow:
+    starts_at: datetime
+    expires_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class CreditAllowanceLot:
+    lot_id: UUID
+    starts_at: datetime
+    expires_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class FreeCreditAllowance:
+    limit: int
+    used: int
+    reserved: int
+    remaining: int
+    starts_at: datetime
+    expires_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class CreditOverview:
+    asset_code: str
+    scale: int
+    available: int
+    reserved: int
+    free_allowance: FreeCreditAllowance | None
+
+
+@dataclass(frozen=True, slots=True)
+class CreditLotBalance:
+    limit: int
+    used: int
+    reserved: int
+    remaining: int
+
+
+@dataclass(frozen=True, slots=True)
+class FreeCreditAllowancePolicy:
+    amount: int
+    cycle_duration: timedelta
+
+    def __post_init__(self) -> None:
+        if self.amount <= 0:
+            raise ValueError("free credit allowance must be positive")
+        if self.cycle_duration != FREE_CREDIT_ALLOWANCE_DURATION:
+            raise ValueError("free credit allowance duration must be exactly 168 hours")
+
+    def start_window(self, now: datetime) -> CreditAllowanceWindow:
+        if now.tzinfo is None:
+            raise ValueError("free credit allowance time must be timezone-aware")
+        starts_at = now.astimezone(timezone.utc)
+        return CreditAllowanceWindow(
+            starts_at=starts_at,
+            expires_at=starts_at + self.cycle_duration,
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class CreditTransaction:
     id: UUID
     kind: CreditTransactionKind
@@ -146,3 +208,8 @@ class InferenceTariff:
 
 
 FREE_INFERENCE_TARIFF = InferenceTariff(revision="free-v1")
+
+FREE_CREDIT_ALLOWANCE_POLICY = FreeCreditAllowancePolicy(
+    amount=20 * CREDIT_SCALE,
+    cycle_duration=FREE_CREDIT_ALLOWANCE_DURATION,
+)

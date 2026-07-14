@@ -42,19 +42,17 @@ def test_answerer_catalog_is_the_single_ui_source() -> None:
         (AnswererId.ASUKA_1, "Asuka 1", "会話に最適。", True),
         (AnswererId.HINA, "Hina", "知能の萌芽を捉える。", False),
     ]
-    assert all(item.pricing.kind is AnswererPricingKind.FREE for item in answerers)
-    assert all(
-        (
-            item.pricing.tariff_revision,
-            item.pricing.fixed_charge,
-            item.pricing.input_token_rate,
-            item.pricing.output_token_rate,
-            item.pricing.maximum_charge,
-            item.pricing.unmetered_charge,
-        )
-        == ("free-v1", 0, 0, 0, 0, 0)
-        for item in answerers
-    )
+    by_id = {item.id: item for item in answerers}
+    assert by_id[AnswererId.ASUKA_1].pricing.kind is AnswererPricingKind.METERED
+    assert (
+        by_id[AnswererId.ASUKA_1].pricing.tariff_revision,
+        by_id[AnswererId.ASUKA_1].pricing.fixed_charge,
+        by_id[AnswererId.ASUKA_1].pricing.input_token_rate,
+        by_id[AnswererId.ASUKA_1].pricing.output_token_rate,
+        by_id[AnswererId.ASUKA_1].pricing.maximum_charge,
+        by_id[AnswererId.ASUKA_1].pricing.unmetered_charge,
+    ) == ("asuka-1-flat-v2", 100_000, 0, 0, 100_000, 100_000)
+    assert by_id[AnswererId.HINA].pricing.kind is AnswererPricingKind.FREE
     guest_answerers = ThreadService.available_answerers(principal(PrincipalKind.GUEST))
     assert all(item.pricing.kind is AnswererPricingKind.FREE for item in guest_answerers)
 

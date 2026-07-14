@@ -18,10 +18,12 @@ from app.domain.credits import (
     RESERVE_ACCOUNT_ID,
     REVENUE_ACCOUNT_ID,
     CreditAccountKind,
+    CreditAllowanceLot,
     CreditBalance,
     CreditConsumptionKind,
     CreditGrant,
     CreditIdempotencyConflictError,
+    CreditLotBalance,
     CreditReservationStatus,
     CreditSourceKind,
     CreditTransaction,
@@ -145,6 +147,150 @@ class CreditLedgerRepository:
             owner_account_id=account.id,
             issuance_transaction_id=transaction.id,
             source_kind=source_kind.value,
+            original_amount=amount,
+            issued_at=now,
+            expires_at=expires_at,
+        )
+        self._session.add(lot)
+        await self._session.flush()
+        return CreditGrant(transaction.id, lot.id, amount, replayed=False)
+
+    async def lot_balance(
+        self,
+        user_id: UUID,
+        lot_id: UUID,
+        *,
+        now: datetime | None = None,
+    ) -> CreditLotBalance:
+        now = now or datetime.now(timezone.utc)
+        if now.tzinfo is None:
+            raise ValueError("credit lot balance time must be timezone-aware")
+        lot = await self._session.scalar(
+            select(CreditLotModel)
+            .join(
+                CreditAccountModel,
+                CreditAccountModel.id == CreditLotModel.owner_account_id,
+            )
+            .where(
+                CreditLotModel.id == lot_id,
+                CreditAccountModel.owner_user_id == user_id,
+                CreditAccountModel.asset_code == CREDIT_ASSET_CODE,
+            )
+        )
+        if lot is None:
+            raise RuntimeError("credit lot is missing or belongs to another user")
+        used, reserved = await self._lot_usage(lot, now)
+        remaining = lot.original_amount - used - reserved
+        if remaining < 0:
+            raise RuntimeError("credit lot usage exceeds its original amount")
+        return CreditLotBalance(
+            limit=lot.original_amount,
+            used=used,
+            reserved=reserved,
+            remaining=remaining,
+        )
+
+    async def ensure_locked_user_wallet(self, user_id: UUID) -> UUID:
+        return (await self._ensure_locked_user_account(user_id)).id
+
+    async def user_wallet(self, user_id: UUID) -> UUID | None:
+        account = await self._user_account(user_id)
+        return account.id if account is not None else None
+
+    async def database_now(self) -> datetime:
+        now = await self._session.scalar(select(func.clock_timestamp()))
+        if now is None or now.tzinfo is None:
+            raise RuntimeError("database did not return a timezone-aware clock")
+        return now
+
+    async def active_free_allowance(
+        self,
+        account_id: UUID,
+        *,
+        now: datetime,
+    ) -> CreditAllowanceLot | None:
+        if now.tzinfo is None:
+            raise ValueError("free credit allowance time must be timezone-aware")
+        lot = await self._session.scalar(
+            select(CreditLotModel)
+            .join(
+                CreditTransactionModel,
+                CreditTransactionModel.id == CreditLotModel.issuance_transaction_id,
+            )
+            .where(
+                CreditLotModel.owner_account_id == account_id,
+                CreditLotModel.source_kind == CreditSourceKind.PROMOTIONAL.value,
+                CreditLotModel.issued_at <= now,
+                CreditLotModel.expires_at.is_not(None),
+                CreditLotModel.expires_at > now,
+                CreditTransactionModel.kind == CreditTransactionKind.GRANT.value,
+                CreditTransactionModel.reference_type == "free_credit_allowance",
+                CreditTransactionModel.reference_id == account_id,
+            )
+            .order_by(CreditLotModel.issued_at.desc(), CreditLotModel.id.desc())
+            .limit(1)
+        )
+        if lot is None or lot.expires_at is None:
+            return None
+        return CreditAllowanceLot(
+            lot_id=lot.id,
+            starts_at=lot.issued_at,
+            expires_at=lot.expires_at,
+        )
+
+    async def grant_free_allowance_on_locked_wallet(
+        self,
+        user_id: UUID,
+        account_id: UUID,
+        execution_id: UUID,
+        amount: int,
+        *,
+        expires_at: datetime,
+        now: datetime,
+    ) -> CreditGrant:
+        if amount <= 0:
+            raise ValueError("free credit allowance must be positive")
+        if now.tzinfo is None or expires_at.tzinfo is None:
+            raise ValueError("free credit allowance times must be timezone-aware")
+        if expires_at <= now:
+            raise ValueError("free credit allowance expiration must be in the future")
+        account = await self._session.get(CreditAccountModel, account_id)
+        if account is None or account.owner_user_id != user_id:
+            raise RuntimeError("locked credit account is missing or belongs to another user")
+
+        key_hash = self._hash_key(f"grant:free-allowance:{execution_id}")
+        existing = await self._session.scalar(
+            select(CreditTransactionModel).where(
+                CreditTransactionModel.idempotency_key_hash == key_hash
+            )
+        )
+        if existing is not None:
+            if (
+                existing.reference_type != "free_credit_allowance"
+                or existing.reference_id != account_id
+            ):
+                raise CreditIdempotencyConflictError
+            return await self._replay_grant(
+                existing,
+                user_id=user_id,
+                amount=amount,
+                source_kind=CreditSourceKind.PROMOTIONAL,
+                expires_at=expires_at,
+            )
+
+        transaction = self._append_transaction(
+            CreditTransactionKind.GRANT,
+            key_hash=key_hash,
+            reference_type="free_credit_allowance",
+            reference_id=account_id,
+            postings={ISSUANCE_ACCOUNT_ID: -amount, account_id: amount},
+            effective_at=now,
+        )
+        await self._session.flush()
+        lot = CreditLotModel(
+            owner_account_id=account_id,
+            issuance_transaction_id=transaction.id,
+            source_kind=CreditSourceKind.PROMOTIONAL.value,
             original_amount=amount,
             issued_at=now,
             expires_at=expires_at,
@@ -663,6 +809,10 @@ class CreditLedgerRepository:
         return reservation
 
     async def _lot_available(self, lot: CreditLotModel, now: datetime) -> int:
+        consumed, held = await self._lot_usage(lot, now)
+        return lot.original_amount - consumed - held
+
+    async def _lot_usage(self, lot: CreditLotModel, now: datetime) -> tuple[int, int]:
         consumed = await self._session.scalar(
             select(func.coalesce(func.sum(CreditLotConsumptionModel.amount), 0))
             .join(
@@ -690,7 +840,7 @@ class CreditLedgerRepository:
                 ),
             )
         )
-        return lot.original_amount - int(consumed or 0) - int(held or 0)
+        return int(consumed or 0), int(held or 0)
 
     async def _ensure_locked_user_account(self, user_id: UUID) -> CreditAccountModel:
         await self._session.execute(

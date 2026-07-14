@@ -68,8 +68,11 @@ and metered inference reserves the catalog's maximum charge before its outbox jo
 committed. Terminal projection settles the measured charge or releases the reservation
 in the same database transaction as its usage record.
 
-The current Hina and Asuka 1 tariffs are free, but they still create immutable billing
-intent snapshots and terminal usage records. Public balance and cursor-paginated history
+Hina is free for guests and authenticated users. The first valid Asuka 1 request while
+the allowance is dormant starts a user-specific 168-hour, 20-credit lot; successful
+responses settle 0.1 credit and failures release the reservation. Reading the balance or
+using Hina never starts the clock. Both answerers still create immutable billing intent
+snapshots and terminal usage records. The active allowance and cursor-paginated history
 are exposed at `GET /api/v1/credits` and `GET /api/v1/credits/transactions`. Operational
 grants and expiration use `make credits-grant` and `make credits-expire`; the complete
 invariants and lifecycle are documented in `docs/architecture/credits.md`.

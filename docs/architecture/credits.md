@@ -19,8 +19,9 @@ Execution ── BillingIntent ── CreditReservation ── UsageRecord
                     └─ 料金表snapshot └─ LotへのFEFO配賦
 ```
 
-現在のHinaとAsuka 1は無料です。ただし、すべてのExecutionが料金表のsnapshotと使用量記録を
-通るため、モデルを有料化しても会話・推論基盤を分岐させません。
+Hinaはゲストを含む全ユーザーが無料で利用できます。Asuka 1は認証済みユーザー向けの有料モデルで、
+成功した応答1回につき0.1 creditを消費します。どちらも同じExecution、料金表snapshot、使用量記録を
+通るため、無料・有料で会話や推論の基盤を分岐させません。
 
 ## 金額表現
 
@@ -77,6 +78,36 @@ Execution終了時に利用分を確定した後、未使用分をユーザー�
 現段階では期限切れの自動スケジュールを有効化していません。運用コマンドを冪等にしてあり、将来は
 同じServiceを定期jobから呼び出せます。
 
+## オンデマンド無料枠
+
+認証済みユーザーには20 creditsの無料枠があります。ただし登録日やカレンダー週を起点にはしません。
+activeな無料枠がない状態で、クレジットを使うモデルへ有効なリクエストを発行した瞬間から168時間を
+そのユーザーの1周期とします。残高を20へ上書きせず、開始時刻を`issued_at`、終了時刻を
+`expires_at`に持つ`promotional` Lotを1つ発行します。通常のキャンペーン付与とは、発行Transactionの
+`reference_type = free_credit_allowance`で区別します。
+
+```text
+activeな無料枠なし + 有料推論
+  └─ リクエスト時刻から168時間の20-credit Lotを発行
+       ├─ Asuka 1の予約・確定へFEFO配賦
+       ├─ 期限後は次の有料推論まで休止
+       └─ earned / adminなど他のLotには影響しない
+```
+
+`GET /credits`、Hina、guestのリクエストはLotを発行せず、時計も開始しません。有料推論ではユーザーの
+wallet行をロックし、DB時刻を取得してからactive Lotの確認、必要な発行、最大料金予約を行います。
+Execution、Outboxを含む同じDB transactionでcommitするため、予約できずrollbackしたリクエストは
+周期を開始しません。別Executionの並行リクエストもwallet lockで直列化され、二重発行しません。
+
+周期は`[issued_at, expires_at)`の半開区間です。残量を使い切っても期限までは新しいLotを発行しません。
+期限後は自動更新も未利用週の遡及発行もせず、次の有料推論時刻から新しい168時間を開始します。開始後に
+推論が失敗した場合は予約だけを解放し、開始済み周期は維持します。無料枠の金額変更はactive Lotへ
+遡及せず、次に開始するLotから適用します。
+
+無料枠の未使用分は持ち越しません。一方、将来のHuman回答報酬で得る`earned` Lotや管理付与は別Lot
+なので、それぞれの有効期限どおり保持されます。期限を跨いだ実行中予約は維持し、完了時に利用分を
+確定して、期限を越えた未使用予約分を`expired`へ移します。
+
 ## 推論の予約と確定
 
 Answerer catalogが各モデルの料金表を一意に所有します。Threadへの入力と同じDB transactionで、
@@ -99,18 +130,38 @@ Executionごとにsnapshotします。有料料金表ではfallback額を必須�
 使用量記録は同じtransactionでcommitされ、イベントの再配送でも二重請求しません。再試行は新しい
 Executionなので、前の失敗予約を解放してから独立した料金snapshotと予約を持ちます。
 
+現在の料金表は次のとおりです。モデル選択UIには価格を表示しませんが、Answerer APIは機械可読な
+料金表を返します。
+
+| Answerer | 対象 | 料金 |
+| --- | --- | --- |
+| Hina | ゲスト・認証済み | 無料、回数制限なし |
+| Asuka 1 | 認証済み | 成功1応答につき0.1 credit、失敗時は全額返却 |
+
+Asuka 1の現在の疑似workerはtoken数を報告しないため、料金表`asuka-1-flat-v2`は固定額、最大予約額、
+計測不能時fallback額をすべて0.1 creditとし、入力・出力token単価を0にしています。実モデルが計測値を
+返すようになるまでは、見せかけのtoken従量課金を行いません。
+
 ## APIと運用
 
 認証済みユーザーには次の読み取りAPIを提供します。
 
 | Method | Path | 用途 |
 | --- | --- | --- |
-| `GET` | `/api/v1/credits` | 利用可能額と予約中額 |
+| `GET` | `/api/v1/credits` | 利用可能額、予約中額、activeな無料枠 |
 | `GET` | `/api/v1/credits/transactions` | 不透明cursorによる取引履歴 |
 
 Answerer APIの`pricing`は`kind`、`asset_code`、`scale`に加え、料金表revision、固定額、token単価、
 最大額、計測不能時のfallback額を返します。Frontendと外部API clientはモデル名と同様に、価格情報も
 APIを唯一の正本として扱います。
+
+`GET /credits`は読み取り専用で、無料枠を開始しません。応答は`private, no-store`です。active時は総残高
+とは別に`free_allowance`として`limit`、`used`、`reserved`、`remaining`、`starts_at`、`expires_at`を
+返し、休止中は`free_allowance: null`を返します。Frontendのアカウントメニューは無料枠だけを表示し、
+休止中は100%のバーと表示時点から168時間後のリセット期日、active時は残量に応じて減るバーと
+サーバーが返した実際のリセット期日を「M月D日にリセットされます」の形式で表示します。creditの
+絶対値や総残高は表示しないため、将来`earned`残高が
+加わっても無料枠の表示へ混ざりません。
 
 開発・初期運用ではホスト上の管理コマンドから付与します。`AMOUNT`は最小単位です。
 
@@ -147,6 +198,8 @@ make credits-expire
 - クレジット購入: 決済providerの確定eventを冪等な`purchased` Lotへ変換する
 - サブスクリプション: entitlement期間ごとに`subscription` Lotを発行する
 - 貢献報酬・Human推論: 成果確定を`earned` Lotとして付与する
+- Human Answerer: `Human Lite`、`Human Medium`、`Human High`、`Human Pro`を独立した安定IDで追加する
+- Asuka Thinking: Lite／Highなどを独立したAnswerer IDと料金表revisionで追加し、Asukaの主体IDは共有する
 - 返金・取消: 元取引を参照する`reversal`取引を追加する
 - 自動期限切れ: schedulerが既存の期限切れServiceを繰り返し実行する
 - ブロックチェーン連携: 内部台帳を正本のままproof/exportを作り、必要ならdeposit/withdrawal adapterを追加する
@@ -162,7 +215,8 @@ make test-integration
 make test-inference-e2e
 ```
 
-`test-integration`は実PostgreSQLの隔離DBで、複式不変条件、並行予約、冪等性、FEFO、期限切れ、
+`test-integration`は実PostgreSQLの隔離DBで、複式不変条件、無料枠の休止・並行発行、正確な168時間、
+長期未利用、rollback、永続報酬との分離、並行予約、FEFO、期限切れ、
 失敗・timeout解放、匿名化、履歴paginationに加え、孤立仕訳や誤ったLot由来を直接書き込む破壊系も
-検証します。さらにmigrationを`0003 -> 0002 -> 0003`と往復し、Alembicのschema差分がないことを
+検証します。さらにmigrationを`head -> 0002 -> head`と往復し、Alembicのschema差分がないことを
 確認します。`test-inference-e2e`は実HinaのGPU生成後に使用量記録と無料確定まで検証します。

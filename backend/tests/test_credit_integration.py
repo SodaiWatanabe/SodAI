@@ -16,6 +16,7 @@ from app.domain.answerers import AnswererId, get_answerer
 from app.domain.credits import (
     CREDIT_ASSET_CODE,
     CREDIT_SCALE,
+    FREE_CREDIT_ALLOWANCE_POLICY,
     ISSUANCE_ACCOUNT_ID,
     RESERVE_ACCOUNT_ID,
     REVENUE_ACCOUNT_ID,
@@ -23,6 +24,7 @@ from app.domain.credits import (
     CreditIdempotencyConflictError,
     CreditReservationStatus,
     CreditSourceKind,
+    FreeCreditAllowancePolicy,
     InferenceTariff,
     InsufficientCreditsError,
 )
@@ -39,9 +41,10 @@ from app.models.credits import (
     InferenceCreditReservationModel,
     InferenceUsageRecordModel,
 )
-from app.models.platform import ExecutionModel, SpaceModel
+from app.models.platform import ExecutionModel, SpaceModel, ThreadModel
 from app.repositories.credits import CreditLedgerRepository
 from app.repositories.threads import SqlAlchemyThreadRepository
+from app.services.credit_allowance import FreeCreditAllowanceService
 from app.services.credits import CreditService
 from app.services.inference.billing import InferenceBillingService
 from app.services.inference.deployment import ModelDeploymentRegistry
@@ -167,6 +170,30 @@ async def test_credit_grant_is_balanced_idempotent_and_immutable() -> None:
 
 
 @pytest.mark.anyio
+async def test_generic_promotional_grant_is_not_a_free_allowance_cycle() -> None:
+    principal = await create_user()
+    now = datetime(2026, 7, 14, 12, tzinfo=timezone.utc)
+    factory = get_session_factory()
+    async with factory() as session:
+        await CreditLedgerRepository(session).grant(
+            principal.id,
+            20,
+            source_kind=CreditSourceKind.PROMOTIONAL,
+            idempotency_key="ordinary-promotion",
+            expires_at=now + timedelta(days=7),
+            now=now,
+        )
+        await session.commit()
+
+    async with factory() as session:
+        allowance, _ = await FreeCreditAllowanceService(session).current(
+            principal.id,
+            now=now,
+        )
+        assert allowance is None
+
+
+@pytest.mark.anyio
 async def test_concurrent_identical_grants_converge_to_one_transaction() -> None:
     principal = await create_user()
     factory = get_session_factory()
@@ -191,6 +218,360 @@ async def test_concurrent_identical_grants_converge_to_one_transaction() -> None
     assert {first.replayed, second.replayed} == {False, True}
     async with factory() as session:
         assert (await CreditLedgerRepository(session).balance(principal.id)).available == 40
+
+
+@pytest.mark.anyio
+async def test_free_allowance_starts_on_demand_and_skips_inactive_time() -> None:
+    principal = await create_user()
+    factory = get_session_factory()
+    policy = FreeCreditAllowancePolicy(
+        amount=20,
+        cycle_duration=timedelta(days=7),
+    )
+    first_request_at = datetime(2026, 7, 14, 12, 34, tzinfo=timezone.utc)
+    long_after_expiry = first_request_at + timedelta(days=40)
+
+    async with factory() as session:
+        overview = await CreditService(factory, policy).balance(principal.id)
+        assert overview.free_allowance is None
+        account = await session.scalar(
+            select(CreditAccountModel).where(
+                CreditAccountModel.owner_user_id == principal.id
+            )
+        )
+        assert account is None
+
+    async with factory() as session:
+        await CreditLedgerRepository(session).grant(
+            principal.id,
+            7,
+            source_kind=CreditSourceKind.EARNED,
+            idempotency_key="earned-survives-free-allowance",
+            now=first_request_at - timedelta(days=1),
+        )
+        await session.commit()
+
+    first_execution_id = uuid4()
+    async with factory() as session:
+        allowance, effective_at = await FreeCreditAllowanceService(
+            session, policy
+        ).start_for_request(
+            principal.id,
+            first_execution_id,
+            now=first_request_at,
+        )
+        await session.commit()
+
+    assert effective_at == first_request_at
+    assert allowance.limit == allowance.remaining == 20
+    assert allowance.used == allowance.reserved == 0
+    assert allowance.starts_at == first_request_at
+    assert allowance.expires_at == first_request_at + timedelta(hours=168)
+
+    at_exact_expiry = allowance.expires_at
+    async with factory() as session:
+        current, _ = await FreeCreditAllowanceService(session, policy).current(
+            principal.id,
+            now=at_exact_expiry,
+        )
+        later, _ = await FreeCreditAllowanceService(session, policy).current(
+            principal.id,
+            now=long_after_expiry,
+        )
+        lot_count = await session.scalar(
+            select(func.count())
+            .select_from(CreditLotModel)
+            .join(
+                CreditAccountModel,
+                CreditAccountModel.id == CreditLotModel.owner_account_id,
+            )
+            .join(
+                CreditTransactionModel,
+                CreditTransactionModel.id == CreditLotModel.issuance_transaction_id,
+            )
+            .where(
+                CreditAccountModel.owner_user_id == principal.id,
+                CreditTransactionModel.reference_type == "free_credit_allowance",
+            )
+        )
+        assert current is None
+        assert later is None
+        assert lot_count == 1
+
+    second_execution_id = uuid4()
+    async with factory() as session:
+        restarted, _ = await FreeCreditAllowanceService(session, policy).start_for_request(
+            principal.id,
+            second_execution_id,
+            now=long_after_expiry,
+        )
+        wallet = await CreditLedgerRepository(session).balance(
+            principal.id,
+            now=long_after_expiry,
+        )
+        await session.commit()
+
+    assert restarted.limit == restarted.remaining == 20
+    assert restarted.starts_at == long_after_expiry
+    assert restarted.expires_at == long_after_expiry + timedelta(hours=168)
+    assert wallet.available == 27
+    assert wallet.reserved == 0
+
+
+@pytest.mark.anyio
+async def test_concurrent_free_allowance_starts_issue_one_lot() -> None:
+    principal = await create_user()
+    factory = get_session_factory()
+    policy = FreeCreditAllowancePolicy(
+        amount=20,
+        cycle_duration=timedelta(days=7),
+    )
+    now = datetime(2026, 7, 14, 12, tzinfo=timezone.utc)
+
+    async def start_once():
+        async with factory() as session:
+            allowance, _ = await FreeCreditAllowanceService(session, policy).start_for_request(
+                principal.id,
+                uuid4(),
+                now=now,
+            )
+            await session.commit()
+            return allowance
+
+    first, second = await asyncio.wait_for(
+        asyncio.gather(start_once(), start_once()),
+        timeout=5,
+    )
+    assert first == second
+    async with factory() as session:
+        lot_count = await session.scalar(
+            select(func.count())
+            .select_from(CreditLotModel)
+            .join(
+                CreditAccountModel,
+                CreditAccountModel.id == CreditLotModel.owner_account_id,
+            )
+            .join(
+                CreditTransactionModel,
+                CreditTransactionModel.id == CreditLotModel.issuance_transaction_id,
+            )
+            .where(
+                CreditAccountModel.owner_user_id == principal.id,
+                CreditTransactionModel.reference_type == "free_credit_allowance",
+            )
+        )
+        assert lot_count == 1
+
+
+@pytest.mark.anyio
+async def test_free_allowance_policy_changes_apply_to_the_next_cycle() -> None:
+    principal = await create_user()
+    factory = get_session_factory()
+    now = datetime(2026, 7, 14, 12, tzinfo=timezone.utc)
+    original = FreeCreditAllowancePolicy(
+        amount=20,
+        cycle_duration=timedelta(days=7),
+    )
+    changed = FreeCreditAllowancePolicy(
+        amount=21,
+        cycle_duration=timedelta(days=7),
+    )
+
+    async with factory() as session:
+        started, _ = await FreeCreditAllowanceService(session, original).start_for_request(
+            principal.id,
+            uuid4(),
+            now=now,
+        )
+        await session.commit()
+
+    async with factory() as session:
+        active, _ = await FreeCreditAllowanceService(session, changed).start_for_request(
+            principal.id,
+            uuid4(),
+            now=now + timedelta(days=1),
+        )
+        await session.commit()
+
+    async with factory() as session:
+        restarted, _ = await FreeCreditAllowanceService(session, changed).start_for_request(
+            principal.id,
+            uuid4(),
+            now=started.expires_at,
+        )
+        await session.commit()
+
+    assert active.limit == 20
+    assert active.starts_at == started.starts_at
+    assert restarted.limit == 21
+    assert restarted.starts_at == started.expires_at
+
+
+@pytest.mark.anyio
+async def test_rolled_back_free_allowance_start_leaves_the_cycle_dormant() -> None:
+    principal = await create_user()
+    factory = get_session_factory()
+    policy = FreeCreditAllowancePolicy(
+        amount=20,
+        cycle_duration=timedelta(days=7),
+    )
+    now = datetime(2026, 7, 14, 12, tzinfo=timezone.utc)
+
+    async with factory() as session:
+        await FreeCreditAllowanceService(session, policy).start_for_request(
+            principal.id,
+            uuid4(),
+            now=now,
+        )
+        await session.rollback()
+
+    async with factory() as session:
+        current, _ = await FreeCreditAllowanceService(session, policy).current(
+            principal.id,
+            now=now,
+        )
+        account = await session.scalar(
+            select(CreditAccountModel).where(
+                CreditAccountModel.owner_user_id == principal.id
+            )
+        )
+        assert current is None
+        assert account is None
+
+
+@pytest.mark.anyio
+async def test_hina_stays_free_without_issuing_or_reserving_credits() -> None:
+    principal = await create_user()
+    factory = get_session_factory()
+    async with factory() as session:
+        repository = SqlAlchemyThreadRepository(session)
+        context = await repository.ensure_personal_context(principal)
+        creation = await repository.create_thread_response(
+            principal,
+            context,
+            "free Hina",
+            get_answerer(AnswererId.HINA),
+            execution_target="local:hina",
+            artifact_id="test-hina",
+            deadline_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+        )
+        hina = get_answerer(AnswererId.HINA)
+        assert hina is not None
+        await InferenceBillingService(
+            session,
+            FREE_CREDIT_ALLOWANCE_POLICY,
+        ).register(principal, creation.response.execution, hina.tariff)
+        await session.commit()
+
+    async with factory() as session:
+        account = await session.scalar(
+            select(CreditAccountModel).where(
+                CreditAccountModel.owner_user_id == principal.id
+            )
+        )
+        intent = await session.get(
+            InferenceBillingIntentModel,
+            creation.response.execution.id,
+        )
+        assert account is None
+        assert intent is not None
+        assert intent.maximum_charge == 0
+
+
+@pytest.mark.anyio
+async def test_asuka_uses_free_allowance_and_settles_one_tenth_credit() -> None:
+    principal = await create_user()
+    settings = get_settings()
+    factory = get_session_factory()
+    service = ThreadService(
+        factory,
+        ModelDeploymentRegistry(settings.model_root),
+        settings,
+    )
+
+    creation = await service.create(principal, "paid Asuka", AnswererId.ASUKA_1)
+    execution = creation.response.execution
+    charge = CREDIT_SCALE // 10
+    async with factory() as session:
+        reserved = await CreditLedgerRepository(session).balance(principal.id)
+        intent = await session.get(InferenceBillingIntentModel, execution.id)
+        assert reserved.available == FREE_CREDIT_ALLOWANCE_POLICY.amount - charge
+        assert reserved.reserved == charge
+        assert intent is not None
+        assert intent.tariff_revision == "asuka-1-flat-v2"
+
+    events = (
+        GenerationEvent.create(
+            GenerationEventType.STARTED,
+            execution_id=execution.id,
+            attempt_id=execution.attempt_id,
+            sequence=0,
+            thread_id=creation.thread.id,
+            resolved_model="asuka-1@pseudo-v1",
+        ),
+        GenerationEvent.create(
+            GenerationEventType.COMPLETED,
+            execution_id=execution.id,
+            attempt_id=execution.attempt_id,
+            sequence=1,
+            thread_id=creation.thread.id,
+            content="paid completion",
+            finish_reason=FinishReason.STOP,
+        ),
+    )
+    for event in events:
+        async with factory() as session:
+            await SqlAlchemyThreadRepository(session).project_generation_event(event)
+            if event.type is GenerationEventType.COMPLETED:
+                await InferenceBillingService(session).finalize(execution.id)
+            await session.commit()
+
+    async with factory() as session:
+        settled = await CreditLedgerRepository(session).balance(principal.id)
+        usage = await session.get(InferenceUsageRecordModel, execution.id)
+        assert settled.available == FREE_CREDIT_ALLOWANCE_POLICY.amount - charge
+        assert settled.reserved == 0
+        assert usage is not None
+        assert usage.tariff_revision == "asuka-1-flat-v2"
+        assert usage.charged_amount == charge
+        assert usage.billing_reason == "unmetered"
+
+
+@pytest.mark.anyio
+async def test_failed_asuka_releases_credit_but_keeps_the_started_allowance() -> None:
+    principal = await create_user()
+    settings = get_settings()
+    factory = get_session_factory()
+    service = ThreadService(
+        factory,
+        ModelDeploymentRegistry(settings.model_root),
+        settings,
+    )
+
+    creation = await service.create(principal, "failed Asuka", AnswererId.ASUKA_1)
+    execution = creation.response.execution
+    failed = GenerationEvent.create(
+        GenerationEventType.FAILED,
+        execution_id=execution.id,
+        attempt_id=execution.attempt_id,
+        sequence=0,
+        thread_id=creation.thread.id,
+        error_code="integration_failure",
+    )
+    async with factory() as session:
+        await SqlAlchemyThreadRepository(session).project_generation_event(failed)
+        await InferenceBillingService(session).finalize(execution.id)
+        await session.commit()
+
+    async with factory() as session:
+        allowance, _ = await FreeCreditAllowanceService(session).current(principal.id)
+        wallet = await CreditLedgerRepository(session).balance(principal.id)
+
+    assert allowance is not None
+    assert allowance.remaining == FREE_CREDIT_ALLOWANCE_POLICY.amount
+    assert allowance.reserved == 0
+    assert wallet.available == FREE_CREDIT_ALLOWANCE_POLICY.amount
+    assert wallet.reserved == 0
 
 
 @pytest.mark.anyio
@@ -297,6 +678,77 @@ async def test_database_rejects_a_grant_that_does_not_match_its_lot() -> None:
                 source_kind=CreditSourceKind.ADMIN.value,
                 original_amount=50,
                 issued_at=datetime.now(timezone.utc),
+            )
+        )
+        with pytest.raises(DBAPIError, match="does not match its lot"):
+            await session.commit()
+
+
+@pytest.mark.parametrize(
+    ("source_kind", "duration"),
+    (
+        (CreditSourceKind.ADMIN, timedelta(days=7)),
+        (CreditSourceKind.PROMOTIONAL, timedelta(days=6)),
+    ),
+)
+@pytest.mark.anyio
+async def test_database_rejects_an_invalid_free_allowance_shape(
+    source_kind: CreditSourceKind,
+    duration: timedelta,
+) -> None:
+    principal = await create_user()
+    factory = get_session_factory()
+    async with factory() as session:
+        await CreditLedgerRepository(session).grant(
+            principal.id,
+            1,
+            source_kind=CreditSourceKind.ADMIN,
+            idempotency_key=f"allowance-guard-bootstrap-{source_kind.value}",
+        )
+        await session.commit()
+
+    async with factory() as session:
+        account = await session.scalar(
+            select(CreditAccountModel).where(
+                CreditAccountModel.owner_user_id == principal.id
+            )
+        )
+        assert account is not None
+        now = datetime.now(timezone.utc)
+        transaction_id = uuid4()
+        session.add(
+            CreditTransactionModel(
+                id=transaction_id,
+                kind="grant",
+                idempotency_key_hash=uuid4().hex * 2,
+                reference_type="free_credit_allowance",
+                reference_id=account.id,
+                effective_at=now,
+            )
+        )
+        session.add_all(
+            (
+                CreditPostingModel(
+                    transaction_id=transaction_id,
+                    account_id=ISSUANCE_ACCOUNT_ID,
+                    amount=-20,
+                ),
+                CreditPostingModel(
+                    transaction_id=transaction_id,
+                    account_id=account.id,
+                    amount=20,
+                ),
+            )
+        )
+        await session.flush()
+        session.add(
+            CreditLotModel(
+                owner_account_id=account.id,
+                issuance_transaction_id=transaction_id,
+                source_kind=source_kind.value,
+                original_amount=20,
+                issued_at=now,
+                expires_at=now + duration,
             )
         )
         with pytest.raises(DBAPIError, match="does not match its lot"):
@@ -1543,7 +1995,7 @@ async def test_inference_billing_records_usage_and_is_terminally_idempotent() ->
             source_kind=CreditSourceKind.ADMIN,
             idempotency_key="billing-funds",
         )
-        await InferenceBillingService(session).register(principal, execution, tariff)
+        await InferenceBillingService(session, None).register(principal, execution, tariff)
         await session.commit()
 
     started = GenerationEvent.create(
@@ -1646,7 +2098,7 @@ async def test_failed_inference_releases_the_full_reservation_once() -> None:
             source_kind=CreditSourceKind.ADMIN,
             idempotency_key="failure-funds",
         )
-        await InferenceBillingService(session).register(principal, execution, tariff)
+        await InferenceBillingService(session, None).register(principal, execution, tariff)
         await session.commit()
 
     async with factory() as session:
@@ -1708,7 +2160,7 @@ async def test_timed_out_inference_releases_its_reservation() -> None:
             source_kind=CreditSourceKind.ADMIN,
             idempotency_key="timeout-funds",
         )
-        await InferenceBillingService(session).register(principal, execution, tariff)
+        await InferenceBillingService(session, None).register(principal, execution, tariff)
         await session.commit()
 
     async with factory() as session:
@@ -1749,7 +2201,7 @@ async def test_paid_projection_and_settlement_roll_back_together() -> None:
             source_kind=CreditSourceKind.ADMIN,
             idempotency_key="atomic-funds",
         )
-        await InferenceBillingService(session).register(principal, execution, tariff)
+        await InferenceBillingService(session, None).register(principal, execution, tariff)
         await session.commit()
 
     failed = GenerationEvent.create(
@@ -1807,7 +2259,7 @@ async def test_unmetered_paid_completion_uses_the_explicit_fallback() -> None:
             source_kind=CreditSourceKind.ADMIN,
             idempotency_key="unmetered-funds",
         )
-        await InferenceBillingService(session).register(principal, execution, tariff)
+        await InferenceBillingService(session, None).register(principal, execution, tariff)
         await session.commit()
 
     events = (
@@ -1857,8 +2309,8 @@ async def test_insufficient_credits_roll_back_the_entire_thread_creation(
         answerer,
         tariff=InferenceTariff(
             revision="integration-insufficient-v1",
-            maximum_charge=10,
-            unmetered_charge=10,
+            maximum_charge=FREE_CREDIT_ALLOWANCE_POLICY.amount + 1,
+            unmetered_charge=FREE_CREDIT_ALLOWANCE_POLICY.amount + 1,
         ),
     )
     monkeypatch.setattr(
@@ -1895,3 +2347,47 @@ async def test_insufficient_credits_roll_back_the_entire_thread_creation(
         assert space_count == 0
         assert intent_count == 0
         assert account is None
+
+
+@pytest.mark.anyio
+async def test_exhausted_free_allowance_rejects_the_next_asuka_thread() -> None:
+    principal = await create_user()
+    settings = get_settings()
+    factory = get_session_factory()
+    service = ThreadService(
+        factory,
+        ModelDeploymentRegistry(settings.model_root),
+        settings,
+    )
+
+    for index in range(200):
+        await service.create(
+            principal,
+            f"allowance paid response {index}",
+            AnswererId.ASUKA_1,
+        )
+
+    with pytest.raises(InsufficientCreditsError):
+        await service.create(
+            principal,
+            "one response beyond the free allowance",
+            AnswererId.ASUKA_1,
+        )
+
+    async with factory() as session:
+        wallet = await CreditLedgerRepository(session).balance(principal.id)
+        thread_count = await session.scalar(
+            select(func.count())
+            .select_from(ThreadModel)
+            .join(SpaceModel, SpaceModel.id == ThreadModel.space_id)
+            .where(SpaceModel.owner_user_id == principal.id)
+        )
+        intent_count = await session.scalar(
+            select(func.count())
+            .select_from(InferenceBillingIntentModel)
+            .where(InferenceBillingIntentModel.user_id == principal.id)
+        )
+        assert wallet.available == 0
+        assert wallet.reserved == FREE_CREDIT_ALLOWANCE_POLICY.amount
+        assert thread_count == 200
+        assert intent_count == 200

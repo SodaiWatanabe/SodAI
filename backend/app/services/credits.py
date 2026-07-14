@@ -9,21 +9,41 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.db.session import get_session_factory
 from app.domain.credits import (
-    CreditBalance,
+    FREE_CREDIT_ALLOWANCE_POLICY,
     CreditGrant,
+    CreditOverview,
     CreditSourceKind,
     CreditTransactionPage,
+    FreeCreditAllowancePolicy,
 )
 from app.repositories.credits import CreditLedgerRepository
+from app.services.credit_allowance import FreeCreditAllowanceService
 
 
 class CreditService:
-    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
+    def __init__(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        allowance_policy: FreeCreditAllowancePolicy = FREE_CREDIT_ALLOWANCE_POLICY,
+    ) -> None:
         self._session_factory = session_factory
+        self._allowance_policy = allowance_policy
 
-    async def balance(self, user_id: UUID) -> CreditBalance:
+    async def balance(self, user_id: UUID) -> CreditOverview:
         async with self._session_factory() as session:
-            return await CreditLedgerRepository(session).balance(user_id)
+            free_allowance, now = await FreeCreditAllowanceService(
+                session,
+                self._allowance_policy,
+            ).current(user_id)
+            wallet = await CreditLedgerRepository(session).balance(user_id, now=now)
+            await session.commit()
+            return CreditOverview(
+                asset_code=wallet.asset_code,
+                scale=wallet.scale,
+                available=wallet.available,
+                reserved=wallet.reserved,
+                free_allowance=free_allowance,
+            )
 
     async def transactions(
         self,

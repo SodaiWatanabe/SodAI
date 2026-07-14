@@ -1,8 +1,8 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
-from app.domain.accounts import Account
+from app.domain.accounts import Account, AccountStatus
 from app.routers.account import get_current_account
 from app.schemas.credits import CreditBalanceResponse, CreditTransactionListResponse
 from app.services.credits import CreditService, get_credit_service
@@ -12,9 +12,13 @@ router = APIRouter(prefix="/credits", tags=["credits"])
 
 @router.get("", response_model=CreditBalanceResponse)
 async def read_credit_balance(
+    response: Response,
     account: Account = Depends(get_current_account),
     service: CreditService = Depends(get_credit_service),
 ) -> CreditBalanceResponse:
+    if account.status is not AccountStatus.ACTIVE:
+        raise HTTPException(status_code=403, detail="Account is not active")
+    response.headers["Cache-Control"] = "private, no-store"
     return CreditBalanceResponse.model_validate(await service.balance(account.id))
 
 

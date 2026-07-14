@@ -6,6 +6,7 @@ from httpx import ASGITransport, AsyncClient
 
 from app.auth.principal import get_principal
 from app.domain.answerers import AnswererId
+from app.domain.credits import InsufficientCreditsError
 from app.domain.principals import Principal, PrincipalKind
 from app.domain.responses import Execution, ResponseCreation, ResponseRequest, ResponseStatus
 from app.domain.threads import Actor, ActorKind, Entry, EntryKind, Thread, ThreadSummary
@@ -82,13 +83,16 @@ def creation_fixture() -> ResponseCreation:
 
 
 class StubThreadService:
-    def __init__(self, *, busy: bool = False) -> None:
+    def __init__(self, *, busy: bool = False, insufficient: bool = False) -> None:
         self.busy = busy
+        self.insufficient = insufficient
         self.received: tuple[Principal, str, AnswererId | None] | None = None
 
     async def create(
         self, principal: Principal, content: str, answerer: AnswererId | None
     ) -> ResponseCreation:
+        if self.insufficient:
+            raise InsufficientCreditsError
         self.received = (principal, content, answerer)
         return creation_fixture()
 
@@ -233,6 +237,22 @@ async def test_thread_rejects_concurrent_active_response() -> None:
         )
 
     assert response.status_code == 409
+
+
+@pytest.mark.anyio
+async def test_thread_returns_payment_required_when_credits_are_exhausted() -> None:
+    app.dependency_overrides[get_principal] = lambda: PRINCIPAL
+    app.dependency_overrides[get_thread_service] = lambda: StubThreadService(
+        insufficient=True
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post(
+            "/api/v1/threads", json={"input": "こんにちは", "answerer": "asuka-1"}
+        )
+
+    assert response.status_code == 402
+    assert response.json() == {"detail": "Insufficient credits"}
 
 
 @pytest.mark.anyio

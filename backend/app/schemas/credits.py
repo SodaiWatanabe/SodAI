@@ -6,6 +6,17 @@ from pydantic import BaseModel, ConfigDict
 from app.domain.credits import CreditSourceKind, CreditTransactionKind
 
 
+class FreeCreditAllowanceResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    limit: int
+    used: int
+    reserved: int
+    remaining: int
+    starts_at: datetime
+    expires_at: datetime
+
+
 class CreditBalanceResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -13,6 +24,7 @@ class CreditBalanceResponse(BaseModel):
     scale: int
     available: int
     reserved: int
+    free_allowance: FreeCreditAllowanceResponse | None
 
 
 class CreditTransactionResponse(BaseModel):

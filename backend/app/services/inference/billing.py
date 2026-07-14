@@ -8,9 +8,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.credits import (
     CREDIT_ASSET_CODE,
+    FREE_CREDIT_ALLOWANCE_POLICY,
     BillingOutcome,
     BillingReason,
     CreditIdempotencyConflictError,
+    FreeCreditAllowancePolicy,
     InferenceTariff,
 )
 from app.domain.principals import Principal, PrincipalKind
@@ -18,14 +20,24 @@ from app.domain.responses import Execution, ResponseStatus
 from app.models.credits import InferenceBillingIntentModel, InferenceUsageRecordModel
 from app.models.platform import ExecutionModel
 from app.repositories.credits import CreditLedgerRepository
+from app.services.credit_allowance import FreeCreditAllowanceService
 
 
 class InferenceBillingService:
     """Coordinates inference lifecycle facts with the append-only credit ledger."""
 
-    def __init__(self, session: AsyncSession) -> None:
+    def __init__(
+        self,
+        session: AsyncSession,
+        allowance_policy: FreeCreditAllowancePolicy | None = FREE_CREDIT_ALLOWANCE_POLICY,
+    ) -> None:
         self._session = session
         self._ledger = CreditLedgerRepository(session)
+        self._allowance = (
+            FreeCreditAllowanceService(session, allowance_policy)
+            if allowance_policy is not None
+            else None
+        )
 
     async def register(
         self,
@@ -40,9 +52,7 @@ class InferenceBillingService:
                 raise CreditIdempotencyConflictError
             return
         if not tariff.is_free and user_id is None:
-            raise CreditIdempotencyConflictError(
-                "paid inference cannot be reserved by a guest"
-            )
+            raise CreditIdempotencyConflictError("paid inference cannot be reserved by a guest")
         self._session.add(
             InferenceBillingIntentModel(
                 execution_reference_id=execution.id,
@@ -57,11 +67,18 @@ class InferenceBillingService:
             )
         )
         await self._session.flush()
-        if user_id is not None:
+        if user_id is not None and not tariff.is_free:
+            now: datetime | None = None
+            if self._allowance is not None:
+                _, now = await self._allowance.start_for_request(
+                    user_id,
+                    execution.id,
+                )
             await self._ledger.reserve_inference(
                 user_id,
                 execution.id,
                 tariff.maximum_charge,
+                now=now,
             )
 
     async def finalize(self, execution_id: UUID) -> InferenceUsageRecordModel:
@@ -73,8 +90,7 @@ class InferenceBillingService:
                 select(ExecutionModel, InferenceBillingIntentModel)
                 .join(
                     InferenceBillingIntentModel,
-                    InferenceBillingIntentModel.execution_reference_id
-                    == ExecutionModel.id,
+                    InferenceBillingIntentModel.execution_reference_id == ExecutionModel.id,
                 )
                 .where(ExecutionModel.id == execution_id)
                 .with_for_update(of=ExecutionModel)
