@@ -1,13 +1,7 @@
 "use client";
 
 import { Archive, Ellipsis, Pencil } from "lucide-react";
-import {
-  type FormEvent,
-  type KeyboardEvent,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
+import { type KeyboardEvent, useEffect, useRef, useState } from "react";
 
 import { useChatData } from "@/components/chat/chat-data-provider";
 import {
@@ -25,8 +19,6 @@ type ThreadListItemProps = {
   onSelect: () => void;
 };
 
-type MenuView = "actions" | "rename";
-
 export function ThreadListItem({
   active,
   thread,
@@ -37,39 +29,44 @@ export function ThreadListItem({
   const { showToast } = useToast();
   const contentRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const [menuView, setMenuView] = useState<MenuView>("actions");
+  const cancelBlurSaveRef = useRef(false);
   const [title, setTitle] = useState(thread.title);
+  const [editing, setEditing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    if (menuView !== "rename") return;
+    if (!editing || submitting) return;
     const frame = requestAnimationFrame(() => {
       inputRef.current?.focus({ preventScroll: true });
       inputRef.current?.select();
     });
     return () => cancelAnimationFrame(frame);
-  }, [menuView]);
+  }, [editing, submitting]);
 
   function closePopover() {
     contentRef.current?.hidePopover();
   }
 
-  function showRename() {
+  function startRename() {
+    cancelBlurSaveRef.current = false;
     setTitle(thread.title);
-    setMenuView("rename");
+    setEditing(true);
+    closePopover();
   }
 
-  async function submitRename(event: FormEvent) {
-    event.preventDefault();
+  async function saveRename() {
     const nextTitle = title.trim();
-    if (!nextTitle || nextTitle === thread.title || submitting) {
-      if (nextTitle === thread.title) closePopover();
+    if (submitting) return;
+    if (!nextTitle || nextTitle === thread.title) {
+      setTitle(thread.title);
+      setEditing(false);
       return;
     }
     setSubmitting(true);
     try {
       await renameThread(thread.id, nextTitle);
-      closePopover();
+      setTitle(nextTitle);
+      setEditing(false);
     } catch {
       showToast({
         id: `thread-rename-${thread.id}`,
@@ -99,10 +96,19 @@ export function ThreadListItem({
   }
 
   function handleRenameKeyDown(event: KeyboardEvent<HTMLInputElement>) {
-    if (event.key !== "Escape") return;
-    event.preventDefault();
-    event.stopPropagation();
-    setMenuView("actions");
+    if (event.key === "Enter") {
+      event.preventDefault();
+      event.currentTarget.blur();
+      return;
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      cancelBlurSaveRef.current = true;
+      setTitle(thread.title);
+      event.currentTarget.blur();
+      setEditing(false);
+    }
   }
 
   const rowTone = active
@@ -111,43 +117,66 @@ export function ThreadListItem({
 
   return (
     <div className={`group relative flex h-9 items-center rounded-xl ${rowTone}`}>
-      <button
-        type="button"
-        aria-current={active ? "page" : undefined}
-        className="h-full min-w-0 flex-1 truncate rounded-xl pl-2.5 pr-10 text-left text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--focus)]"
-        onClick={onSelect}
-      >
-        {thread.title}
-      </button>
-
-      <Popover
-        collisionPadding={8}
-        gutter={6}
-        placement="bottom-start"
-        onOpenChange={(open) => {
-          if (open) return;
-          setMenuView("actions");
-          setTitle(thread.title);
-        }}
-      >
-        <PopoverTrigger
-          aria-label={`${thread.title}の操作`}
-          className="absolute right-0.5 grid size-8 place-items-center rounded-[10px] text-[var(--muted)] opacity-100 transition-[color,opacity] hover:text-[var(--text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--focus)] aria-expanded:text-[var(--text)] lg:opacity-0 lg:group-hover:opacity-100 lg:group-focus-within:opacity-100 lg:aria-expanded:opacity-100"
+      {editing ? (
+        <form
+          className="h-full min-w-0 flex-1"
+          onSubmit={(event) => {
+            event.preventDefault();
+            inputRef.current?.blur();
+          }}
         >
-          <Ellipsis aria-hidden="true" className="size-[18px]" />
-        </PopoverTrigger>
-
-        <PopoverContent
-          ref={contentRef}
-          role="dialog"
-          aria-label={`${thread.title}の操作`}
+          <label htmlFor={`thread-title-${thread.id}`} className="sr-only">
+            会話の名前
+          </label>
+          <input
+            ref={inputRef}
+            id={`thread-title-${thread.id}`}
+            value={title}
+            maxLength={120}
+            disabled={submitting}
+            autoComplete="off"
+            className="h-full w-full rounded-xl bg-transparent px-2.5 text-sm font-medium text-[var(--text)] outline-none disabled:cursor-wait disabled:opacity-60"
+            onBlur={() => {
+              if (cancelBlurSaveRef.current) {
+                cancelBlurSaveRef.current = false;
+                return;
+              }
+              void saveRename();
+            }}
+            onChange={(event) => setTitle(event.target.value)}
+            onKeyDown={handleRenameKeyDown}
+          />
+        </form>
+      ) : (
+        <button
+          type="button"
+          aria-current={active ? "page" : undefined}
+          className="h-full min-w-0 flex-1 truncate rounded-xl pl-2.5 pr-10 text-left text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--focus)]"
+          onClick={onSelect}
         >
-          {menuView === "actions" ? (
+          {thread.title}
+        </button>
+      )}
+
+      {!editing ? (
+        <Popover collisionPadding={8} gutter={6} placement="bottom-start">
+          <PopoverTrigger
+            aria-label={`${thread.title}の操作`}
+            className="absolute right-0.5 grid size-8 place-items-center rounded-[10px] text-[var(--muted)] opacity-100 transition-[color,opacity] hover:text-[var(--text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--focus)] aria-expanded:text-[var(--text)] lg:opacity-0 lg:group-hover:opacity-100 lg:group-focus-within:opacity-100 lg:aria-expanded:opacity-100"
+          >
+            <Ellipsis aria-hidden="true" className="size-[18px]" />
+          </PopoverTrigger>
+
+          <PopoverContent
+            ref={contentRef}
+            role="dialog"
+            aria-label={`${thread.title}の操作`}
+          >
             <div className="grid gap-0.5">
               <button
                 type="button"
                 className="flex h-9 w-full items-center rounded-xl pr-3 text-left text-sm text-[var(--text)] transition-colors hover:bg-[var(--hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--focus)]"
-                onClick={showRename}
+                onClick={startRename}
               >
                 <span className="grid w-9 shrink-0 place-items-center">
                   <Pencil aria-hidden="true" className="size-4" />
@@ -166,48 +195,9 @@ export function ThreadListItem({
                 <span>アーカイブ</span>
               </button>
             </div>
-          ) : null}
-
-          {menuView === "rename" ? (
-            <form className="p-1" onSubmit={submitRename}>
-              <label
-                htmlFor={`thread-title-${thread.id}`}
-                className="mb-2 block px-1 text-xs font-medium text-[var(--muted)]"
-              >
-                会話の名前
-              </label>
-              <input
-                ref={inputRef}
-                id={`thread-title-${thread.id}`}
-                value={title}
-                maxLength={120}
-                disabled={submitting}
-                autoComplete="off"
-                className="h-9 w-full rounded-[10px] border border-[var(--field-border)] bg-[var(--surface)] px-3 text-sm text-[var(--text)] outline-none focus:border-[var(--focus)]"
-                onChange={(event) => setTitle(event.target.value)}
-                onKeyDown={handleRenameKeyDown}
-              />
-              <div className="mt-2 flex justify-end gap-1">
-                <button
-                  type="button"
-                  className="h-8 rounded-[10px] px-3 text-xs font-medium text-[var(--muted)] transition-colors hover:bg-[var(--hover)] hover:text-[var(--text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)]"
-                  onClick={() => setMenuView("actions")}
-                >
-                  戻る
-                </button>
-                <button
-                  type="submit"
-                  disabled={!title.trim() || submitting}
-                  className="h-8 rounded-[10px] bg-[var(--primary)] px-3 text-xs font-medium text-[var(--on-primary)] transition-opacity disabled:opacity-35"
-                >
-                  {submitting ? "保存中…" : "保存"}
-                </button>
-              </div>
-            </form>
-          ) : null}
-
-        </PopoverContent>
-      </Popover>
+          </PopoverContent>
+        </Popover>
+      ) : null}
     </div>
   );
 }
