@@ -87,48 +87,56 @@ export function AccountSettingsForm({
           表示名
         </span>
         {editing ? (
-          <input
-            ref={inputRef}
-            id={inputId}
-            name="displayName"
-            type="text"
-            required
-            autoComplete="off"
-            maxLength={DISPLAY_NAME_MAX_LENGTH}
-            disabled={saving}
-            aria-labelledby={labelId}
-            aria-describedby={
-              error ? `${descriptionId} ${errorId}` : descriptionId
-            }
-            aria-invalid={Boolean(error)}
-            className="h-9 w-[min(14rem,62%)] rounded-xl bg-[var(--field)] px-3 text-sm text-[var(--text)] outline-none placeholder:text-[var(--muted)] disabled:cursor-wait disabled:opacity-60"
-            value={displayName}
-            onBlur={() => {
-              if (cancelBlurSaveRef.current) {
-                cancelBlurSaveRef.current = false;
-                return;
+          <span className="relative h-9 min-w-9 max-w-[62%] overflow-hidden">
+            <span
+              aria-hidden="true"
+              className="invisible block whitespace-pre px-2.5 text-sm font-medium"
+            >
+              {displayName || " "}
+            </span>
+            <input
+              ref={inputRef}
+              id={inputId}
+              name="displayName"
+              type="text"
+              required
+              autoComplete="off"
+              maxLength={DISPLAY_NAME_MAX_LENGTH}
+              disabled={saving}
+              aria-labelledby={labelId}
+              aria-describedby={
+                error ? `${descriptionId} ${errorId}` : descriptionId
               }
-              void saveDisplayName();
-            }}
-            onChange={(event) => {
-              setDisplayName(event.target.value);
-              if (error) setError(null);
-            }}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.preventDefault();
-                event.currentTarget.blur();
-              }
-              if (event.key === "Escape") {
-                event.preventDefault();
-                cancelBlurSaveRef.current = true;
-                setDisplayName(savedDisplayName);
-                setError(null);
-                event.currentTarget.blur();
-                setEditing(false);
-              }
-            }}
-          />
+              aria-invalid={Boolean(error)}
+              className="absolute inset-0 h-9 w-full rounded-xl bg-[var(--field)] px-2.5 text-sm font-medium text-[var(--text)] outline-none placeholder:text-[var(--muted)] disabled:cursor-wait disabled:opacity-60"
+              value={displayName}
+              onBlur={() => {
+                if (cancelBlurSaveRef.current) {
+                  cancelBlurSaveRef.current = false;
+                  return;
+                }
+                void saveDisplayName();
+              }}
+              onChange={(event) => {
+                setDisplayName(event.target.value);
+                if (error) setError(null);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  event.currentTarget.blur();
+                }
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  cancelBlurSaveRef.current = true;
+                  setDisplayName(savedDisplayName);
+                  setError(null);
+                  event.currentTarget.blur();
+                  setEditing(false);
+                }
+              }}
+            />
+          </span>
         ) : (
           <button
             type="button"
