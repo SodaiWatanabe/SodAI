@@ -84,6 +84,14 @@ button {
   background: var(--selection);
 }
 
+.sidebar-thread-scroll {
+  scrollbar-width: none;
+}
+
+.sidebar-thread-scroll::-webkit-scrollbar {
+  display: none;
+}
+
 .ui-popover {
   opacity: 0;
   transform: scale(0.985);

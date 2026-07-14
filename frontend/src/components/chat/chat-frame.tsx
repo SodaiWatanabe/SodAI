@@ -128,7 +128,7 @@ function Sidebar({
           <div
             aria-hidden={!contentVisible}
             inert={!contentVisible}
-            className={`mt-6 min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain transition-opacity duration-150 ${contentVisibility}`}
+            className={`sidebar-thread-scroll mt-6 min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain transition-opacity duration-150 ${contentVisibility}`}
           >
             <p className="mb-2 pl-2.5 pr-2 text-sm font-bold text-[var(--text)]">
               会話
