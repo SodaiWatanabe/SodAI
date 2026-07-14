@@ -16,7 +16,7 @@ import { MessageComposer } from "@/components/chat/message-composer";
 import { reduceThreadRealtime } from "@/components/chat/thread-realtime";
 import { ThreadViewport } from "@/components/chat/thread-viewport";
 import { useThreadAutoScroll } from "@/components/chat/use-thread-auto-scroll";
-import { useMessageSendPreference } from "@/components/preferences/message-send-preference-provider";
+import { useKeyboardShortcuts } from "@/components/preferences/keyboard-shortcuts-provider";
 import { useToast } from "@/components/ui/toast-provider";
 import type {
   AvailableAnswerer,
@@ -54,7 +54,7 @@ export function ThreadShell({ threadId }: ThreadShellProps) {
     subscribeRealtime,
   } = useChatData();
   const { dismissToast, showToast } = useToast();
-  const { preference: messageSendPreference } = useMessageSendPreference();
+  const { shortcuts } = useKeyboardShortcuts();
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const threadRef = useRef<Thread | undefined>(undefined);
   const answererInitializedRef = useRef(false);
@@ -308,7 +308,7 @@ export function ThreadShell({ threadId }: ThreadShellProps) {
           onChange={setMessage}
           onSubmit={submit}
           placeholder="対話を続ける"
-          sendPreference={messageSendPreference}
+          sendShortcut={shortcuts.messageSend}
           textareaRef={inputRef}
           value={message}
         />

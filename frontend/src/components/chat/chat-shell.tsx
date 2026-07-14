@@ -7,7 +7,7 @@ import { useChatData } from "@/components/chat/chat-data-provider";
 import { ChatHeader } from "@/components/chat/chat-header";
 import { settleComposerFocus } from "@/components/chat/composer-focus";
 import { MessageComposer } from "@/components/chat/message-composer";
-import { useMessageSendPreference } from "@/components/preferences/message-send-preference-provider";
+import { useKeyboardShortcuts } from "@/components/preferences/keyboard-shortcuts-provider";
 import { useToast } from "@/components/ui/toast-provider";
 import type { AvailableAnswerer } from "@/lib/chat/types";
 import {
@@ -25,7 +25,7 @@ export function ChatShell(props: ChatShellProps) {
   const { createThread } = useChatApi();
   const { answerers, upsertThread } = useChatData();
   const { dismissToast, showToast } = useToast();
-  const { preference: messageSendPreference } = useMessageSendPreference();
+  const { shortcuts } = useKeyboardShortcuts();
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const mountedRef = useRef(true);
   const [message, setMessage] = useState("");
@@ -97,7 +97,7 @@ export function ChatShell(props: ChatShellProps) {
             onChange={setMessage}
             onSubmit={submit}
             placeholder="話しかけてください"
-            sendPreference={messageSendPreference}
+            sendShortcut={shortcuts.messageSend}
             textareaRef={inputRef}
             value={message}
           />

@@ -8,7 +8,7 @@ import type {
 
 import { handleMessageSubmitKeyDown } from "@/components/chat/message-submit-keydown";
 import { useComposerTextareaAutosize } from "@/components/chat/use-composer-textarea-autosize";
-import type { MessageSendPreference } from "@/lib/preferences/message-send";
+import type { KeyboardShortcut } from "@/lib/preferences/keyboard-shortcuts";
 
 type MessageComposerProps = {
   ariaLabel?: string;
@@ -20,7 +20,7 @@ type MessageComposerProps = {
   onChange: (value: string) => void;
   onSubmit: FormEventHandler<HTMLFormElement>;
   placeholder: string;
-  sendPreference: MessageSendPreference;
+  sendShortcut: KeyboardShortcut;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
   value: string;
 };
@@ -35,7 +35,7 @@ export function MessageComposer({
   onChange,
   onSubmit,
   placeholder,
-  sendPreference,
+  sendShortcut,
   textareaRef,
   value,
 }: MessageComposerProps) {
@@ -74,7 +74,7 @@ export function MessageComposer({
           }`}
           onChange={(event) => onChange(event.target.value)}
           onKeyDown={(event) =>
-            handleMessageSubmitKeyDown(event, sendPreference)
+            handleMessageSubmitKeyDown(event, sendShortcut)
           }
         />
         <div

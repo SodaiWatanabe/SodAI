@@ -1,16 +1,17 @@
 import type { KeyboardEvent } from "react";
 
 import {
-  matchesMessageSendShortcut,
-  type MessageSendPreference,
-} from "@/lib/preferences/message-send";
+  matchesKeyboardShortcut,
+  type KeyboardShortcut,
+} from "@/lib/preferences/keyboard-shortcuts";
 
 export function handleMessageSubmitKeyDown(
   event: KeyboardEvent<HTMLTextAreaElement>,
-  preference: MessageSendPreference,
+  shortcut: KeyboardShortcut,
 ) {
-  const shouldSubmit = matchesMessageSendShortcut(
+  const shouldSubmit = matchesKeyboardShortcut(
     {
+      altKey: event.altKey,
       ctrlKey: event.ctrlKey,
       isComposing: event.nativeEvent.isComposing,
       key: event.key,
@@ -18,7 +19,7 @@ export function handleMessageSubmitKeyDown(
       metaKey: event.metaKey,
       shiftKey: event.shiftKey,
     },
-    preference,
+    shortcut,
   );
   if (!shouldSubmit) return;
 

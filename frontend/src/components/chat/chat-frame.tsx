@@ -19,9 +19,11 @@ import {
 import { ChatAuthProvider } from "@/components/chat/chat-auth-context";
 import { useChatData } from "@/components/chat/chat-data-provider";
 import { ThreadListItem } from "@/components/chat/thread-list-item";
+import { useKeyboardShortcuts } from "@/components/preferences/keyboard-shortcuts-provider";
 import { ToastViewport } from "@/components/ui/toast-provider";
 import { authClient } from "@/lib/auth/client";
 import type { ThreadSummary } from "@/lib/chat/types";
+import { matchesKeyboardShortcut } from "@/lib/preferences/keyboard-shortcuts";
 import { saveDesktopSidebarPreference } from "@/lib/preferences/sidebar";
 
 const SIDEBAR_TRANSITION_DURATION = 300;
@@ -194,6 +196,7 @@ export function ChatFrame({
   const childSegments = useSelectedLayoutSegments();
   const { invalidate: invalidateAccessToken } = useApiAccessToken();
   const { subscribeRealtime, threads } = useChatData();
+  const { recordingAction, shortcuts } = useKeyboardShortcuts();
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const mobileSidebarRef = useRef<HTMLElement>(null);
   const [desktopCollapsed, setDesktopCollapsed] = useState(
@@ -218,6 +221,13 @@ export function ChatFrame({
     setMobileGuestActionsVisible(false);
     setMobileOpen(false);
   }, []);
+  const navigate = useCallback(
+    (id: string) => {
+      closeMobileSidebar();
+      router.push(id ? `/t/${id}` : "/");
+    },
+    [closeMobileSidebar, router],
+  );
   const activeThreadId =
     childSegments.at(0) === "t" ? childSegments.at(1) : undefined;
 
@@ -285,6 +295,45 @@ export function ChatFrame({
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [closeMobileSidebar, mobileOpen]);
 
+  useEffect(() => {
+    const shortcut = shortcuts.newChat;
+    if (!shortcut) return;
+    const activeShortcut = shortcut;
+
+    function handleNewChatShortcut(event: KeyboardEvent) {
+      if (
+        event.defaultPrevented ||
+        event.repeat ||
+        recordingAction ||
+        document.querySelector("dialog[open]")
+      ) {
+        return;
+      }
+      if (
+        !matchesKeyboardShortcut(
+          {
+            altKey: event.altKey,
+            ctrlKey: event.ctrlKey,
+            isComposing: event.isComposing,
+            key: event.key,
+            keyCode: event.keyCode,
+            metaKey: event.metaKey,
+            shiftKey: event.shiftKey,
+          },
+          activeShortcut,
+        )
+      ) {
+        return;
+      }
+      event.preventDefault();
+      navigate("");
+    }
+
+    document.addEventListener("keydown", handleNewChatShortcut);
+    return () =>
+      document.removeEventListener("keydown", handleNewChatShortcut);
+  }, [navigate, recordingAction, shortcuts.newChat]);
+
   useEffect(
     () =>
       subscribeRealtime((event) => {
@@ -299,11 +348,6 @@ export function ChatFrame({
       }),
     [activeThreadId, closeMobileSidebar, router, subscribeRealtime],
   );
-
-  function navigate(id: string) {
-    closeMobileSidebar();
-    router.push(id ? `/t/${id}` : "/");
-  }
 
   function navigateToSettings() {
     closeMobileSidebar();
