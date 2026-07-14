@@ -10,6 +10,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { AccountCreditUsage } from "@/components/chat/account-credit-usage";
 
 export type SidebarUser = {
   email: string;
@@ -56,6 +57,8 @@ export function SidebarAccount({
   user,
 }: SidebarAccountProps) {
   const displayName = user.name || "SodAIユーザー";
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [creditRequestVersion, setCreditRequestVersion] = useState(0);
   const labelVisibilityClass = contentVisible
     ? "opacity-100 delay-100 motion-reduce:delay-0"
     : "pointer-events-none opacity-0";
@@ -65,6 +68,10 @@ export function SidebarAccount({
       collisionPadding={6}
       placement={compact ? "right-end" : "top-start"}
       matchTriggerWidth={!compact}
+      onOpenChange={(open) => {
+        setAccountMenuOpen(open);
+        if (open) setCreditRequestVersion((version) => version + 1);
+      }}
     >
       <PopoverTrigger
         aria-haspopup="dialog"
@@ -101,6 +108,11 @@ export function SidebarAccount({
             </p>
           </div>
         </div>
+        <AccountCreditUsage
+          active={accountMenuOpen}
+          requestVersion={creditRequestVersion}
+          onRetry={() => setCreditRequestVersion((version) => version + 1)}
+        />
         <div className="mx-2 my-1 h-px bg-[var(--divider)]" />
         <PopoverClose
           className="flex h-9 w-full items-center rounded-xl text-left text-sm text-[var(--text)] transition-colors hover:bg-[var(--hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)]"

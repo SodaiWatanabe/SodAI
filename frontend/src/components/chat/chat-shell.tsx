@@ -10,6 +10,10 @@ import { MessageComposer } from "@/components/chat/message-composer";
 import { useMessageSendPreference } from "@/components/preferences/message-send-preference-provider";
 import { useToast } from "@/components/ui/toast-provider";
 import type { AvailableAnswerer } from "@/lib/chat/types";
+import {
+  INSUFFICIENT_CREDITS_MESSAGE,
+  isInsufficientCreditsError,
+} from "@/lib/chat/api-error";
 import { useChatApi } from "@/lib/chat/use-chat-api";
 
 type ChatShellProps = {
@@ -53,13 +57,16 @@ export function ChatShell(props: ChatShellProps) {
       upsertThread(created.thread);
       if (!mountedRef.current) return;
       router.push(`/t/${created.thread.id}`);
-    } catch {
+    } catch (error) {
       if (!mountedRef.current) return;
       setSubmitting(false);
+      const insufficientCredits = isInsufficientCreditsError(error);
       showToast({
         id: "thread-create",
-        message: "会話を始められませんでした。APIの接続を確認してください。",
-        tone: "error",
+        message: insufficientCredits
+          ? INSUFFICIENT_CREDITS_MESSAGE
+          : "会話を始められませんでした。APIの接続を確認してください。",
+        tone: insufficientCredits ? "warning" : "error",
       });
       requestAnimationFrame(() => inputRef.current?.focus());
     }

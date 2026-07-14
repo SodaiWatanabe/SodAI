@@ -24,6 +24,10 @@ import type {
   Thread,
   ThreadEntry,
 } from "@/lib/chat/types";
+import {
+  INSUFFICIENT_CREDITS_MESSAGE,
+  isInsufficientCreditsError,
+} from "@/lib/chat/api-error";
 import { useChatApi } from "@/lib/chat/use-chat-api";
 
 type ThreadShellProps = {
@@ -241,14 +245,17 @@ export function ThreadShell({ threadId }: ThreadShellProps) {
         last_activity_at: created.thread.last_activity_at,
         revision: created.thread.revision,
       });
-    } catch {
+    } catch (error) {
       if (!mountedRef.current) return;
       setMessage((current) => (current.trim() ? current : input));
       setSubmitting(false);
+      const insufficientCredits = isInsufficientCreditsError(error);
       showToast({
         id: "message-send",
-        message: "送信できませんでした。もう一度お試しください。",
-        tone: "error",
+        message: insufficientCredits
+          ? INSUFFICIENT_CREDITS_MESSAGE
+          : "送信できませんでした。もう一度お試しください。",
+        tone: insufficientCredits ? "warning" : "error",
       });
     }
   }

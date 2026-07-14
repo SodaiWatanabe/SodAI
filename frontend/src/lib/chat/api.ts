@@ -9,16 +9,9 @@ import type {
   Thread,
   ThreadSummary,
 } from "@/lib/chat/types";
+import { ChatApiError } from "@/lib/chat/api-error";
 
-export class ChatApiError extends Error {
-  constructor(
-    message: string,
-    readonly status: number,
-  ) {
-    super(message);
-    this.name = "ChatApiError";
-  }
-}
+export { ChatApiError } from "@/lib/chat/api-error";
 
 export function createChatApi(accessToken: ApiAccessTokenSource) {
   async function apiFetch(path: `/${string}`, init: RequestInit = {}) {
