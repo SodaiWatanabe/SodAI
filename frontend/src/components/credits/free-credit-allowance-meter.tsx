@@ -38,7 +38,7 @@ export function FreeCreditAllowanceMeter({
         aria-valuemax={100}
         aria-valuenow={remainingPercent}
         aria-valuetext={`残量 ${remainingPercent}%`}
-        className={`${compact ? "mt-2" : "mt-3"} h-1.5 overflow-hidden rounded-full bg-[var(--control-background)]`}
+        className={`${compact ? "mt-2 h-1.5" : "mt-3 h-2.5"} overflow-hidden rounded-full bg-[var(--control-background)]`}
       >
         <div
           className="h-full rounded-full bg-[var(--primary)] transition-[width] duration-300 motion-reduce:transition-none"
