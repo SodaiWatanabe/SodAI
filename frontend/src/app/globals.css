@@ -93,6 +93,7 @@ button {
 }
 
 .ui-popover {
+  pointer-events: none;
   opacity: 0;
   transform: scale(0.985);
   transform-origin: top left;
@@ -126,6 +127,7 @@ button {
 }
 
 .ui-popover:popover-open {
+  pointer-events: auto;
   opacity: 1;
   transform: scale(1);
 }
