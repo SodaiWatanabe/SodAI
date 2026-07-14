@@ -5,7 +5,6 @@ import {
   type FormEvent,
   useCallback,
   useEffect,
-  useLayoutEffect,
   useRef,
   useState,
 } from "react";
@@ -16,6 +15,7 @@ import { settleComposerFocus } from "@/components/chat/composer-focus";
 import { MessageComposer } from "@/components/chat/message-composer";
 import { reduceThreadRealtime } from "@/components/chat/thread-realtime";
 import { ThreadViewport } from "@/components/chat/thread-viewport";
+import { useThreadAutoScroll } from "@/components/chat/use-thread-auto-scroll";
 import { useMessageSendPreference } from "@/components/preferences/message-send-preference-provider";
 import { useToast } from "@/components/ui/toast-provider";
 import type {
@@ -29,8 +29,6 @@ import { useChatApi } from "@/lib/chat/use-chat-api";
 type ThreadShellProps = {
   threadId: string;
 };
-
-const STICK_TO_BOTTOM_THRESHOLD = 120;
 
 function mergeEntries(current: ThreadEntry[], incoming: ThreadEntry[]) {
   const byId = new Map(current.map((entry) => [entry.id, entry]));
@@ -53,12 +51,9 @@ export function ThreadShell({ threadId }: ThreadShellProps) {
   } = useChatData();
   const { dismissToast, showToast } = useToast();
   const { preference: messageSendPreference } = useMessageSendPreference();
-  const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const threadRef = useRef<Thread | undefined>(undefined);
-  const initialScrollPositionedRef = useRef(false);
   const answererInitializedRef = useRef(false);
-  const stickToBottomRef = useRef(true);
   const mountedRef = useRef(true);
   const refreshGenerationRef = useRef(0);
   const pendingExecutionSyncRef = useRef<string | undefined>(undefined);
@@ -68,8 +63,17 @@ export function ThreadShell({ threadId }: ThreadShellProps) {
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const responding = submitting || isResponding(thread);
+  const {
+    cancelAnimatedScroll,
+    containerRef,
+    contentRef,
+    footerRef,
+    handleScroll,
+    pinToBottom,
+    scrollToBottom,
+    showScrollToBottom,
+  } = useThreadAutoScroll({ ready: Boolean(thread), resetKey: threadId });
 
   const updateThread = useCallback(
     (update: (current?: Thread) => Thread | undefined) => {
@@ -203,27 +207,11 @@ export function ThreadShell({ threadId }: ThreadShellProps) {
     updateThread,
   ]);
 
-  useLayoutEffect(() => {
-    const element = scrollRef.current;
-    if (!element || !thread) return;
-    if (!initialScrollPositionedRef.current) {
-      element.scrollTop = element.scrollHeight;
-      initialScrollPositionedRef.current = true;
-      stickToBottomRef.current = true;
-      setShowScrollToBottom(false);
-      return;
-    }
-    if (stickToBottomRef.current) {
-      element.scrollTo({ top: element.scrollHeight, behavior: "smooth" });
-    }
-  }, [thread]);
-
   async function submit(event: FormEvent) {
     event.preventDefault();
     const input = message.trim();
     if (!input || !answerer || responding) return;
-    stickToBottomRef.current = true;
-    setShowScrollToBottom(false);
+    pinToBottom();
     setMessage("");
     setSubmitting(true);
     settleComposerFocus(inputRef.current);
@@ -265,26 +253,13 @@ export function ThreadShell({ threadId }: ThreadShellProps) {
     }
   }
 
-  function scrollToBottom() {
-    const element = scrollRef.current;
-    if (!element) return;
-    stickToBottomRef.current = true;
-    setShowScrollToBottom(false);
-    element.scrollTo({ top: element.scrollHeight, behavior: "smooth" });
-  }
-
   return (
     <div
-      ref={scrollRef}
-      className="flex min-h-0 flex-1 flex-col overflow-y-auto scroll-smooth"
-      onScroll={(event) => {
-        const element = event.currentTarget;
-        const distanceFromBottom =
-          element.scrollHeight - element.scrollTop - element.clientHeight;
-        const nearBottom = distanceFromBottom <= STICK_TO_BOTTOM_THRESHOLD;
-        stickToBottomRef.current = nearBottom;
-        setShowScrollToBottom(!nearBottom);
-      }}
+      ref={containerRef}
+      className="flex min-h-0 flex-1 flex-col overflow-y-auto"
+      onScroll={handleScroll}
+      onTouchMove={cancelAnimatedScroll}
+      onWheel={cancelAnimatedScroll}
     >
       <ChatHeader
         answerer={answerer}
@@ -292,9 +267,17 @@ export function ThreadShell({ threadId }: ThreadShellProps) {
         onAnswererChange={setAnswerer}
       />
 
-      <ThreadViewport thread={thread} loading={loading} responding={responding} />
+      <ThreadViewport
+        contentRef={contentRef}
+        thread={thread}
+        loading={loading}
+        responding={responding}
+      />
 
-      <div className="thread-composer sticky bottom-0 z-20 shrink-0 px-5 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-8">
+      <div
+        ref={footerRef}
+        className="thread-composer sticky bottom-0 z-20 shrink-0 px-5 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-8"
+      >
         <button
           type="button"
           aria-label="会話の最下部へ移動"

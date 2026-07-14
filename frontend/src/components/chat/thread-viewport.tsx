@@ -1,11 +1,17 @@
 "use client";
 
-import { useLayoutEffect, useRef, useState } from "react";
+import {
+  type RefObject,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 
 import { IOSSpinner } from "@/components/ui/ios-spinner";
 import type { Thread, ThreadEntry } from "@/lib/chat/types";
 
 type ThreadViewportProps = {
+  contentRef: RefObject<HTMLDivElement | null>;
   thread?: Thread;
   loading: boolean;
   responding: boolean;
@@ -143,11 +149,26 @@ function displayEntries(thread: Thread): DisplayEntry[] {
 }
 
 export function ThreadViewport({
+  contentRef,
   thread,
   loading,
   responding,
 }: ThreadViewportProps) {
   const entries = thread ? displayEntries(thread) : [];
+  const waitingForFirstToken =
+    responding &&
+    !entries.some(
+      (entry) =>
+        entry.responseStatus === "streaming" && entry.content.trim().length > 0,
+    );
+  const visibleEntries = waitingForFirstToken
+    ? entries.filter(
+        (entry) =>
+          entry.responseStatus !== "streaming" ||
+          entry.content.trim().length > 0,
+      )
+    : entries;
+
   return (
     <section
       aria-label="会話"
@@ -170,11 +191,22 @@ export function ThreadViewport({
       ) : null}
 
       {thread ? (
-        <div className="relative z-10 mx-auto w-full max-w-[760px] px-5 pb-12 pt-10 sm:px-8">
+        <div
+          ref={contentRef}
+          className="relative z-10 mx-auto w-full max-w-[760px] px-5 pb-12 pt-10 sm:px-8"
+        >
           <div className="space-y-8">
-            {entries.map((entry) => (
+            {visibleEntries.map((entry) => (
               <ThreadMessage key={entry.id} entry={entry} />
             ))}
+            {waitingForFirstToken ? (
+              <article
+                aria-hidden="true"
+                className="flex h-7 items-center justify-start text-[15px]"
+              >
+                <span className="response-waiting-dot" />
+              </article>
+            ) : null}
           </div>
         </div>
       ) : null}
