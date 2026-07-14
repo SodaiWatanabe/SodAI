@@ -155,6 +155,7 @@ async def test_credit_transaction_history_uses_an_opaque_cursor() -> None:
         )
 
     assert response.status_code == 200
+    assert response.headers["cache-control"] == "private, no-store"
     assert service.received == (USER_ID, 25, "opaque")
     assert response.json() == {
         "items": [
@@ -173,9 +174,13 @@ async def test_credit_transaction_history_uses_an_opaque_cursor() -> None:
 
 
 @pytest.mark.anyio
-async def test_credit_endpoints_require_an_authenticated_account() -> None:
+@pytest.mark.parametrize(
+    "path",
+    ("/api/v1/credits", "/api/v1/credits/transactions"),
+)
+async def test_credit_endpoints_require_an_authenticated_account(path: str) -> None:
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        response = await client.get("/api/v1/credits")
+        response = await client.get(path)
 
     assert response.status_code == 401
 
@@ -196,7 +201,10 @@ async def test_inactive_account_cannot_read_credits() -> None:
     service = StubCreditService()
     app.dependency_overrides[get_credit_service] = lambda: service
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        response = await client.get("/api/v1/credits")
+        balance_response = await client.get("/api/v1/credits")
+        transactions_response = await client.get("/api/v1/credits/transactions")
 
-    assert response.status_code == 403
+    assert balance_response.status_code == 403
+    assert transactions_response.status_code == 403
     assert service.balance_calls == 0
+    assert service.received is None

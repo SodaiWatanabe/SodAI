@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { ApiAccessTokenProvider } from "@/components/auth/api-access-token-provider";
 import { ChatDataProvider } from "@/components/chat/chat-data-provider";
 import { ChatFrame } from "@/components/chat/chat-frame";
+import { CreditBalanceProvider } from "@/components/credits/credit-balance-provider";
 import { ToastProvider } from "@/components/ui/toast-provider";
 import { getCurrentAccount } from "@/lib/account/server";
 import { isGoogleAuthConfigured } from "@/lib/auth/environment";
@@ -39,22 +40,24 @@ export default async function ChatLayout({
   return (
     <ToastProvider>
       <ApiAccessTokenProvider key={ownerKey} authenticated={Boolean(session)}>
-        <ChatDataProvider>
-          <ChatFrame
-            googleAuthEnabled={isGoogleAuthConfigured()}
-            initialAccountUnavailable={Boolean(
-              account && account.status !== "active",
-            )}
-            initialDesktopSidebarCollapsed={sidebarPreference === "collapsed"}
-            initialProfileIncomplete={
-              account?.status === "active" && account.display_name === null
-            }
-            initialUser={user}
-          >
-            {children}
-            {settings}
-          </ChatFrame>
-        </ChatDataProvider>
+        <CreditBalanceProvider>
+          <ChatDataProvider>
+            <ChatFrame
+              googleAuthEnabled={isGoogleAuthConfigured()}
+              initialAccountUnavailable={Boolean(
+                account && account.status !== "active",
+              )}
+              initialDesktopSidebarCollapsed={sidebarPreference === "collapsed"}
+              initialProfileIncomplete={
+                account?.status === "active" && account.display_name === null
+              }
+              initialUser={user}
+            >
+              {children}
+              {settings}
+            </ChatFrame>
+          </ChatDataProvider>
+        </CreditBalanceProvider>
       </ApiAccessTokenProvider>
     </ToastProvider>
   );

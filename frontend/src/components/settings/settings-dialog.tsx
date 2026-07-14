@@ -14,6 +14,7 @@ import {
 
 function getSection(pathname: string): SettingsSection {
   if (pathname.endsWith("/account")) return "account";
+  if (pathname.endsWith("/credits")) return "credits";
   if (pathname.endsWith("/keyboard")) return "keyboard";
   if (pathname.endsWith("/general")) return "general";
   return "root";
@@ -21,6 +22,7 @@ function getSection(pathname: string): SettingsSection {
 
 const sectionTitles: Record<SettingsSection, string> = {
   account: "アカウント",
+  credits: "クレジット",
   general: "一般",
   keyboard: "キーボード",
   root: "一般",
@@ -29,11 +31,13 @@ const sectionTitles: Record<SettingsSection, string> = {
 export function SettingsDialog({
   accountPanel,
   closeMode,
+  creditPanel,
   generalPanel,
   keyboardPanel,
 }: {
   accountPanel: ReactNode;
   closeMode: "back" | "home";
+  creditPanel: ReactNode;
   generalPanel: ReactNode;
   keyboardPanel: ReactNode;
 }) {
@@ -46,9 +50,11 @@ export function SettingsDialog({
   const panel =
     section === "account"
       ? accountPanel
-      : section === "keyboard"
-        ? keyboardPanel
-        : generalPanel;
+      : section === "credits"
+        ? creditPanel
+        : section === "keyboard"
+          ? keyboardPanel
+          : generalPanel;
 
   useEffect(() => {
     if (!settingsAccessible) {

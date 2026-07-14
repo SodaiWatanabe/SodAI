@@ -21,6 +21,7 @@ export type SidebarUser = {
 type SidebarAccountProps = {
   compact: boolean;
   contentVisible: boolean;
+  onOpenCredits: () => void;
   onOpenSettings: () => void;
   onSignOut: () => void;
   signingOut: boolean;
@@ -51,6 +52,7 @@ function AccountAvatar({ image }: Pick<SidebarUser, "image">) {
 export function SidebarAccount({
   compact,
   contentVisible,
+  onOpenCredits,
   onOpenSettings,
   onSignOut,
   signingOut,
@@ -58,7 +60,6 @@ export function SidebarAccount({
 }: SidebarAccountProps) {
   const displayName = user.name || "SodAIユーザー";
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
-  const [creditRequestVersion, setCreditRequestVersion] = useState(0);
   const labelVisibilityClass = contentVisible
     ? "opacity-100 delay-100 motion-reduce:delay-0"
     : "pointer-events-none opacity-0";
@@ -68,10 +69,7 @@ export function SidebarAccount({
       collisionPadding={6}
       placement={compact ? "right-end" : "top-start"}
       matchTriggerWidth={!compact}
-      onOpenChange={(open) => {
-        setAccountMenuOpen(open);
-        if (open) setCreditRequestVersion((version) => version + 1);
-      }}
+      onOpenChange={setAccountMenuOpen}
     >
       <PopoverTrigger
         aria-haspopup="dialog"
@@ -110,8 +108,7 @@ export function SidebarAccount({
         </div>
         <AccountCreditUsage
           active={accountMenuOpen}
-          requestVersion={creditRequestVersion}
-          onRetry={() => setCreditRequestVersion((version) => version + 1)}
+          onOpenCredits={onOpenCredits}
         />
         <div className="mx-2 my-1 h-px bg-[var(--divider)]" />
         <PopoverClose

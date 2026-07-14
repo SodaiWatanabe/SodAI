@@ -24,11 +24,15 @@ async def read_credit_balance(
 
 @router.get("/transactions", response_model=CreditTransactionListResponse)
 async def list_credit_transactions(
+    response: Response,
     cursor: str | None = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
     account: Account = Depends(get_current_account),
     service: CreditService = Depends(get_credit_service),
 ) -> CreditTransactionListResponse:
+    if account.status is not AccountStatus.ACTIVE:
+        raise HTTPException(status_code=403, detail="Account is not active")
+    response.headers["Cache-Control"] = "private, no-store"
     try:
         page = await service.transactions(account.id, limit=limit, cursor=cursor)
     except ValueError as error:

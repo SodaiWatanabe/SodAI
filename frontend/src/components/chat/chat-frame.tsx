@@ -44,6 +44,7 @@ type SidebarProps = {
   onClose: () => void;
   onArchiveThread: (id: string) => void;
   onOpenAuth: () => void;
+  onOpenCredits: () => void;
   onOpenSettings: () => void;
   onSelectThread: (id: string) => void;
   onSignOut: () => void;
@@ -60,6 +61,7 @@ function Sidebar({
   onClose,
   onArchiveThread,
   onOpenAuth,
+  onOpenCredits,
   onOpenSettings,
   onSelectThread,
   onSignOut,
@@ -151,6 +153,7 @@ function Sidebar({
           <SidebarAccount
             compact={compact}
             contentVisible={contentVisible}
+            onOpenCredits={onOpenCredits}
             onOpenSettings={onOpenSettings}
             onSignOut={onSignOut}
             signingOut={signingOut}
@@ -307,6 +310,11 @@ export function ChatFrame({
     router.push("/settings");
   }
 
+  function navigateToCredits() {
+    closeMobileSidebar();
+    router.push("/settings/credits");
+  }
+
   function leaveArchivedThread(id: string) {
     closeMobileSidebar();
     if (id === activeThreadId) router.replace("/");
@@ -342,6 +350,7 @@ export function ChatFrame({
       onClose={onClose}
       onArchiveThread={leaveArchivedThread}
       onOpenAuth={openAuth}
+      onOpenCredits={navigateToCredits}
       onOpenSettings={navigateToSettings}
       onSelectThread={navigate}
       onSignOut={signOut}

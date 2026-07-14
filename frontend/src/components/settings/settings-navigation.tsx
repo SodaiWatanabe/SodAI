@@ -2,6 +2,7 @@
 
 import {
   ChevronRight,
+  Coins,
   Keyboard,
   Settings2,
   UserRound,
@@ -9,7 +10,12 @@ import {
 } from "lucide-react";
 import type { AnchorHTMLAttributes, ReactNode } from "react";
 
-export type SettingsSection = "account" | "general" | "keyboard" | "root";
+export type SettingsSection =
+  | "account"
+  | "credits"
+  | "general"
+  | "keyboard"
+  | "root";
 
 type SettingsItem = {
   href: string;
@@ -34,6 +40,13 @@ const settingsItems: readonly SettingsItem[] = [
     label: "アカウント",
     mobileHref: "/settings/account",
     section: "account",
+  },
+  {
+    href: "/settings/credits",
+    icon: Coins,
+    label: "クレジット",
+    mobileHref: "/settings/credits",
+    section: "credits",
   },
   {
     href: "/settings/keyboard",

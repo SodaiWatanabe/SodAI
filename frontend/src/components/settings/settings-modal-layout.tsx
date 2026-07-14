@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 
 import { AccountSettingsPanel } from "@/components/settings/account-settings-panel";
+import { CreditSettings } from "@/components/settings/credit-settings";
 import { GeneralSettings } from "@/components/settings/general-settings";
 import { KeyboardSettings } from "@/components/settings/keyboard-settings";
 import { SettingsDialog } from "@/components/settings/settings-dialog";
@@ -18,6 +19,7 @@ export async function SettingsModalLayout({
     <SettingsDialog
       accountPanel={<AccountSettingsPanel />}
       closeMode={closeMode}
+      creditPanel={<CreditSettings />}
       generalPanel={<GeneralSettings />}
       keyboardPanel={<KeyboardSettings />}
     />
