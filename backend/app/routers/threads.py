@@ -21,6 +21,8 @@ from app.schemas.thread import (
     SpaceListResponse,
     ThreadListResponse,
     ThreadResponse,
+    ThreadSearchRequest,
+    ThreadSearchResponse,
     ThreadSummaryResponse,
     UpdateThreadRequest,
 )
@@ -104,6 +106,20 @@ async def list_threads(
     service: ThreadService = Depends(get_thread_service),
 ) -> ThreadListResponse:
     return ThreadListResponse(items=await service.list(principal))
+
+
+@router.post("/thread-searches", response_model=ThreadSearchResponse)
+async def search_threads(
+    payload: ThreadSearchRequest,
+    principal: Principal = Depends(get_principal),
+    service: ThreadService = Depends(get_thread_service),
+) -> ThreadSearchResponse:
+    page = await service.search(
+        principal,
+        payload.query,
+        limit=payload.limit,
+    )
+    return ThreadSearchResponse.model_validate(page, from_attributes=True)
 
 
 @router.get("/threads/{thread_id}", response_model=ThreadResponse)

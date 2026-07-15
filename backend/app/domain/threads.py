@@ -24,6 +24,11 @@ class EntryKind(str, Enum):
     MESSAGE = "message"
 
 
+class ThreadSearchSource(str, Enum):
+    TITLE = "title"
+    ENTRY = "entry"
+
+
 @dataclass(frozen=True, slots=True)
 class Actor:
     id: UUID
@@ -50,6 +55,20 @@ class ThreadSummary:
     created_at: datetime
     updated_at: datetime
     last_activity_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class ThreadSearchHit:
+    thread: ThreadSummary
+    source: ThreadSearchSource
+    entry_id: UUID | None
+    snippet: str
+
+
+@dataclass(frozen=True, slots=True)
+class ThreadSearchPage:
+    items: tuple[ThreadSearchHit, ...]
+    has_more: bool
 
 
 @dataclass(frozen=True, slots=True)

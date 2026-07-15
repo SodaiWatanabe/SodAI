@@ -9,7 +9,17 @@ from app.domain.answerers import AnswererId
 from app.domain.credits import InsufficientCreditsError
 from app.domain.principals import Principal, PrincipalKind
 from app.domain.responses import Execution, ResponseCreation, ResponseRequest, ResponseStatus
-from app.domain.threads import Actor, ActorKind, Entry, EntryKind, Thread, ThreadSummary
+from app.domain.threads import (
+    Actor,
+    ActorKind,
+    Entry,
+    EntryKind,
+    Thread,
+    ThreadSearchHit,
+    ThreadSearchPage,
+    ThreadSearchSource,
+    ThreadSummary,
+)
 from app.main import app
 from app.repositories.threads import ThreadBusyError
 from app.services.thread import ThreadService, get_thread_service
@@ -87,6 +97,7 @@ class StubThreadService:
         self.busy = busy
         self.insufficient = insufficient
         self.received: tuple[Principal, str, AnswererId | None] | None = None
+        self.search_received: tuple[Principal, str, int] | None = None
 
     async def create(
         self, principal: Principal, content: str, answerer: AnswererId | None
@@ -135,6 +146,37 @@ class StubThreadService:
                 last_activity_at=thread.last_activity_at,
             )
         ]
+
+    async def search(
+        self,
+        principal: Principal,
+        query: str,
+        *,
+        limit: int,
+    ) -> ThreadSearchPage:
+        self.search_received = (principal, query, limit)
+        thread = creation_fixture().thread
+        summary = ThreadSummary(
+            id=thread.id,
+            space_id=thread.space_id,
+            title=thread.title,
+            answerer=thread.answerer,
+            revision=thread.revision,
+            created_at=thread.created_at,
+            updated_at=thread.updated_at,
+            last_activity_at=thread.last_activity_at,
+        )
+        return ThreadSearchPage(
+            items=(
+                ThreadSearchHit(
+                    thread=summary,
+                    source=ThreadSearchSource.ENTRY,
+                    entry_id=INPUT_ENTRY_ID,
+                    snippet="こんにちは",
+                ),
+            ),
+            has_more=False,
+        )
 
     @staticmethod
     def available_answerers(principal: Principal):
@@ -202,6 +244,79 @@ async def test_response_request_rejects_blank_input_at_the_api_boundary() -> Non
 
     assert response.status_code == 422
     assert service.received is None
+
+
+@pytest.mark.anyio
+async def test_thread_search_returns_message_context_without_exposing_actor_keys() -> None:
+    service = StubThreadService()
+    app.dependency_overrides[get_principal] = lambda: PRINCIPAL
+    app.dependency_overrides[get_thread_service] = lambda: service
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post(
+            "/api/v1/thread-searches",
+            json={"query": "  こんにちは  ", "limit": 12},
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "items": [
+            {
+                "thread": {
+                    "id": str(THREAD_ID),
+                    "space_id": str(SPACE_ID),
+                    "title": "こんにちは",
+                    "answerer": "hina",
+                    "revision": 1,
+                    "created_at": NOW.isoformat().replace("+00:00", "Z"),
+                    "updated_at": NOW.isoformat().replace("+00:00", "Z"),
+                    "last_activity_at": NOW.isoformat().replace("+00:00", "Z"),
+                },
+                "source": "entry",
+                "entry_id": str(INPUT_ENTRY_ID),
+                "snippet": "こんにちは",
+            }
+        ],
+        "has_more": False,
+    }
+    assert service.search_received == (PRINCIPAL, "こんにちは", 12)
+
+
+@pytest.mark.anyio
+async def test_thread_search_rejects_blank_query_at_the_api_boundary() -> None:
+    service = StubThreadService()
+    app.dependency_overrides[get_principal] = lambda: PRINCIPAL
+    app.dependency_overrides[get_thread_service] = lambda: service
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post(
+            "/api/v1/thread-searches",
+            json={"query": "   "},
+        )
+
+    assert response.status_code == 422
+    assert service.search_received is None
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"query": "長" * 101},
+        {"query": "検索", "limit": 0},
+        {"query": "検索", "limit": 51},
+    ],
+)
+async def test_thread_search_rejects_oversized_requests(payload: dict[str, object]) -> None:
+    service = StubThreadService()
+    app.dependency_overrides[get_principal] = lambda: PRINCIPAL
+    app.dependency_overrides[get_thread_service] = lambda: service
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post("/api/v1/thread-searches", json=payload)
+
+    assert response.status_code == 422
+    assert service.search_received is None
 
 
 @pytest.mark.anyio

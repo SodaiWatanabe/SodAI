@@ -19,6 +19,7 @@ from app.db.session import dispose_engine, get_session_factory
 from app.domain.answerers import AnswererId, get_answerer
 from app.domain.execution_events import EventDisposition
 from app.domain.principals import Principal, PrincipalKind
+from app.domain.threads import ThreadSearchSource
 from app.models.account import UserModel
 from app.models.platform import (
     ActorModel,
@@ -180,6 +181,137 @@ async def test_generation_projection_creates_one_immutable_result_entry() -> Non
             if guest is not None:
                 await session.delete(guest)
                 await session.commit()
+
+
+@pytest.mark.anyio
+async def test_thread_search_is_literal_scoped_and_excludes_archived_threads() -> None:
+    owner = Principal(PrincipalKind.GUEST, uuid4())
+    other = Principal(PrincipalKind.GUEST, uuid4())
+    now = datetime.now(timezone.utc)
+    factory = get_session_factory()
+    async with factory() as session:
+        session.add_all(
+            [
+                GuestSessionModel(
+                    id=principal.id,
+                    token_hash=uuid4().hex + uuid4().hex,
+                    expires_at=now + timedelta(days=1),
+                    last_seen_at=now,
+                )
+                for principal in (owner, other)
+            ]
+        )
+        await session.commit()
+
+    try:
+        async with factory() as session:
+            repository = SqlAlchemyThreadRepository(session)
+            owner_context = await repository.ensure_personal_context(owner)
+            title_creation = await repository.create_thread_response(
+                owner,
+                owner_context,
+                "元のタイトルには検索語がありません",
+                get_answerer(AnswererId.HINA),
+                execution_target="local:hina",
+                artifact_id="integration",
+                deadline_at=now + timedelta(minutes=5),
+            )
+            await repository.update_title(
+                owner,
+                title_creation.thread.id,
+                "タイトルだけの検索語",
+            )
+            body_creation = await repository.create_thread_response(
+                owner,
+                owner_context,
+                f"{'長い前置き' * 12}本文だけの検索語",
+                get_answerer(AnswererId.HINA),
+                execution_target="local:hina",
+                artifact_id="integration",
+                deadline_at=now + timedelta(minutes=5),
+            )
+            latest_body_entry = ThreadEntryModel(
+                thread_id=body_creation.thread.id,
+                author_actor_id=owner_context.actor.id,
+                kind="message",
+                ordinal=1,
+            )
+            latest_body_entry.text = EntryTextContentModel(
+                content="本文だけの検索語をもう一度書きます",
+            )
+            session.add(latest_body_entry)
+            percent_creation = await repository.create_thread_response(
+                owner,
+                owner_context,
+                "記号は100%と_under\\scoreです",
+                get_answerer(AnswererId.HINA),
+                execution_target="local:hina",
+                artifact_id="integration",
+                deadline_at=now + timedelta(minutes=5),
+            )
+            other_context = await repository.ensure_personal_context(other)
+            await repository.create_thread_response(
+                other,
+                other_context,
+                "他人だけの秘密検索語",
+                get_answerer(AnswererId.HINA),
+                execution_target="local:hina",
+                artifact_id="integration",
+                deadline_at=now + timedelta(minutes=5),
+            )
+            await session.commit()
+
+        async with factory() as session:
+            repository = SqlAlchemyThreadRepository(session)
+            title_page = await repository.search(owner, "タイトルだけ", limit=20)
+            body_page = await repository.search(owner, "本文だけ", limit=20)
+            percent_page = await repository.search(owner, "%", limit=20)
+            underscore_page = await repository.search(owner, "_", limit=20)
+            backslash_page = await repository.search(owner, "\\", limit=20)
+            leaked_page = await repository.search(owner, "他人だけ", limit=20)
+            limited_page = await repository.search(owner, "検索語", limit=1)
+
+        assert len(title_page.items) == 1
+        assert title_page.items[0].source is ThreadSearchSource.TITLE
+        assert title_page.items[0].entry_id is None
+        assert title_page.items[0].thread.id == title_creation.thread.id
+        assert len(body_page.items) == 1
+        assert body_page.items[0].source is ThreadSearchSource.ENTRY
+        assert body_page.items[0].entry_id == latest_body_entry.id
+        assert "本文だけの検索語" in body_page.items[0].snippet
+        assert [hit.thread.id for hit in percent_page.items] == [percent_creation.thread.id]
+        assert percent_page.items[0].source is ThreadSearchSource.ENTRY
+        assert percent_page.items[0].entry_id == percent_creation.response.input_entry_id
+        assert [hit.thread.id for hit in underscore_page.items] == [percent_creation.thread.id]
+        assert [hit.thread.id for hit in backslash_page.items] == [percent_creation.thread.id]
+        assert leaked_page.items == ()
+        assert limited_page.has_more is True
+        assert len(limited_page.items) == 1
+        assert limited_page.items[0].thread.id == title_creation.thread.id
+
+        async with factory() as session:
+            repository = SqlAlchemyThreadRepository(session)
+            await repository.archive(owner, percent_creation.thread.id)
+            await session.commit()
+        async with factory() as session:
+            archived_page = await SqlAlchemyThreadRepository(session).search(
+                owner,
+                "%",
+                limit=20,
+            )
+        assert archived_page.items == ()
+    finally:
+        async with factory() as session:
+            guests = (
+                await session.scalars(
+                    select(GuestSessionModel).where(
+                        GuestSessionModel.id.in_([owner.id, other.id])
+                    )
+                )
+            ).all()
+            for guest in guests:
+                await session.delete(guest)
+            await session.commit()
 
 
 @pytest.mark.anyio

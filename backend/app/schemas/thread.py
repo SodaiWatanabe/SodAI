@@ -17,6 +17,10 @@ ThreadTitle = Annotated[
     str,
     StringConstraints(strip_whitespace=True, min_length=1, max_length=120),
 ]
+ThreadSearchQuery = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=100),
+]
 
 
 class CreateThreadRequest(BaseModel):
@@ -32,6 +36,11 @@ class CreateResponseRequest(BaseModel):
 
 class UpdateThreadRequest(BaseModel):
     title: ThreadTitle
+
+
+class ThreadSearchRequest(BaseModel):
+    query: ThreadSearchQuery
+    limit: int = Field(default=20, ge=1, le=50)
 
 
 class ActorResponse(BaseModel):
@@ -123,6 +132,20 @@ class ResponseCreationResponse(BaseModel):
 
 class ThreadListResponse(BaseModel):
     items: list[ThreadSummaryResponse]
+
+
+class ThreadSearchHitResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    thread: ThreadSummaryResponse
+    source: Literal["title", "entry"]
+    entry_id: UUID | None
+    snippet: str
+
+
+class ThreadSearchResponse(BaseModel):
+    items: list[ThreadSearchHitResponse]
+    has_more: bool
 
 
 class AnswererPricingResponse(BaseModel):

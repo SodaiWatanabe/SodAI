@@ -12,7 +12,7 @@ from sodai_contracts.inference import (
     GenerationTurn,
     InferenceSpeaker,
 )
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, case, func, or_, select, true
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -46,6 +46,9 @@ from app.domain.threads import (
     EntryKind,
     SpaceSummary,
     Thread,
+    ThreadSearchHit,
+    ThreadSearchPage,
+    ThreadSearchSource,
     ThreadSummary,
 )
 from app.models.platform import (
@@ -532,6 +535,71 @@ class SqlAlchemyThreadRepository:
             .limit(limit)
         )
         return [self._to_summary(row) for row in (await self._session.scalars(statement)).all()]
+
+    async def search(
+        self,
+        principal: Principal,
+        query: str,
+        *,
+        limit: int = 20,
+    ) -> ThreadSearchPage:
+        pattern = _literal_ilike_pattern(query)
+        title_matches = ThreadModel.title.ilike(pattern, escape="\\")
+        matching_entry = (
+            select(
+                ThreadEntryModel.id.label("entry_id"),
+                EntryTextContentModel.content.label("content"),
+            )
+            .join(
+                EntryTextContentModel,
+                EntryTextContentModel.entry_id == ThreadEntryModel.id,
+            )
+            .where(
+                ThreadEntryModel.thread_id == ThreadModel.id,
+                EntryTextContentModel.content.ilike(pattern, escape="\\"),
+            )
+            .order_by(ThreadEntryModel.ordinal.desc())
+            .limit(1)
+            .lateral("matching_entry")
+        )
+        statement = (
+            select(
+                ThreadModel,
+                matching_entry.c.entry_id,
+                matching_entry.c.content,
+            )
+            .join(SpaceModel, SpaceModel.id == ThreadModel.space_id)
+            .outerjoin(matching_entry, true())
+            .where(
+                self._space_accessible_by(principal),
+                ThreadModel.status == "active",
+                or_(title_matches, matching_entry.c.entry_id.is_not(None)),
+            )
+            .order_by(
+                case((title_matches, 0), else_=1),
+                ThreadModel.last_activity_at.desc(),
+                ThreadModel.id,
+            )
+            .limit(limit + 1)
+        )
+        rows = (await self._session.execute(statement)).all()
+        has_more = len(rows) > limit
+        hits = []
+        for thread, entry_id, content in rows[:limit]:
+            source = (
+                ThreadSearchSource.ENTRY
+                if entry_id is not None
+                else ThreadSearchSource.TITLE
+            )
+            hits.append(
+                ThreadSearchHit(
+                    thread=self._to_summary(thread),
+                    source=source,
+                    entry_id=entry_id,
+                    snippet=_search_excerpt(content or thread.title, query),
+                )
+            )
+        return ThreadSearchPage(items=tuple(hits), has_more=has_more)
 
     async def get(self, principal: Principal, thread_id: UUID) -> Thread:
         statement = (
@@ -1066,3 +1134,22 @@ class SqlAlchemyThreadRepository:
 def _title_from(content: str) -> str:
     compact = " ".join(content.split())
     return compact if len(compact) <= 36 else f"{compact[:35]}…"
+
+
+def _literal_ilike_pattern(value: str) -> str:
+    escaped = value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
+
+
+def _search_excerpt(content: str, query: str, *, max_length: int = 160) -> str:
+    compact = " ".join(content.split())
+    if len(compact) <= max_length:
+        return compact
+
+    compact_query = " ".join(query.split())
+    match_index = compact.casefold().find(compact_query.casefold())
+    if match_index < 0:
+        match_index = 0
+    start = max(0, min(match_index - max_length // 3, len(compact) - max_length))
+    end = start + max_length
+    return f"{'…' if start else ''}{compact[start:end]}{'…' if end < len(compact) else ''}"

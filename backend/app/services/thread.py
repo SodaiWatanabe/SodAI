@@ -22,7 +22,7 @@ from app.domain.answerers import (
 )
 from app.domain.principals import Principal, PrincipalKind
 from app.domain.responses import Execution, ResponseCreation, ResponseRequest
-from app.domain.threads import SpaceSummary, Thread, ThreadSummary
+from app.domain.threads import SpaceSummary, Thread, ThreadSearchPage, ThreadSummary
 from app.repositories.threads import (
     GenerationCapacityExceededError,
     SqlAlchemyThreadRepository,
@@ -238,6 +238,23 @@ class ThreadService:
     async def list(self, principal: Principal) -> list[ThreadSummary]:
         async with self._session_factory() as session:
             return await SqlAlchemyThreadRepository(session).list(principal)
+
+    async def search(
+        self,
+        principal: Principal,
+        query: str,
+        *,
+        limit: int,
+    ) -> ThreadSearchPage:
+        normalized = query.strip()
+        if not normalized:
+            raise ValueError("Search query cannot be blank")
+        async with self._session_factory() as session:
+            return await SqlAlchemyThreadRepository(session).search(
+                principal,
+                normalized,
+                limit=limit,
+            )
 
     async def get(self, principal: Principal, thread_id: UUID) -> Thread:
         async with self._session_factory() as session:
