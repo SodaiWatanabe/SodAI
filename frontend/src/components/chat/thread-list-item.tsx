@@ -4,6 +4,7 @@ import { Archive, Ellipsis, Pencil } from "lucide-react";
 import { type KeyboardEvent, useEffect, useRef, useState } from "react";
 
 import { useChatData } from "@/components/chat/chat-data-provider";
+import { shouldCommitThreadRename } from "@/components/chat/thread-rename-keydown";
 import {
   Popover,
   PopoverContent,
@@ -96,7 +97,13 @@ export function ThreadListItem({
   }
 
   function handleRenameKeyDown(event: KeyboardEvent<HTMLInputElement>) {
-    if (event.key === "Enter") {
+    if (
+      shouldCommitThreadRename({
+        isComposing: event.nativeEvent.isComposing,
+        key: event.key,
+        keyCode: event.nativeEvent.keyCode,
+      })
+    ) {
       event.preventDefault();
       event.currentTarget.blur();
       return;
