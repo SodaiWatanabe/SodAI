@@ -34,6 +34,7 @@ export function ThreadSearchDialog({
   const dialogRef = useRef<HTMLDialogElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const titleId = useId();
+  const inputId = useId();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<ThreadSearchHit[]>([]);
   const [hasMore, setHasMore] = useState(false);
@@ -78,6 +79,16 @@ export function ThreadSearchDialog({
     };
   }, [normalizedQuery, searchThreads]);
 
+  function updateQuery(nextQuery: string) {
+    const nextNormalizedQuery = nextQuery.trim();
+    setQuery(nextQuery);
+    if (nextNormalizedQuery === normalizedQuery) return;
+    setResults([]);
+    setHasMore(false);
+    setLoading(Boolean(nextNormalizedQuery));
+    setError(false);
+  }
+
   function closeDialog() {
     dialogRef.current?.close();
   }
@@ -86,7 +97,7 @@ export function ThreadSearchDialog({
     <dialog
       ref={dialogRef}
       aria-labelledby={titleId}
-      className="thread-search-dialog m-auto min-h-[min(320px,calc(100dvh-1rem))] max-h-[min(680px,calc(100dvh-1rem))] w-[calc(100%-1rem)] max-w-[620px] flex-col overflow-hidden rounded-[28px] border border-[var(--divider)] bg-[var(--surface)] p-0 text-[var(--text)] shadow-[0_28px_80px_var(--dialog-shadow)] outline-none open:flex sm:w-[calc(100%-2rem)]"
+      className="thread-search-dialog m-auto h-[calc(100dvh-1rem)] w-[calc(100%-1rem)] max-w-[620px] flex-col overflow-hidden rounded-[28px] border border-[var(--divider)] bg-[var(--surface)] p-0 text-[var(--text)] shadow-[0_28px_80px_var(--dialog-shadow)] outline-none open:flex sm:h-[min(520px,calc(100dvh-2rem))] sm:w-[calc(100%-2rem)]"
       onCancel={(event) => {
         event.preventDefault();
         closeDialog();
@@ -100,7 +111,7 @@ export function ThreadSearchDialog({
         <div className="pr-10">
           <h2
             id={titleId}
-            className="text-lg font-semibold tracking-[-0.025em]"
+            className="text-[15px] font-semibold tracking-[-0.015em]"
           >
             会話を検索
           </h2>
@@ -114,30 +125,40 @@ export function ThreadSearchDialog({
           <X aria-hidden="true" className="size-[18px]" />
         </button>
 
-        <label className="group mt-4 flex h-11 items-center gap-2.5 rounded-2xl border border-[var(--field-border)] bg-[var(--field)] px-3.5">
+        <div className="group mt-4 flex h-11 items-center gap-2.5 rounded-2xl border border-[var(--field-border)] bg-[var(--field)] px-3.5">
           <Search aria-hidden="true" className="size-[18px] shrink-0 text-[var(--muted)] transition-colors group-focus-within:text-[var(--text)]" />
-          <span className="sr-only">検索語</span>
+          <label htmlFor={inputId} className="sr-only">
+            検索語
+          </label>
           <input
             ref={inputRef}
-            type="search"
+            id={inputId}
+            type="text"
+            role="searchbox"
+            inputMode="search"
+            enterKeyHint="search"
             autoFocus
             value={query}
             maxLength={100}
             autoComplete="off"
             placeholder="キーワードを入力"
             className="min-w-0 flex-1 bg-transparent text-[15px] text-[var(--text)] outline-none placeholder:text-[var(--muted)]"
-            onChange={(event) => {
-              const nextQuery = event.target.value;
-              setQuery(nextQuery);
-              if (nextQuery.trim() !== normalizedQuery) {
-                setResults([]);
-                setHasMore(false);
-                setLoading(Boolean(nextQuery.trim()));
-                setError(false);
-              }
-            }}
+            onChange={(event) => updateQuery(event.target.value)}
           />
-        </label>
+          {query ? (
+            <button
+              type="button"
+              aria-label="検索語を消去"
+              className="grid size-7 shrink-0 place-items-center rounded-full text-[var(--muted)] transition-colors hover:bg-[var(--hover)] hover:text-[var(--text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)]"
+              onClick={() => {
+                updateQuery("");
+                inputRef.current?.focus();
+              }}
+            >
+              <X aria-hidden="true" className="size-4" />
+            </button>
+          ) : null}
+        </div>
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2">

@@ -47,6 +47,20 @@ function isResponding(thread?: Thread) {
   return status === "queued" || status === "running";
 }
 
+function ResponseAmbient({ active }: { active: boolean }) {
+  return (
+    <div
+      aria-hidden="true"
+      data-active={active ? "true" : "false"}
+      className="response-ambient"
+    >
+      <span className="response-glow response-glow-one" />
+      <span className="response-glow response-glow-two" />
+      <span className="response-glow response-glow-three" />
+    </div>
+  );
+}
+
 export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
   const { createResponse, getThread } = useChatApi();
   const searchNavigationTarget = useThreadSearchNavigationTarget();
@@ -317,49 +331,53 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
         onAnswererChange={setAnswerer}
       />
 
-      <ThreadViewport
-        contentRef={contentRef}
-        thread={thread}
-        loading={loading}
-        responding={responding}
-        targetEntryId={targetEntryId}
-        targetSearchQuery={targetSearchQuery}
-      />
+      <div className="relative isolate flex flex-1 flex-col">
+        <ResponseAmbient active={responding} />
 
-      <div
-        ref={footerRef}
-        className="thread-composer sticky bottom-0 z-20 shrink-0 px-5 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-8"
-      >
-        <button
-          type="button"
-          aria-label="会話の最下部へ移動"
-          aria-hidden={!showScrollToBottom}
-          tabIndex={showScrollToBottom ? 0 : -1}
-          className={`absolute -top-12 left-1/2 z-20 grid size-9 -translate-x-1/2 place-items-center rounded-full border border-[var(--divider)] bg-[var(--surface-translucent)] text-[var(--muted)] shadow-[0_8px_24px_var(--popover-shadow)] backdrop-blur-xl transition-[opacity,translate,background-color,color] hover:bg-[var(--hover)] hover:text-[var(--text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)] ${
-            showScrollToBottom
-              ? "translate-y-0 opacity-100"
-              : "pointer-events-none translate-y-1 opacity-0"
-          }`}
-          onClick={scrollToBottom}
-        >
-          <ArrowDown aria-hidden="true" className="size-4" strokeWidth={2} />
-        </button>
-        <MessageComposer
-          autoFocus
-          className="relative z-10 mx-auto max-w-[760px]"
-          disabled={!message.trim() || !answerer || responding}
-          inputId="thread-message"
-          inputLabel="対話を続ける"
-          onChange={setMessage}
-          onSubmit={submit}
-          placeholder="対話を続ける"
-          sendShortcut={shortcuts.messageSend}
-          textareaRef={inputRef}
-          value={message}
+        <ThreadViewport
+          contentRef={contentRef}
+          thread={thread}
+          loading={loading}
+          responding={responding}
+          targetEntryId={targetEntryId}
+          targetSearchQuery={targetSearchQuery}
         />
-        <p className="relative z-10 mx-auto mt-2 max-w-[760px] text-center text-xs text-[var(--muted)]">
-          SodAIは息をするように嘘をつきます。安易に信用しないでください。
-        </p>
+
+        <div
+          ref={footerRef}
+          className="thread-composer sticky bottom-0 z-20 shrink-0 px-5 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-8"
+        >
+          <button
+            type="button"
+            aria-label="会話の最下部へ移動"
+            aria-hidden={!showScrollToBottom}
+            tabIndex={showScrollToBottom ? 0 : -1}
+            className={`absolute -top-12 left-1/2 z-20 grid size-9 -translate-x-1/2 place-items-center rounded-full border border-[var(--divider)] bg-[var(--surface-translucent)] text-[var(--muted)] shadow-[0_8px_24px_var(--popover-shadow)] backdrop-blur-xl transition-[opacity,translate,background-color,color] hover:bg-[var(--hover)] hover:text-[var(--text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)] ${
+              showScrollToBottom
+                ? "translate-y-0 opacity-100"
+                : "pointer-events-none translate-y-1 opacity-0"
+            }`}
+            onClick={scrollToBottom}
+          >
+            <ArrowDown aria-hidden="true" className="size-4" strokeWidth={2} />
+          </button>
+          <MessageComposer
+            autoFocus
+            className="relative z-10 mx-auto max-w-[760px]"
+            disabled={!message.trim() || !answerer || responding}
+            inputId="thread-message"
+            inputLabel="対話を続ける"
+            onChange={setMessage}
+            onSubmit={submit}
+            placeholder="対話を続ける"
+            sendShortcut={shortcuts.messageSend}
+            textareaRef={inputRef}
+            value={message}
+          />
+          <p className="relative z-10 mx-auto mt-2 max-w-[760px] text-center text-xs text-[var(--muted)]">
+            SodAIは息をするように嘘をつきます。安易に信用しないでください。
+          </p>
+        </div>
       </div>
     </div>
   );

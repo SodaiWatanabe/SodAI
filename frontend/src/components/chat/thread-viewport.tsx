@@ -198,15 +198,6 @@ export function ThreadViewport({
       aria-busy={loading || responding}
       className="relative isolate flex flex-1 flex-col"
     >
-      <div
-        aria-hidden="true"
-        data-active={responding ? "true" : "false"}
-        className="response-ambient"
-      >
-        <span className="response-glow response-glow-one" />
-        <span className="response-glow response-glow-two" />
-        <span className="response-glow response-glow-three" />
-      </div>
       {responding ? (
         <span role="status" className="sr-only">
           SodAIが応答しています
