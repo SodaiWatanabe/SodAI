@@ -8,7 +8,11 @@ import {
   SquarePen,
   X,
 } from "lucide-react";
-import { useRouter, useSelectedLayoutSegments } from "next/navigation";
+import {
+  usePathname,
+  useRouter,
+  useSelectedLayoutSegments,
+} from "next/navigation";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 
 import { AuthDialog } from "@/components/auth/auth-dialog";
@@ -47,6 +51,7 @@ type SidebarProps = {
   activeThreadId?: string;
   compact: boolean;
   contentVisible: boolean;
+  newChatActive: boolean;
   threads: ThreadSummary[];
   guestActionsVisible: boolean;
   onClose: () => void;
@@ -65,6 +70,7 @@ function Sidebar({
   activeThreadId,
   compact,
   contentVisible,
+  newChatActive,
   threads,
   guestActionsVisible,
   onClose,
@@ -120,7 +126,10 @@ function Sidebar({
         <button
           type="button"
           title="新しい会話"
-          className="flex h-9 w-full shrink-0 items-center rounded-xl text-left text-sm font-medium text-[var(--text)] transition-colors hover:bg-[var(--hover)]"
+          aria-current={newChatActive ? "page" : undefined}
+          className={`flex h-9 w-full shrink-0 items-center rounded-xl text-left text-sm font-medium text-[var(--text)] transition-colors hover:bg-[var(--hover)] ${
+            newChatActive ? "bg-[var(--hover)]" : ""
+          }`}
           onClick={() => onSelectThread("")}
         >
           <span className="grid shrink-0 place-items-center px-2.5">
@@ -218,6 +227,7 @@ export function ChatFrame({
   initialUser,
 }: ChatFrameProps) {
   authClient.useSession();
+  const pathname = usePathname();
   const router = useRouter();
   const childSegments = useSelectedLayoutSegments();
   const { invalidate: invalidateAccessToken } = useApiAccessToken();
@@ -453,6 +463,7 @@ export function ChatFrame({
       activeThreadId={activeThreadId}
       compact={compact}
       contentVisible={contentVisible}
+      newChatActive={pathname === "/"}
       threads={threads}
       guestActionsVisible={guestActionsVisible}
       onClose={onClose}
