@@ -188,10 +188,12 @@ export function ThreadViewport({
           entry.content.trim().length > 0,
       )
     : entries;
+  const searchingForHuman =
+    humanResponse && thread?.latest_response?.status !== "running";
   const responseStatusText = humanResponse
-    ? thread?.latest_response?.status === "running"
-      ? "Humanが回答しています…"
-      : "Humanを探しています…"
+    ? searchingForHuman
+      ? "利用可能な脳を探しています"
+      : "思考中"
     : "SodAIが応答しています";
 
   return (
@@ -223,10 +225,12 @@ export function ThreadViewport({
             {waitingForFirstToken ? (
               <article
                 aria-hidden="true"
-                className="flex h-7 items-center justify-start text-sm text-[var(--muted)]"
+                className="flex h-7 items-center justify-start text-[15px] leading-7 text-[var(--muted)]"
               >
                 {humanResponse ? (
-                  <span>{responseStatusText}</span>
+                  <span className="human-search-status">
+                    {responseStatusText}
+                  </span>
                 ) : (
                   <span className="response-waiting-dot" />
                 )}
