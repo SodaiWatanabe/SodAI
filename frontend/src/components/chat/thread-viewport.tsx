@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  type Ref,
   type RefObject,
   useLayoutEffect,
   useRef,
@@ -19,6 +20,9 @@ type ThreadViewportProps = {
   loading: boolean;
   responding: boolean;
   humanResponse?: boolean;
+  turnAnchorEntryId?: string;
+  turnAnchorRef: Ref<HTMLElement>;
+  turnSpacerRef: Ref<HTMLDivElement>;
   targetEntryId?: string;
   targetSearchQuery?: string;
 };
@@ -100,16 +104,19 @@ function StreamedText({ content }: { content: string }) {
 
 function ThreadMessage({
   entry,
+  entryRef,
   searchQuery,
   searchAnchor,
 }: {
   entry: DisplayEntry;
+  entryRef?: Ref<HTMLElement>;
   searchQuery?: string;
   searchAnchor: boolean;
 }) {
   const layout = getConversationMessageLayout(entry.author.kind, "prompter");
   return (
     <ConversationMessage
+      articleRef={entryRef}
       id={`thread-entry-${entry.id}`}
       searchAnchor={searchAnchor}
       {...layout}
@@ -171,6 +178,9 @@ export function ThreadViewport({
   loading,
   responding,
   humanResponse = false,
+  turnAnchorEntryId,
+  turnAnchorRef,
+  turnSpacerRef,
   targetEntryId,
   targetSearchQuery,
 }: ThreadViewportProps) {
@@ -218,6 +228,9 @@ export function ThreadViewport({
               <ThreadMessage
                 key={entry.id}
                 entry={entry}
+                entryRef={
+                  entry.id === turnAnchorEntryId ? turnAnchorRef : undefined
+                }
                 searchQuery={targetSearchQuery}
                 searchAnchor={entry.id === targetEntryId}
               />
@@ -237,6 +250,14 @@ export function ThreadViewport({
               </article>
             ) : null}
           </div>
+          {turnAnchorEntryId &&
+          visibleEntries.some((entry) => entry.id === turnAnchorEntryId) ? (
+            <div
+              ref={turnSpacerRef}
+              aria-hidden="true"
+              className="h-0 shrink-0"
+            />
+          ) : null}
         </div>
       ) : null}
 

@@ -1,14 +1,16 @@
-import type { ReactNode } from "react";
+import type { ReactNode, Ref } from "react";
 
 import type { ConversationMessageLayout } from "@/components/conversation/conversation-layout";
 
 type ConversationMessageProps = ConversationMessageLayout & {
+  articleRef?: Ref<HTMLElement>;
   children: ReactNode;
   id?: string;
   searchAnchor?: boolean;
 };
 
 export function ConversationMessage({
+  articleRef,
   children,
   id,
   searchAnchor = false,
@@ -17,6 +19,7 @@ export function ConversationMessage({
 }: ConversationMessageProps) {
   return (
     <article
+      ref={articleRef}
       id={id}
       tabIndex={searchAnchor ? -1 : undefined}
       className={`${side === "right" ? "justify-end" : "justify-start"} flex scroll-mt-24 outline-none`}

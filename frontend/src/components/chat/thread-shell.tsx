@@ -5,6 +5,7 @@ import {
   type FormEvent,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
 } from "react";
@@ -33,6 +34,11 @@ import { INSUFFICIENT_CREDITS_MESSAGE } from "@/lib/credits/error";
 type ThreadShellProps = {
   threadId: string;
   targetEntryId?: string;
+};
+
+type TurnAnchor = {
+  entryId: string;
+  threadId: string;
 };
 
 function mergeEntries(current: ThreadEntry[], incoming: ThreadEntry[]) {
@@ -78,8 +84,11 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
   const refreshGenerationRef = useRef(0);
   const pendingExecutionSyncRef = useRef<string | undefined>(undefined);
   const executionSyncDirtyRef = useRef(false);
+  const targetEntryIdRef = useRef(targetEntryId);
   const scrolledTargetRef = useRef<string | undefined>(undefined);
+  const positionedTurnRef = useRef<string | undefined>(undefined);
   const [thread, setThreadState] = useState<Thread>();
+  const [turnAnchor, setTurnAnchor] = useState<TurnAnchor>();
   const [answerer, setAnswerer] = useState<AvailableAnswerer["id"]>();
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
@@ -103,16 +112,23 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
       ? searchNavigationTarget
       : undefined;
   const targetSearchQuery = activeSearchTarget?.query;
+  const turnAnchorEntryId =
+    turnAnchor?.threadId === threadId ? turnAnchor.entryId : undefined;
   const {
-    cancelAnimatedScroll,
+    anchorTurn,
     containerRef,
     contentRef,
     footerRef,
     handleScroll,
+    handleScrollKeyDown,
+    handleScrollPointerDown,
+    handleUserScrollIntent,
     pinToBottom,
     scrollToEntry,
     scrollToBottom,
     showScrollToBottom,
+    turnAnchorRef,
+    turnSpacerRef,
   } = useThreadAutoScroll({ ready: Boolean(thread), resetKey: threadId });
 
   const updateThread = useCallback(
@@ -125,6 +141,10 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
   );
 
   const loadThread = useCallback(() => getThread(threadId), [getThread, threadId]);
+
+  useEffect(() => {
+    targetEntryIdRef.current = targetEntryId;
+  }, [targetEntryId]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -144,6 +164,21 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
       try {
         const current = await loadThread();
         if (cancelled || generation !== refreshGenerationRef.current) return;
+        setTurnAnchor((currentAnchor) => {
+          if (targetEntryIdRef.current) return undefined;
+          const activeEntryId = isResponding(current)
+            ? current.latest_response?.input_entry_id
+            : undefined;
+          if (
+            activeEntryId &&
+            (currentAnchor?.threadId !== threadId ||
+              currentAnchor.entryId !== activeEntryId)
+          ) {
+            return { entryId: activeEntryId, threadId };
+          }
+          if (currentAnchor?.threadId === threadId) return currentAnchor;
+          return undefined;
+        });
         updateThread((previous) =>
           previous?.id === current.id && previous.revision > current.revision
             ? previous
@@ -247,6 +282,18 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
     updateThread,
   ]);
 
+  useLayoutEffect(() => {
+    if (
+      !turnAnchorEntryId ||
+      !thread?.entries.some((entry) => entry.id === turnAnchorEntryId)
+    ) {
+      return;
+    }
+    const turnKey = `${threadId}:${turnAnchorEntryId}`;
+    if (positionedTurnRef.current === turnKey) return;
+    if (anchorTurn()) positionedTurnRef.current = turnKey;
+  }, [anchorTurn, thread, threadId, turnAnchorEntryId]);
+
   useEffect(() => {
     if (!targetEntryId) {
       scrolledTargetRef.current = undefined;
@@ -265,6 +312,8 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
       const highlightedMatch = element.querySelector<HTMLElement>(
         "[data-search-highlight-target]",
       );
+      setTurnAnchor(undefined);
+      positionedTurnRef.current = undefined;
       scrollToEntry(element, highlightedMatch ?? element);
     });
     return () => cancelAnimationFrame(frame);
@@ -282,6 +331,8 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
     event.preventDefault();
     const input = message.trim();
     if (!input || !answerer || responding) return;
+    setTurnAnchor(undefined);
+    positionedTurnRef.current = undefined;
     pinToBottom();
     setMessage("");
     setSubmitting(true);
@@ -305,6 +356,10 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
           };
         }
         return { ...created.thread, entries, latest_response: created.response };
+      });
+      setTurnAnchor({
+        entryId: created.response.input_entry_id,
+        threadId,
       });
       setSubmitting(false);
       patchThread(threadId, {
@@ -331,9 +386,11 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
     <div
       ref={containerRef}
       className="flex min-h-0 flex-1 flex-col overflow-y-auto"
+      onKeyDown={handleScrollKeyDown}
+      onPointerDown={handleScrollPointerDown}
       onScroll={handleScroll}
-      onTouchMove={cancelAnimatedScroll}
-      onWheel={cancelAnimatedScroll}
+      onTouchMove={handleUserScrollIntent}
+      onWheel={handleUserScrollIntent}
     >
       <ChatHeader
         answerer={answerer}
@@ -350,6 +407,9 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
           loading={loading}
           responding={responding}
           humanResponse={respondingAnswerer?.kind === "human"}
+          turnAnchorEntryId={turnAnchorEntryId}
+          turnAnchorRef={turnAnchorRef}
+          turnSpacerRef={turnSpacerRef}
           targetEntryId={targetEntryId}
           targetSearchQuery={targetSearchQuery}
         />
