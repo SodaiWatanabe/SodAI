@@ -23,6 +23,7 @@ export type ThreadEntry = {
   content: string;
   ordinal: number;
   created_at: string;
+  answerer: string | null;
 };
 
 export type Execution = {

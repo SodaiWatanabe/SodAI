@@ -164,6 +164,7 @@ async def test_generation_projection_creates_one_immutable_result_entry() -> Non
             "こんにちは。雛です。",
         ]
         assert thread.entries[-1].author.key == "model:hina"
+        assert thread.entries[-1].answerer is AnswererId.HINA
         assert thread.latest_response is not None
         assert thread.latest_response.status.value == "completed"
         assert thread.latest_response.execution.result_entry_id == thread.entries[-1].id

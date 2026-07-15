@@ -9,10 +9,16 @@ import {
 } from "react";
 
 import { SearchHighlight } from "@/components/chat/search-highlight";
+import { MessageActions } from "@/components/chat/message-actions";
+import { resolveMessageBrain } from "@/components/chat/message-brain";
 import { getConversationMessageLayout } from "@/components/conversation/conversation-layout";
 import { ConversationMessage } from "@/components/conversation/conversation-message";
 import { IOSSpinner } from "@/components/ui/ios-spinner";
-import type { Thread, ThreadEntry } from "@/lib/chat/types";
+import type {
+  AvailableAnswerer,
+  Thread,
+  ThreadEntry,
+} from "@/lib/chat/types";
 
 type ThreadViewportProps = {
   contentRef: RefObject<HTMLDivElement | null>;
@@ -25,6 +31,7 @@ type ThreadViewportProps = {
   turnSpacerRef: Ref<HTMLDivElement>;
   targetEntryId?: string;
   targetSearchQuery?: string;
+  answerers: AvailableAnswerer[];
 };
 
 type StreamSegment = {
@@ -103,12 +110,14 @@ function StreamedText({ content }: { content: string }) {
 }
 
 function ThreadMessage({
+  answerers,
   entry,
   entryRef,
   searchQuery,
   searchAnchor,
   turnAnchor,
 }: {
+  answerers: AvailableAnswerer[];
   entry: DisplayEntry;
   entryRef?: Ref<HTMLElement>;
   searchQuery?: string;
@@ -116,6 +125,10 @@ function ThreadMessage({
   turnAnchor: boolean;
 }) {
   const layout = getConversationMessageLayout(entry.author.kind, "prompter");
+  const showActions =
+    layout.surface === "generated" &&
+    entry.responseStatus === "completed" &&
+    entry.content.length > 0;
   return (
     <ConversationMessage
       articleRef={entryRef}
@@ -141,6 +154,12 @@ function ThreadMessage({
           応答を完了できませんでした。
         </span>
       ) : null}
+      {showActions ? (
+        <MessageActions
+          brain={resolveMessageBrain(entry, answerers)}
+          content={entry.content}
+        />
+      ) : null}
     </ConversationMessage>
   );
 }
@@ -165,6 +184,7 @@ function displayEntries(thread: Thread): DisplayEntry[] {
     content: response.execution.partial_output,
     ordinal: latestOrdinal + 1,
     created_at: response.created_at,
+    answerer: response.requested_answerer,
     responseStatus:
       response.status === "failed"
         ? "failed"
@@ -176,6 +196,7 @@ function displayEntries(thread: Thread): DisplayEntry[] {
 }
 
 export function ThreadViewport({
+  answerers,
   contentRef,
   thread,
   loading,
@@ -232,6 +253,7 @@ export function ThreadViewport({
             {visibleEntries.map((entry) => (
               <ThreadMessage
                 key={entry.id}
+                answerers={answerers}
                 entry={entry}
                 entryRef={
                   entry.id === turnAnchorEntryId ? turnAnchorRef : undefined

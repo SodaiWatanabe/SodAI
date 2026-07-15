@@ -80,6 +80,7 @@ class Entry:
     content: str
     ordinal: int
     created_at: datetime
+    answerer: AnswererId | None = None
 
 
 @dataclass(frozen=True, slots=True)

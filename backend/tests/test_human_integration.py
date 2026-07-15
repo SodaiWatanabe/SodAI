@@ -340,6 +340,7 @@ async def test_human_matching_uses_oldest_compatible_task_and_returns_answer() -
             "Human Liteからの回答です。",
         ]
         assert thread.entries[-1].author.key == "model:human-lite"
+        assert thread.entries[-1].answerer is AnswererId.HUMAN_LITE
         assert thread.latest_response is not None
         assert thread.latest_response.status.value == "completed"
         assert human_task is not None

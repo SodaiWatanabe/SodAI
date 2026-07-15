@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -34,6 +35,7 @@ INPUT_ENTRY_ID = UUID("018f96d4-7c48-7c27-a71f-591e3cb8748d")
 REQUEST_ID = UUID("018f96d4-7c48-7c27-a71f-591e3cb8748e")
 EXECUTION_ID = UUID("018f96d4-7c48-7c27-a71f-591e3cb8748f")
 PARTNER_ACTOR_ID = UUID("018f96d4-7c48-7c27-a71f-591e3cb87490")
+RESULT_ENTRY_ID = UUID("018f96d4-7c48-7c27-a71f-591e3cb87492")
 HINA_ACTOR_ID = UUID("00000000-0000-4000-8000-000000000001")
 NOW = datetime(2026, 7, 13, 8, 0, tzinfo=timezone.utc)
 
@@ -92,6 +94,37 @@ def creation_fixture() -> ResponseCreation:
     return ResponseCreation(thread=thread, response=response)
 
 
+def completed_thread_fixture() -> Thread:
+    creation = creation_fixture()
+    execution = replace(
+        creation.response.execution,
+        result_entry_id=RESULT_ENTRY_ID,
+        status=ResponseStatus.COMPLETED,
+        partial_output="回答です。",
+        resolved_model="hina@api-test",
+    )
+    response = replace(
+        creation.response,
+        status=ResponseStatus.COMPLETED,
+        execution=execution,
+    )
+    result_entry = Entry(
+        id=RESULT_ENTRY_ID,
+        thread_id=THREAD_ID,
+        author=response.target_actor,
+        kind=EntryKind.MESSAGE,
+        content="回答です。",
+        ordinal=1,
+        created_at=NOW,
+        answerer=AnswererId.HINA,
+    )
+    return replace(
+        creation.thread,
+        entries=(*creation.thread.entries, result_entry),
+        latest_response=response,
+    )
+
+
 class StubThreadService:
     def __init__(self, *, busy: bool = False, insufficient: bool = False) -> None:
         self.busy = busy
@@ -146,6 +179,11 @@ class StubThreadService:
                 last_activity_at=thread.last_activity_at,
             )
         ]
+
+    async def get(self, principal: Principal, thread_id: UUID) -> Thread:
+        assert principal == PRINCIPAL
+        assert thread_id == THREAD_ID
+        return completed_thread_fixture()
 
     async def search(
         self,
@@ -208,10 +246,27 @@ async def test_create_thread_exposes_actor_authorship_without_speaker_enum() -> 
     assert response.status_code == 201
     payload = response.json()
     assert payload["thread"]["entries"][0]["author"]["kind"] == "human"
+    assert payload["thread"]["entries"][0]["answerer"] is None
+    assert "resolved_model" not in payload["thread"]["entries"][0]
     assert "key" not in payload["thread"]["entries"][0]["author"]
     assert "speaker" not in payload["thread"]["entries"][0]
     assert payload["response"]["execution"]["status"] == "queued"
     assert service.received == (PRINCIPAL, "こんにちは", AnswererId.HINA)
+
+
+@pytest.mark.anyio
+async def test_read_thread_exposes_result_answerer_without_internal_model() -> None:
+    service = StubThreadService()
+    app.dependency_overrides[get_principal] = lambda: PRINCIPAL
+    app.dependency_overrides[get_thread_service] = lambda: service
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get(f"/api/v1/threads/{THREAD_ID}")
+
+    assert response.status_code == 200
+    result_entry = response.json()["entries"][-1]
+    assert result_entry["answerer"] == "hina"
+    assert "resolved_model" not in result_entry
 
 
 @pytest.mark.anyio

@@ -536,6 +536,7 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
         <ResponseAmbient active={responding} />
 
         <ThreadViewport
+          answerers={answerers}
           contentRef={contentRef}
           thread={thread}
           loading={loading}

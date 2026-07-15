@@ -1088,6 +1088,14 @@ class SqlAlchemyThreadRepository:
     @classmethod
     def _to_thread(cls, model: ThreadModel) -> Thread:
         entry_ordinals = {entry.id: entry.ordinal for entry in model.entries}
+        entry_answerers: dict[UUID, AnswererId] = {}
+        for request in model.response_requests:
+            for execution in request.executions:
+                if execution.result_entry_id is None:
+                    continue
+                entry_answerers[execution.result_entry_id] = AnswererId(
+                    request.requested_answerer
+                )
         latest = max(
             model.response_requests,
             key=lambda item: entry_ordinals.get(item.input_entry_id, -1),
@@ -1099,7 +1107,10 @@ class SqlAlchemyThreadRepository:
             title=model.title,
             answerer=AnswererId(model.default_answerer),
             revision=model.revision,
-            entries=tuple(cls._to_entry(entry) for entry in model.entries),
+            entries=tuple(
+                cls._to_entry(entry, entry_answerers.get(entry.id))
+                for entry in model.entries
+            ),
             latest_response=cls._to_response(latest) if latest is not None else None,
             created_at=model.created_at,
             updated_at=model.updated_at,
@@ -1107,7 +1118,10 @@ class SqlAlchemyThreadRepository:
         )
 
     @staticmethod
-    def _to_entry(model: ThreadEntryModel) -> Entry:
+    def _to_entry(
+        model: ThreadEntryModel,
+        answerer: AnswererId | None = None,
+    ) -> Entry:
         return Entry(
             id=model.id,
             thread_id=model.thread_id,
@@ -1121,6 +1135,7 @@ class SqlAlchemyThreadRepository:
             content=model.text.content,
             ordinal=model.ordinal,
             created_at=model.created_at,
+            answerer=answerer,
         )
 
     @classmethod

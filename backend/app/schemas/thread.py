@@ -61,6 +61,7 @@ class EntryResponse(BaseModel):
     content: str
     ordinal: int
     created_at: datetime
+    answerer: AnswererId | None = None
 
 
 class ExecutionResponse(BaseModel):
