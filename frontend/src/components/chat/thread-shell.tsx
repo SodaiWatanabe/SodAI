@@ -13,6 +13,11 @@ import {
 import { useChatData } from "@/components/chat/chat-data-provider";
 import { ChatHeader } from "@/components/chat/chat-header";
 import { settleComposerFocus } from "@/components/chat/composer-focus";
+import {
+  createHumanResponseDeliveryDelta,
+  createHumanResponseDeliveryPlan,
+  isLiveHumanResponseCompletion,
+} from "@/components/chat/human-response-delivery";
 import { HUMAN_PRIVACY_NOTICE } from "@/components/chat/human-privacy-card";
 import { MessageComposer } from "@/components/chat/message-composer";
 import { reduceThreadRealtime } from "@/components/chat/thread-realtime";
@@ -156,6 +161,14 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
 
   useEffect(() => {
     let cancelled = false;
+    let humanDeliveryTimer: ReturnType<typeof setTimeout> | undefined;
+    let humanDeliveryGeneration = 0;
+    let pendingHumanCompletion: RealtimeEvent | undefined;
+    const humanAnswererIds = new Set(
+      answerers
+        .filter((option) => option.kind === "human")
+        .map((option) => option.id),
+    );
 
     async function syncThread(showLoading: boolean) {
       if (cancelled) return;
@@ -164,6 +177,12 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
       try {
         const current = await loadThread();
         if (cancelled || generation !== refreshGenerationRef.current) return;
+        if (
+          pendingHumanCompletion?.execution_id ===
+          current.latest_response?.execution.id
+        ) {
+          return;
+        }
         setTurnAnchor((currentAnchor) => {
           if (targetEntryIdRef.current) return undefined;
           const activeEntryId = isResponding(current)
@@ -232,12 +251,102 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
       });
     }
 
+    function applyResponseEvent(event: RealtimeEvent, sync = true) {
+      const decision = reduceThreadRealtime(threadRef.current, event);
+      if (!decision.handled) return;
+      if (decision.next !== threadRef.current) {
+        updateThread(() => decision.next);
+      }
+      if (decision.shouldSync && sync) syncExecutionOnce(event.execution_id);
+    }
+
+    function preserveCurrentThreadRevision(event: RealtimeEvent) {
+      const currentRevision = threadRef.current?.revision;
+      if (currentRevision === undefined || currentRevision <= event.thread_revision) {
+        return event;
+      }
+      return { ...event, thread_revision: currentRevision };
+    }
+
+    function cancelHumanDelivery() {
+      humanDeliveryGeneration += 1;
+      if (humanDeliveryTimer) clearTimeout(humanDeliveryTimer);
+      humanDeliveryTimer = undefined;
+      pendingHumanCompletion = undefined;
+    }
+
+    function finishHumanDelivery() {
+      const completed = pendingHumanCompletion;
+      if (!completed) return;
+      pendingHumanCompletion = undefined;
+      humanDeliveryTimer = undefined;
+      applyResponseEvent(preserveCurrentThreadRevision(completed));
+    }
+
+    function flushHumanDelivery(sync = true) {
+      const completed = pendingHumanCompletion;
+      if (!completed) return false;
+      cancelHumanDelivery();
+      applyResponseEvent(preserveCurrentThreadRevision(completed), sync);
+      return true;
+    }
+
+    function startHumanDelivery(event: RealtimeEvent) {
+      const content = event.data.content;
+      if (!content) {
+        applyResponseEvent(event);
+        return;
+      }
+      const plan = createHumanResponseDeliveryPlan(content);
+      if (plan.frames.length < 2) {
+        applyResponseEvent(event);
+        return;
+      }
+
+      cancelHumanDelivery();
+      const generation = humanDeliveryGeneration;
+      pendingHumanCompletion = event;
+      let frameIndex = 0;
+
+      function revealNextFrame() {
+        if (cancelled || generation !== humanDeliveryGeneration) return;
+        if (document.visibilityState === "hidden") {
+          flushHumanDelivery();
+          return;
+        }
+        const frame = plan.frames[frameIndex];
+        if (frame === undefined) {
+          finishHumanDelivery();
+          return;
+        }
+        applyResponseEvent(
+          preserveCurrentThreadRevision(
+            createHumanResponseDeliveryDelta(event, frame),
+          ),
+        );
+        frameIndex += 1;
+        if (frameIndex >= plan.frames.length) {
+          finishHumanDelivery();
+          return;
+        }
+        humanDeliveryTimer = setTimeout(revealNextFrame, plan.intervalMs);
+      }
+
+      revealNextFrame();
+    }
+
     function applyRealtime(event: RealtimeEvent) {
       if (event.type === "sync.required") {
-        void syncThread(false);
+        if (!flushHumanDelivery()) void syncThread(false);
         return;
       }
       if (event.thread_id !== threadId) return;
+      if (
+        pendingHumanCompletion &&
+        event.thread_revision > pendingHumanCompletion.thread_revision
+      ) {
+        flushHumanDelivery();
+      }
       if (event.type === "entry.created") {
         void syncThread(false);
         return;
@@ -254,25 +363,50 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
         );
         return;
       }
-      const decision = reduceThreadRealtime(threadRef.current, event);
-      if (!decision.handled) return;
-      if (decision.next !== threadRef.current) {
-        updateThread(() => decision.next);
+      if (
+        isLiveHumanResponseCompletion(
+          threadRef.current,
+          event,
+          humanAnswererIds,
+        ) &&
+        document.visibilityState !== "hidden" &&
+        !window.matchMedia("(prefers-reduced-motion: reduce)").matches
+      ) {
+        startHumanDelivery(event);
+        return;
       }
-      if (decision.shouldSync) syncExecutionOnce(event.execution_id);
+      if (
+        pendingHumanCompletion &&
+        event.execution_id === pendingHumanCompletion.execution_id
+      ) {
+        cancelHumanDelivery();
+      }
+      applyResponseEvent(event);
+    }
+
+    function handleVisibilityChange() {
+      if (document.visibilityState === "hidden") flushHumanDelivery();
     }
 
     const unsubscribeRealtime = subscribeRealtime(applyRealtime);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
     void syncThread(false);
     return () => {
+      if (mountedRef.current) {
+        flushHumanDelivery(false);
+      } else {
+        cancelHumanDelivery();
+      }
       cancelled = true;
       refreshGenerationRef.current += 1;
       pendingExecutionSyncRef.current = undefined;
       executionSyncDirtyRef.current = false;
       unsubscribeRealtime();
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
       dismissToast("thread-load");
     };
   }, [
+    answerers,
     dismissToast,
     loadThread,
     realtimeReadyRevision,
