@@ -243,6 +243,22 @@ button {
   animation: toast-enter 220ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
+.composer-edge-blur {
+  background: color-mix(in srgb, var(--surface) 12%, transparent);
+  -webkit-backdrop-filter: blur(2.5px);
+  backdrop-filter: blur(2.5px);
+}
+
+.composer-edge-blur-top {
+  -webkit-mask-image: linear-gradient(to bottom, black 0%, transparent 100%);
+  mask-image: linear-gradient(to bottom, black 0%, transparent 100%);
+}
+
+.composer-edge-blur-bottom {
+  -webkit-mask-image: linear-gradient(to top, black 0%, transparent 100%);
+  mask-image: linear-gradient(to top, black 0%, transparent 100%);
+}
+
 .thread-composer::before,
 .thread-composer::after {
   content: "";

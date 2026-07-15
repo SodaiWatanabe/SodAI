@@ -9,14 +9,42 @@ import {
   useState,
 } from "react";
 
-const COMPOSER_MAX_HEIGHT = 160;
+const COMPOSER_MAX_HEIGHT = 208;
+
+type ComposerScrollEdges = {
+  bottom: boolean;
+  top: boolean;
+};
 
 export function useComposerTextareaAutosize(
   ref: RefObject<HTMLTextAreaElement | null>,
   value: string,
 ) {
   const [multiline, setMultiline] = useState(false);
+  const [scrollEdges, setScrollEdges] = useState<ComposerScrollEdges>({
+    bottom: false,
+    top: false,
+  });
   const animationFrameRef = useRef<number | null>(null);
+
+  const updateScrollEdges = useCallback(() => {
+    const textarea = ref.current;
+    if (!textarea) return;
+
+    const overflowing = textarea.scrollHeight > COMPOSER_MAX_HEIGHT + 1;
+    const nextEdges = {
+      bottom:
+        overflowing &&
+        textarea.scrollHeight - textarea.scrollTop - textarea.clientHeight > 1,
+      top: overflowing && textarea.scrollTop > 1,
+    };
+
+    setScrollEdges((current) =>
+      current.bottom === nextEdges.bottom && current.top === nextEdges.top
+        ? current
+        : nextEdges,
+    );
+  }, [ref]);
 
   const resize = useCallback(() => {
     const textarea = ref.current;
@@ -53,14 +81,16 @@ export function useComposerTextareaAutosize(
     if (Math.abs(previousHeight - height) < 1) {
       textarea.style.height = `${height}px`;
       animationFrameRef.current = null;
+      updateScrollEdges();
       return;
     }
 
     animationFrameRef.current = requestAnimationFrame(() => {
       textarea.style.height = `${height}px`;
       animationFrameRef.current = null;
+      updateScrollEdges();
     });
-  }, [ref]);
+  }, [ref, updateScrollEdges]);
 
   useLayoutEffect(resize, [multiline, resize, value]);
 
@@ -72,6 +102,7 @@ export function useComposerTextareaAutosize(
     if (typeof ResizeObserver !== "undefined") {
       let width = textarea.clientWidth;
       observer = new ResizeObserver(() => {
+        updateScrollEdges();
         const nextWidth = textarea.clientWidth;
         if (Math.abs(nextWidth - width) < 1) return;
         width = nextWidth;
@@ -79,14 +110,16 @@ export function useComposerTextareaAutosize(
       });
       observer.observe(textarea);
     }
+    textarea.addEventListener("scroll", updateScrollEdges, { passive: true });
 
     return () => {
       observer?.disconnect();
+      textarea.removeEventListener("scroll", updateScrollEdges);
       if (animationFrameRef.current !== null) {
         cancelAnimationFrame(animationFrameRef.current);
       }
     };
-  }, [ref, resize]);
+  }, [ref, resize, updateScrollEdges]);
 
-  return multiline;
+  return { multiline, scrollEdges };
 }
