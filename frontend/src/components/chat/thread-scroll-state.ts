@@ -31,6 +31,11 @@ export type ScrollPositionMetrics = {
   scrollTop: number;
 };
 
+export type ThreadResizeChanges = {
+  containerChanged: boolean;
+  footerChanged: boolean;
+};
+
 export function transitionThreadScrollMode(
   current: ThreadScrollMode,
   event: ThreadScrollEvent,
@@ -45,6 +50,20 @@ export function transitionThreadScrollMode(
     default:
       return current;
   }
+}
+
+export function resolvePassiveScrollEvent(
+  current: ThreadScrollMode,
+  nearBottom: boolean,
+  composerActive: boolean,
+): ThreadScrollEvent | null {
+  if (
+    current === "turn" ||
+    (current === "detached" && composerActive)
+  ) {
+    return null;
+  }
+  return nearBottom ? "pin-bottom" : "detach";
 }
 
 export function calculateTurnScrollLayout(
@@ -108,8 +127,7 @@ export function resolveScrollToBottomMode(
 }
 
 export function shouldRealignTurnAfterResize(
-  containerChanged: boolean,
-  footerChanged: boolean,
+  changes: ThreadResizeChanges,
 ) {
-  return containerChanged || footerChanged;
+  return changes.containerChanged;
 }

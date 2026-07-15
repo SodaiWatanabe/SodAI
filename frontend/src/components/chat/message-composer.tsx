@@ -2,6 +2,7 @@
 
 import { ArrowUp } from "lucide-react";
 import type {
+  FocusEventHandler,
   FormEventHandler,
   RefObject,
 } from "react";
@@ -17,7 +18,9 @@ type MessageComposerProps = {
   disabled: boolean;
   inputId: string;
   inputLabel: string;
+  onBlur?: FocusEventHandler<HTMLTextAreaElement>;
   onChange: (value: string) => void;
+  onFocus?: FocusEventHandler<HTMLTextAreaElement>;
   onSubmit: FormEventHandler<HTMLFormElement>;
   placeholder: string;
   sendShortcut: KeyboardShortcut;
@@ -32,7 +35,9 @@ export function MessageComposer({
   disabled,
   inputId,
   inputLabel,
+  onBlur,
   onChange,
+  onFocus,
   onSubmit,
   placeholder,
   sendShortcut,
@@ -72,7 +77,9 @@ export function MessageComposer({
               ? "px-6 pb-1.5 pt-[15px]"
               : "py-[15px] pl-6 pr-14"
           }`}
+          onBlur={onBlur}
           onChange={(event) => onChange(event.target.value)}
+          onFocus={onFocus}
           onKeyDown={(event) =>
             handleMessageSubmitKeyDown(event, sendShortcut)
           }

@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   calculateTurnScrollLayout,
   calculateTurnScrollUpdate,
+  resolvePassiveScrollEvent,
   resolveScrollToBottomMode,
   shouldRealignTurnAfterResize,
   shouldShowScrollToBottom,
@@ -13,10 +14,20 @@ import {
 test("送信ターンと手動スクロールを独立した状態として遷移する", () => {
   assert.equal(transitionThreadScrollMode("bottom", "anchor-turn"), "turn");
   assert.equal(transitionThreadScrollMode("turn", "detach"), "detached");
+  assert.equal(transitionThreadScrollMode("bottom", "detach"), "detached");
   assert.equal(
     transitionThreadScrollMode("detached", "pin-bottom"),
     "bottom",
   );
+});
+
+test("入力中の受動スクロールでは最下部追従へ戻さない", () => {
+  assert.equal(resolvePassiveScrollEvent("detached", true, true), null);
+  assert.equal(
+    resolvePassiveScrollEvent("detached", true, false),
+    "pin-bottom",
+  );
+  assert.equal(resolvePassiveScrollEvent("bottom", false, false), "detach");
 });
 
 test("追従解除中でも実際の最下部では移動ボタンを表示しない", () => {
@@ -137,10 +148,35 @@ test("上端より上を要求する場合はスクロール位置を0に収め�
   );
 });
 
-test("本文の行追加では余白だけを更新し表示領域の変化だけ再整列する", () => {
-  assert.equal(shouldRealignTurnAfterResize(false, false), false);
-  assert.equal(shouldRealignTurnAfterResize(true, false), true);
-  assert.equal(shouldRealignTurnAfterResize(false, true), true);
+test("本文や入力欄の行追加では余白だけを更新し表示領域の変化だけ再整列する", () => {
+  assert.equal(
+    shouldRealignTurnAfterResize({
+      containerChanged: false,
+      footerChanged: false,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldRealignTurnAfterResize({
+      containerChanged: true,
+      footerChanged: false,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldRealignTurnAfterResize({
+      containerChanged: false,
+      footerChanged: true,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldRealignTurnAfterResize({
+      containerChanged: true,
+      footerChanged: true,
+    }),
+    true,
+  );
 
   const metrics = {
     containerHeight: 700,

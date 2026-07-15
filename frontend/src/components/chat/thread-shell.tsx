@@ -124,6 +124,8 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
     containerRef,
     messageListRef,
     footerRef,
+    handleComposerBlur,
+    handleComposerInteraction,
     handleScroll,
     handleScrollKeyDown,
     handleScrollPointerDown,
@@ -573,7 +575,12 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
             disabled={!message.trim() || !answerer || responding}
             inputId="thread-message"
             inputLabel="対話を続ける"
-            onChange={setMessage}
+            onBlur={handleComposerBlur}
+            onChange={(value) => {
+              handleComposerInteraction();
+              setMessage(value);
+            }}
+            onFocus={handleComposerInteraction}
             onSubmit={submit}
             placeholder="対話を続ける"
             sendShortcut={shortcuts.messageSend}

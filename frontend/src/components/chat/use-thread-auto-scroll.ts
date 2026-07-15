@@ -14,6 +14,7 @@ import {
 import {
   calculateTurnScrollUpdate,
   isScrollNearBottom,
+  resolvePassiveScrollEvent,
   resolveScrollToBottomMode,
   shouldRealignTurnAfterResize,
   shouldShowScrollToBottom,
@@ -64,6 +65,7 @@ export function useThreadAutoScroll({
   const expectedTurnScrollTopRef = useRef<number | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const pendingTurnAlignmentRef = useRef(false);
+  const composerInteractionRef = useRef(false);
   const animatedScrollRef = useRef(false);
   const [scrollUiState, setScrollUiState] = useState<{
     buttonVisible: boolean;
@@ -130,6 +132,7 @@ export function useThreadAutoScroll({
     turnSpacerRef.current?.style.removeProperty("height");
     expectedTurnScrollTopRef.current = null;
     pendingTurnAlignmentRef.current = false;
+    composerInteractionRef.current = false;
   }, []);
 
   const applyTurnLayout = useCallback(
@@ -221,6 +224,7 @@ export function useThreadAutoScroll({
       animationFrameRef.current = null;
     }
     pendingTurnAlignmentRef.current = false;
+    composerInteractionRef.current = false;
     animatedScrollRef.current = behavior === "smooth";
     applyScrollEvent("anchor-turn");
     return applyTurnLayout(true, behavior);
@@ -291,7 +295,12 @@ export function useThreadAutoScroll({
         if (nearBottom) animatedScrollRef.current = false;
         return;
       }
-      applyScrollEvent(nearBottom ? "pin-bottom" : "detach");
+      const scrollEvent = resolvePassiveScrollEvent(
+        scrollModeRef.current,
+        nearBottom,
+        composerInteractionRef.current,
+      );
+      if (scrollEvent) applyScrollEvent(scrollEvent);
       syncScrollButtonVisibility(event.currentTarget);
     },
     [applyScrollEvent, syncScrollButtonVisibility, syncScrollPosition],
@@ -304,6 +313,23 @@ export function useThreadAutoScroll({
       applyScrollEvent("detach");
     }
   }, [applyScrollEvent]);
+
+  const detachForComposer = useCallback(() => {
+    composerInteractionRef.current = true;
+    if (scrollModeRef.current === "detached") return;
+    if (animationFrameRef.current !== null) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
+    pendingTurnAlignmentRef.current = false;
+    animatedScrollRef.current = false;
+    expectedTurnScrollTopRef.current = null;
+    applyScrollEvent("detach");
+  }, [applyScrollEvent]);
+
+  const releaseComposer = useCallback(() => {
+    composerInteractionRef.current = false;
+  }, []);
 
   const handleScrollKeyDown = useCallback<KeyboardEventHandler<HTMLDivElement>>(
     (event) => {
@@ -385,10 +411,12 @@ export function useThreadAutoScroll({
     ].filter((element): element is HTMLDivElement => element !== null);
     const observer = new ResizeObserver((entries) => {
       syncScrollPosition(
-        shouldRealignTurnAfterResize(
-          entries.some((entry) => entry.target === container),
-          entries.some((entry) => entry.target === footer),
-        ),
+        shouldRealignTurnAfterResize({
+          containerChanged: entries.some(
+            (entry) => entry.target === container,
+          ),
+          footerChanged: entries.some((entry) => entry.target === footer),
+        }),
       );
     });
     for (const element of observedElements) observer.observe(element);
@@ -411,6 +439,8 @@ export function useThreadAutoScroll({
     containerRef,
     messageListRef,
     footerRef,
+    handleComposerBlur: releaseComposer,
+    handleComposerInteraction: detachForComposer,
     handleScrollKeyDown,
     handleScrollPointerDown,
     handleScroll,
