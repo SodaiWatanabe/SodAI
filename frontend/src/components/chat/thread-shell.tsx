@@ -15,6 +15,7 @@ import { settleComposerFocus } from "@/components/chat/composer-focus";
 import { MessageComposer } from "@/components/chat/message-composer";
 import { reduceThreadRealtime } from "@/components/chat/thread-realtime";
 import { ThreadViewport } from "@/components/chat/thread-viewport";
+import { useThreadSearchNavigationTarget } from "@/components/chat/thread-search-navigation";
 import { useThreadAutoScroll } from "@/components/chat/use-thread-auto-scroll";
 import { useKeyboardShortcuts } from "@/components/preferences/keyboard-shortcuts-provider";
 import { useToast } from "@/components/ui/toast-provider";
@@ -32,6 +33,7 @@ import { useChatApi } from "@/lib/chat/use-chat-api";
 
 type ThreadShellProps = {
   threadId: string;
+  targetEntryId?: string;
 };
 
 function mergeEntries(current: ThreadEntry[], incoming: ThreadEntry[]) {
@@ -45,8 +47,9 @@ function isResponding(thread?: Thread) {
   return status === "queued" || status === "running";
 }
 
-export function ThreadShell({ threadId }: ThreadShellProps) {
+export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
   const { createResponse, getThread } = useChatApi();
+  const searchNavigationTarget = useThreadSearchNavigationTarget();
   const {
     answerers,
     patchThread,
@@ -62,12 +65,20 @@ export function ThreadShell({ threadId }: ThreadShellProps) {
   const refreshGenerationRef = useRef(0);
   const pendingExecutionSyncRef = useRef<string | undefined>(undefined);
   const executionSyncDirtyRef = useRef(false);
+  const scrolledTargetRef = useRef<string | undefined>(undefined);
   const [thread, setThreadState] = useState<Thread>();
   const [answerer, setAnswerer] = useState<AvailableAnswerer["id"]>();
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const responding = submitting || isResponding(thread);
+  const activeSearchTarget =
+    targetEntryId &&
+    searchNavigationTarget?.threadId === threadId &&
+    searchNavigationTarget.entryId === targetEntryId
+      ? searchNavigationTarget
+      : undefined;
+  const targetSearchQuery = activeSearchTarget?.query;
   const {
     cancelAnimatedScroll,
     containerRef,
@@ -75,6 +86,7 @@ export function ThreadShell({ threadId }: ThreadShellProps) {
     footerRef,
     handleScroll,
     pinToBottom,
+    scrollToEntry,
     scrollToBottom,
     showScrollToBottom,
   } = useThreadAutoScroll({ ready: Boolean(thread), resetKey: threadId });
@@ -211,6 +223,37 @@ export function ThreadShell({ threadId }: ThreadShellProps) {
     updateThread,
   ]);
 
+  useEffect(() => {
+    if (!targetEntryId) {
+      scrolledTargetRef.current = undefined;
+      return;
+    }
+    if (loading || !thread?.entries.some((entry) => entry.id === targetEntryId)) {
+      return;
+    }
+    const targetKey = `${threadId}:${targetEntryId}:${activeSearchTarget?.sequence ?? "direct"}`;
+    if (scrolledTargetRef.current === targetKey) return;
+
+    const frame = requestAnimationFrame(() => {
+      const element = document.getElementById(`thread-entry-${targetEntryId}`);
+      if (!element) return;
+      scrolledTargetRef.current = targetKey;
+      const highlightedMatch = element.querySelector<HTMLElement>(
+        "[data-search-highlight-target]",
+      );
+      scrollToEntry(element, highlightedMatch ?? element);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [
+    activeSearchTarget?.sequence,
+    loading,
+    scrollToEntry,
+    targetEntryId,
+    targetSearchQuery,
+    thread,
+    threadId,
+  ]);
+
   async function submit(event: FormEvent) {
     event.preventDefault();
     const input = message.trim();
@@ -279,6 +322,8 @@ export function ThreadShell({ threadId }: ThreadShellProps) {
         thread={thread}
         loading={loading}
         responding={responding}
+        targetEntryId={targetEntryId}
+        targetSearchQuery={targetSearchQuery}
       />
 
       <div

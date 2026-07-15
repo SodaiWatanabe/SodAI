@@ -7,6 +7,7 @@ import {
   useState,
 } from "react";
 
+import { SearchHighlight } from "@/components/chat/search-highlight";
 import { IOSSpinner } from "@/components/ui/ios-spinner";
 import type { Thread, ThreadEntry } from "@/lib/chat/types";
 
@@ -15,6 +16,8 @@ type ThreadViewportProps = {
   thread?: Thread;
   loading: boolean;
   responding: boolean;
+  targetEntryId?: string;
+  targetSearchQuery?: string;
 };
 
 type StreamSegment = {
@@ -92,10 +95,22 @@ function StreamedText({ content }: { content: string }) {
   );
 }
 
-function ThreadMessage({ entry }: { entry: DisplayEntry }) {
+function ThreadMessage({
+  entry,
+  searchQuery,
+  searchAnchor,
+}: {
+  entry: DisplayEntry;
+  searchQuery?: string;
+  searchAnchor: boolean;
+}) {
   const isPartner = entry.author.kind === "human";
   return (
-    <article className={isPartner ? "flex justify-end" : "flex justify-start"}>
+    <article
+      id={`thread-entry-${entry.id}`}
+      tabIndex={searchAnchor ? -1 : undefined}
+      className={`${isPartner ? "flex justify-end" : "flex justify-start"} thread-message scroll-mt-24 rounded-2xl outline-none`}
+    >
       <div
         className={
           isPartner
@@ -105,6 +120,12 @@ function ThreadMessage({ entry }: { entry: DisplayEntry }) {
       >
         {!isPartner && entry.responseStatus === "streaming" ? (
           <StreamedText content={entry.content} />
+        ) : searchQuery ? (
+          <SearchHighlight
+            markFirstMatch={searchAnchor}
+            query={searchQuery}
+            text={entry.content}
+          />
         ) : (
           entry.content
         )}
@@ -153,6 +174,8 @@ export function ThreadViewport({
   thread,
   loading,
   responding,
+  targetEntryId,
+  targetSearchQuery,
 }: ThreadViewportProps) {
   const entries = thread ? displayEntries(thread) : [];
   const waitingForFirstToken =
@@ -197,7 +220,12 @@ export function ThreadViewport({
         >
           <div className="space-y-8">
             {visibleEntries.map((entry) => (
-              <ThreadMessage key={entry.id} entry={entry} />
+              <ThreadMessage
+                key={entry.id}
+                entry={entry}
+                searchQuery={targetSearchQuery}
+                searchAnchor={entry.id === targetEntryId}
+              />
             ))}
             {waitingForFirstToken ? (
               <article

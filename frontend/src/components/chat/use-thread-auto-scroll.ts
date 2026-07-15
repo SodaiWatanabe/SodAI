@@ -84,6 +84,27 @@ export function useThreadAutoScroll({
     animatedScrollRef.current = false;
   }, []);
 
+  const scrollToEntry = useCallback(
+    (entry: HTMLElement, scrollTarget: HTMLElement = entry) => {
+      if (animationFrameRef.current !== null) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
+      }
+      pinnedRef.current = false;
+      animatedScrollRef.current = false;
+      setDetachedKey(resetKey);
+      const reducedMotion = window.matchMedia(
+        "(prefers-reduced-motion: reduce)",
+      ).matches;
+      scrollTarget.scrollIntoView({
+        behavior: reducedMotion ? "auto" : "smooth",
+        block: "center",
+      });
+      entry.focus({ preventScroll: true });
+    },
+    [resetKey],
+  );
+
   useLayoutEffect(() => {
     pinnedRef.current = true;
     animatedScrollRef.current = false;
@@ -123,6 +144,7 @@ export function useThreadAutoScroll({
     footerRef,
     handleScroll,
     pinToBottom,
+    scrollToEntry,
     scrollToBottom,
     showScrollToBottom,
   };

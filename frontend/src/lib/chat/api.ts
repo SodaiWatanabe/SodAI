@@ -7,6 +7,7 @@ import type {
   Execution,
   ResponseCreation,
   Thread,
+  ThreadSearchPage,
   ThreadSummary,
 } from "@/lib/chat/types";
 import { ChatApiError } from "@/lib/chat/api-error";
@@ -48,6 +49,19 @@ export function createChatApi(accessToken: ApiAccessTokenSource) {
     const response = await apiFetch("/api/v1/answerers");
     const payload = (await response.json()) as { items: AvailableAnswerer[] };
     return payload.items;
+  }
+
+  async function searchThreads(
+    query: string,
+    limit = 20,
+    signal?: AbortSignal,
+  ): Promise<ThreadSearchPage> {
+    const response = await apiFetch("/api/v1/thread-searches", {
+      method: "POST",
+      body: JSON.stringify({ query, limit }),
+      signal,
+    });
+    return (await response.json()) as ThreadSearchPage;
   }
 
   async function createThread(
@@ -128,6 +142,7 @@ export function createChatApi(accessToken: ApiAccessTokenSource) {
     listAnswerers,
     listThreads,
     retryResponse,
+    searchThreads,
     updateThread,
   };
 }

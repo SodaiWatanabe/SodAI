@@ -4,6 +4,7 @@ import {
   Equal,
   PanelLeftClose,
   PanelLeftOpen,
+  Search,
   SquarePen,
   X,
 } from "lucide-react";
@@ -19,10 +20,15 @@ import {
 import { ChatAuthProvider } from "@/components/chat/chat-auth-context";
 import { useChatData } from "@/components/chat/chat-data-provider";
 import { ThreadListItem } from "@/components/chat/thread-list-item";
+import { ThreadSearchDialog } from "@/components/chat/thread-search-dialog";
+import {
+  ThreadSearchNavigationProvider,
+  type ThreadSearchNavigationTarget,
+} from "@/components/chat/thread-search-navigation";
 import { useKeyboardShortcuts } from "@/components/preferences/keyboard-shortcuts-provider";
 import { ToastViewport } from "@/components/ui/toast-provider";
 import { authClient } from "@/lib/auth/client";
-import type { ThreadSummary } from "@/lib/chat/types";
+import type { ThreadSearchHit, ThreadSummary } from "@/lib/chat/types";
 import { matchesKeyboardShortcut } from "@/lib/preferences/keyboard-shortcuts";
 import { saveDesktopSidebarPreference } from "@/lib/preferences/sidebar";
 
@@ -47,6 +53,7 @@ type SidebarProps = {
   onArchiveThread: (id: string) => void;
   onOpenAuth: () => void;
   onOpenCredits: () => void;
+  onOpenSearch: () => void;
   onOpenSettings: () => void;
   onSelectThread: (id: string) => void;
   onSignOut: () => void;
@@ -64,6 +71,7 @@ function Sidebar({
   onArchiveThread,
   onOpenAuth,
   onOpenCredits,
+  onOpenSearch,
   onOpenSettings,
   onSelectThread,
   onSignOut,
@@ -123,6 +131,23 @@ function Sidebar({
             className={`whitespace-nowrap transition-opacity duration-150 ${contentVisibility}`}
           >
             新しい会話
+          </span>
+        </button>
+
+        <button
+          type="button"
+          title="会話を検索"
+          className="mt-0.5 flex h-9 w-full shrink-0 items-center rounded-xl text-left text-sm font-medium text-[var(--text)] transition-colors hover:bg-[var(--hover)]"
+          onClick={onOpenSearch}
+        >
+          <span className="grid shrink-0 place-items-center px-2.5">
+            <Search aria-hidden="true" className="size-5" />
+          </span>
+          <span
+            aria-hidden={!contentVisible}
+            className={`whitespace-nowrap transition-opacity duration-150 ${contentVisibility}`}
+          >
+            会話を検索
           </span>
         </button>
 
@@ -200,6 +225,8 @@ export function ChatFrame({
   const { recordingAction, shortcuts } = useKeyboardShortcuts();
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const mobileSidebarRef = useRef<HTMLElement>(null);
+  const searchOpenedFromMobileRef = useRef(false);
+  const searchNavigationSequenceRef = useRef(0);
   const [desktopCollapsed, setDesktopCollapsed] = useState(
     initialDesktopSidebarCollapsed,
   );
@@ -208,6 +235,9 @@ export function ChatFrame({
   );
   const [mobileOpen, setMobileOpen] = useState(false);
   const [mobileGuestActionsVisible, setMobileGuestActionsVisible] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchNavigationTarget, setSearchNavigationTarget] =
+    useState<ThreadSearchNavigationTarget | null>(null);
   const [authOpen, setAuthOpen] = useState(
     initialAccountUnavailable || initialProfileIncomplete,
   );
@@ -222,9 +252,21 @@ export function ChatFrame({
     setMobileGuestActionsVisible(false);
     setMobileOpen(false);
   }, []);
+  const openSearch = useCallback(() => {
+    searchOpenedFromMobileRef.current = mobileOpen;
+    closeMobileSidebar();
+    setSearchOpen(true);
+  }, [closeMobileSidebar, mobileOpen]);
+  const closeSearch = useCallback(() => {
+    setSearchOpen(false);
+    if (!searchOpenedFromMobileRef.current) return;
+    searchOpenedFromMobileRef.current = false;
+    requestAnimationFrame(() => menuButtonRef.current?.focus());
+  }, []);
   const navigate = useCallback(
     (id: string) => {
       closeMobileSidebar();
+      setSearchNavigationTarget(null);
       router.push(id ? `/t/${id}` : "/");
     },
     [closeMobileSidebar, router],
@@ -352,12 +394,33 @@ export function ChatFrame({
 
   function navigateToSettings() {
     closeMobileSidebar();
+    setSearchNavigationTarget(null);
     router.push("/settings");
   }
 
   function navigateToCredits() {
     closeMobileSidebar();
+    setSearchNavigationTarget(null);
     router.push("/settings/credits");
+  }
+
+  function navigateToSearchResult(hit: ThreadSearchHit, query: string) {
+    searchOpenedFromMobileRef.current = false;
+    setSearchOpen(false);
+    const path = `/t/${encodeURIComponent(hit.thread.id)}`;
+    if (!hit.entry_id) {
+      setSearchNavigationTarget(null);
+      router.push(path);
+      return;
+    }
+    searchNavigationSequenceRef.current += 1;
+    setSearchNavigationTarget({
+      entryId: hit.entry_id,
+      query,
+      sequence: searchNavigationSequenceRef.current,
+      threadId: hit.thread.id,
+    });
+    router.push(`${path}?entry=${encodeURIComponent(hit.entry_id)}`);
   }
 
   function leaveArchivedThread(id: string) {
@@ -396,6 +459,7 @@ export function ChatFrame({
       onArchiveThread={leaveArchivedThread}
       onOpenAuth={openAuth}
       onOpenCredits={navigateToCredits}
+      onOpenSearch={openSearch}
       onOpenSettings={navigateToSettings}
       onSelectThread={navigate}
       onSignOut={signOut}
@@ -468,7 +532,9 @@ export function ChatFrame({
         >
           <Equal className="size-[21px]" />
         </button>
-        {children}
+        <ThreadSearchNavigationProvider target={searchNavigationTarget}>
+          {children}
+        </ThreadSearchNavigationProvider>
       </main>
 
       {authOpen ? (
@@ -485,6 +551,12 @@ export function ChatFrame({
             setAuthOpen(false);
             setGoogleAuthError(false);
           }}
+        />
+      ) : null}
+      {searchOpen ? (
+        <ThreadSearchDialog
+          onClose={closeSearch}
+          onSelect={navigateToSearchResult}
         />
       ) : null}
       </div>

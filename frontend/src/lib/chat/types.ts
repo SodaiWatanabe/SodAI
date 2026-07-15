@@ -57,6 +57,18 @@ export type Thread = ThreadSummary & {
   latest_response: ResponseRequest | null;
 };
 
+export type ThreadSearchHit = {
+  thread: ThreadSummary;
+  source: "title" | "entry";
+  entry_id: string | null;
+  snippet: string;
+};
+
+export type ThreadSearchPage = {
+  items: ThreadSearchHit[];
+  has_more: boolean;
+};
+
 export type ResponseCreation = {
   thread: Thread;
   response: ResponseRequest;
