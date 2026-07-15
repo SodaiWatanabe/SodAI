@@ -40,6 +40,8 @@
   );
   --danger-background: light-dark(#fef2f2, rgb(255 69 58 / 14%));
   --danger-text: light-dark(#b91c1c, #ff6961);
+  --status-shimmer-start: 39%;
+  --status-shimmer-end: 61%;
   background: var(--canvas);
   color: var(--text);
   font-family:
@@ -53,6 +55,8 @@
 
 :root[data-theme="dark"] {
   color-scheme: dark;
+  --status-shimmer-start: 42%;
+  --status-shimmer-end: 58%;
 }
 
 :root[data-theme="system"] {
@@ -113,6 +117,12 @@ button {
 }
 
 @media (prefers-color-scheme: dark) {
+  :root:not([data-theme]),
+  :root[data-theme="system"] {
+    --status-shimmer-start: 42%;
+    --status-shimmer-end: 58%;
+  }
+
   :root[data-theme="system"] :is(.ui-popover, .chat-input) {
     border-width: 0;
   }
@@ -484,9 +494,9 @@ button {
   background-image: linear-gradient(
     90deg,
     var(--muted) 0%,
-    var(--muted) 42%,
-    var(--text) 50%,
-    var(--muted) 58%,
+    var(--muted) var(--status-shimmer-start),
+    #ffffff 50%,
+    var(--muted) var(--status-shimmer-end),
     var(--muted) 100%
   );
   background-position: 100% 50%;
