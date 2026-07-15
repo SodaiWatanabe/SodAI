@@ -107,11 +107,13 @@ function ThreadMessage({
   entryRef,
   searchQuery,
   searchAnchor,
+  turnAnchor,
 }: {
   entry: DisplayEntry;
   entryRef?: Ref<HTMLElement>;
   searchQuery?: string;
   searchAnchor: boolean;
+  turnAnchor: boolean;
 }) {
   const layout = getConversationMessageLayout(entry.author.kind, "prompter");
   return (
@@ -119,6 +121,7 @@ function ThreadMessage({
       articleRef={entryRef}
       id={`thread-entry-${entry.id}`}
       searchAnchor={searchAnchor}
+      turnAnchor={turnAnchor}
       {...layout}
     >
       {layout.surface === "generated" &&
@@ -198,6 +201,8 @@ export function ThreadViewport({
           entry.content.trim().length > 0,
       )
     : entries;
+  const turnAnchorStartsThread =
+    visibleEntries[0]?.id === turnAnchorEntryId;
   const searchingForHuman =
     humanResponse && thread?.latest_response?.status !== "running";
   const responseStatusText = humanResponse
@@ -221,7 +226,7 @@ export function ThreadViewport({
       {thread ? (
         <div
           ref={contentRef}
-          className="relative z-10 mx-auto w-full max-w-[760px] px-5 pb-12 pt-10 sm:px-8"
+          className={`relative z-10 mx-auto w-full max-w-[760px] px-5 pb-12 sm:px-8 ${turnAnchorStartsThread ? "pt-4" : "pt-10"}`}
         >
           <div className="space-y-8">
             {visibleEntries.map((entry) => (
@@ -233,6 +238,7 @@ export function ThreadViewport({
                 }
                 searchQuery={targetSearchQuery}
                 searchAnchor={entry.id === targetEntryId}
+                turnAnchor={entry.id === turnAnchorEntryId}
               />
             ))}
             {waitingForFirstToken ? (

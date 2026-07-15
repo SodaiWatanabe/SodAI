@@ -7,6 +7,7 @@ type ConversationMessageProps = ConversationMessageLayout & {
   children: ReactNode;
   id?: string;
   searchAnchor?: boolean;
+  turnAnchor?: boolean;
 };
 
 export function ConversationMessage({
@@ -16,13 +17,14 @@ export function ConversationMessage({
   searchAnchor = false,
   side,
   surface,
+  turnAnchor = false,
 }: ConversationMessageProps) {
   return (
     <article
       ref={articleRef}
       id={id}
       tabIndex={searchAnchor ? -1 : undefined}
-      className={`${side === "right" ? "justify-end" : "justify-start"} flex scroll-mt-24 outline-none`}
+      className={`${side === "right" ? "justify-end" : "justify-start"} flex outline-none ${turnAnchor ? "scroll-mt-16" : "scroll-mt-24"}`}
     >
       <div
         className={
