@@ -2,6 +2,7 @@
 
 import type { ApiAccessTokenSource } from "@/lib/auth/api-client";
 import { API_BASE_URL } from "@/lib/api/base-url";
+import { createApiFetch } from "@/lib/api/api-fetch";
 import type {
   AvailableAnswerer,
   Execution,
@@ -10,34 +11,9 @@ import type {
   ThreadSearchPage,
   ThreadSummary,
 } from "@/lib/chat/types";
-import { ChatApiError } from "@/lib/chat/api-error";
-
-export { ChatApiError } from "@/lib/chat/api-error";
 
 export function createChatApi(accessToken: ApiAccessTokenSource) {
-  async function apiFetch(path: `/${string}`, init: RequestInit = {}) {
-    const token = await accessToken.get();
-    const headers = new Headers(init.headers);
-    if (token) headers.set("Authorization", `Bearer ${token}`);
-    if (init.body) headers.set("Content-Type", "application/json");
-
-    const response = await fetch(`${API_BASE_URL}${path}`, {
-      ...init,
-      credentials: "include",
-      headers,
-    });
-    if (response.status === 401 && token) accessToken.invalidate();
-    if (!response.ok) {
-      const payload = (await response.json().catch(() => null)) as {
-        detail?: string;
-      } | null;
-      throw new ChatApiError(
-        payload?.detail ?? "SodAI APIへ接続できませんでした。",
-        response.status,
-      );
-    }
-    return response;
-  }
+  const apiFetch = createApiFetch(accessToken);
 
   async function listThreads(): Promise<ThreadSummary[]> {
     const response = await apiFetch("/api/v1/threads");

@@ -1,0 +1,131 @@
+from __future__ import annotations
+
+import logging
+from functools import lru_cache
+from uuid import UUID
+
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+from app.db.session import get_session_factory
+from app.domain.humans import BrainState
+from app.domain.principals import Principal, PrincipalKind
+from app.repositories.humans import HumanProjection, SqlAlchemyHumanRepository
+from app.services.realtime import realtime_hub
+
+logger = logging.getLogger(__name__)
+
+
+class HumanService:
+    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
+        self._session_factory = session_factory
+
+    async def state(self, user_id: UUID) -> BrainState:
+        async with self._session_factory() as session:
+            return await SqlAlchemyHumanRepository(session).state(user_id)
+
+    async def ready(self, user_id: UUID) -> BrainState:
+        async with self._session_factory() as session:
+            await SqlAlchemyHumanRepository(session).ready(user_id)
+            await session.commit()
+        await self.match_available_best_effort()
+        return await self.state(user_id)
+
+    async def set_rank(self, user_id: UUID, rank_level: int) -> BrainState:
+        async with self._session_factory() as session:
+            await SqlAlchemyHumanRepository(session).set_rank(user_id, rank_level)
+            await session.commit()
+        await self.match_available_best_effort()
+        return await self.state(user_id)
+
+    async def stop(self, user_id: UUID) -> BrainState:
+        async with self._session_factory() as session:
+            state = await SqlAlchemyHumanRepository(session).stop(user_id)
+            await session.commit()
+            return state
+
+    async def skip(self, user_id: UUID, claim_id: UUID) -> BrainState:
+        async with self._session_factory() as session:
+            repository = SqlAlchemyHumanRepository(session)
+            projection = await repository.skip(user_id, claim_id)
+            await session.commit()
+        await self._publish_owner(projection, "response.queued", {})
+        await self.match_available_best_effort()
+        return await self.state(user_id)
+
+    async def answer(self, user_id: UUID, claim_id: UUID, content: str) -> BrainState:
+        async with self._session_factory() as session:
+            repository = SqlAlchemyHumanRepository(session)
+            projection = await repository.answer(user_id, claim_id, content.strip())
+            await session.commit()
+        await self._publish_owner(
+            projection,
+            "response.completed",
+            {
+                "target_actor_id": str(projection.target_actor_id),
+                "result_entry_id": (
+                    str(projection.result_entry_id) if projection.result_entry_id else None
+                ),
+                "content": content.strip(),
+            },
+        )
+        await self.match_available_best_effort()
+        return await self.state(user_id)
+
+    async def match_available_best_effort(self) -> None:
+        try:
+            await self.match_available()
+        except Exception:
+            logger.exception("Human matching failed after transaction commit")
+
+    async def match_available(self) -> None:
+        while True:
+            async with self._session_factory() as session:
+                result = await SqlAlchemyHumanRepository(session).match_once()
+                await session.commit()
+            for projection in result.expired:
+                await self._publish_owner(projection, "response.queued", {})
+            if result.matched is None:
+                return
+            projection = result.matched
+            await self._publish_owner(
+                projection,
+                "response.started",
+                {"target_actor_id": str(projection.target_actor_id)},
+            )
+            if projection.performer_user_id is not None:
+                await realtime_hub.publish(
+                    Principal(PrincipalKind.USER, projection.performer_user_id),
+                    event_type="human.assigned",
+                    space_id=projection.space_id,
+                    thread_id=projection.thread_id,
+                    thread_revision=projection.thread_revision,
+                    response_request_id=projection.response_request_id,
+                    execution_id=projection.execution_id,
+                    data={"claim_id": str(projection.claim_id)},
+                )
+
+    @staticmethod
+    async def _publish_owner(
+        projection: HumanProjection,
+        event_type: str,
+        data: dict[str, object],
+    ) -> None:
+        await realtime_hub.publish(
+            Principal(PrincipalKind.USER, projection.owner_user_id),
+            event_type=event_type,
+            space_id=projection.space_id,
+            thread_id=projection.thread_id,
+            thread_revision=projection.thread_revision,
+            response_request_id=projection.response_request_id,
+            execution_id=projection.execution_id,
+            data=data,
+        )
+
+
+@lru_cache
+def get_human_service_singleton() -> HumanService:
+    return HumanService(get_session_factory())
+
+
+def get_human_service() -> HumanService:
+    return get_human_service_singleton()

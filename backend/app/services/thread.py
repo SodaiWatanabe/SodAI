@@ -27,6 +27,7 @@ from app.repositories.threads import (
     GenerationCapacityExceededError,
     SqlAlchemyThreadRepository,
 )
+from app.services.human import get_human_service
 from app.services.inference.asuka import ASUKA_PSEUDO_ARTIFACT_ID
 from app.services.inference.billing import InferenceBillingService
 from app.services.inference.deployment import ModelDeploymentError, ModelDeploymentRegistry
@@ -64,7 +65,7 @@ class ThreadService:
     ) -> ResponseCreation:
         answerer = self.select_answerer(principal, requested_answerer)
         execution_target, artifact_id = self._resolve_runtime(answerer)
-        deadline = self._generation_deadline()
+        deadline = self._execution_deadline(answerer)
         async with self._session_factory() as session:
             repository = SqlAlchemyThreadRepository(session)
             context = await repository.ensure_personal_context(principal)
@@ -78,19 +79,20 @@ class ThreadService:
                 artifact_id=artifact_id,
                 deadline_at=deadline,
             )
-            await InferenceBillingService(session).register(
-                principal,
-                creation.response.execution,
-                answerer.tariff,
-            )
-            await self._enqueue_generation(
-                repository,
-                creation.thread,
-                creation.response,
-                answerer,
-                artifact_id,
-                deadline,
-            )
+            if answerer.runtime_kind is not RuntimeKind.HUMAN:
+                await InferenceBillingService(session).register(
+                    principal,
+                    creation.response.execution,
+                    answerer.tariff,
+                )
+                await self._enqueue_generation(
+                    repository,
+                    creation.thread,
+                    creation.response,
+                    answerer,
+                    self._required_artifact(artifact_id),
+                    self._required_deadline(deadline),
+                )
             await session.commit()
         await realtime_hub.publish(
             principal,
@@ -108,6 +110,8 @@ class ThreadService:
                 "last_activity_at": creation.thread.last_activity_at.isoformat(),
             },
         )
+        if answerer.runtime_kind is RuntimeKind.HUMAN:
+            await get_human_service().match_available_best_effort()
         return creation
 
     async def append(
@@ -119,7 +123,7 @@ class ThreadService:
     ) -> ResponseCreation:
         answerer = self.select_answerer(principal, requested_answerer)
         execution_target, artifact_id = self._resolve_runtime(answerer)
-        deadline = self._generation_deadline()
+        deadline = self._execution_deadline(answerer)
         async with self._session_factory() as session:
             repository = SqlAlchemyThreadRepository(session)
             context = await repository.ensure_personal_context(principal)
@@ -138,19 +142,20 @@ class ThreadService:
                 )
             except GenerationCapacityExceededError as error:
                 raise GenerationCapacityError from error
-            await InferenceBillingService(session).register(
-                principal,
-                creation.response.execution,
-                answerer.tariff,
-            )
-            await self._enqueue_generation(
-                repository,
-                creation.thread,
-                creation.response,
-                answerer,
-                artifact_id,
-                deadline,
-            )
+            if answerer.runtime_kind is not RuntimeKind.HUMAN:
+                await InferenceBillingService(session).register(
+                    principal,
+                    creation.response.execution,
+                    answerer.tariff,
+                )
+                await self._enqueue_generation(
+                    repository,
+                    creation.thread,
+                    creation.response,
+                    answerer,
+                    self._required_artifact(artifact_id),
+                    self._required_deadline(deadline),
+                )
             await session.commit()
         await realtime_hub.publish(
             principal,
@@ -166,6 +171,8 @@ class ThreadService:
                 "last_activity_at": creation.thread.last_activity_at.isoformat(),
             },
         )
+        if answerer.runtime_kind is RuntimeKind.HUMAN:
+            await get_human_service().match_available_best_effort()
         return creation
 
     async def retry(
@@ -196,7 +203,8 @@ class ThreadService:
             answerer = get_answerer(retry.response.requested_answerer)
             if answerer is None:
                 raise AnswererUnavailableError
-            self._validate_retry_artifact(answerer, retry.execution.artifact_id)
+            artifact_id = self._required_artifact(retry.execution.artifact_id)
+            self._validate_retry_artifact(answerer, artifact_id)
             await InferenceBillingService(session).register(
                 principal,
                 retry.execution,
@@ -207,7 +215,7 @@ class ThreadService:
                 retry.thread,
                 retry.response,
                 answerer,
-                retry.execution.artifact_id,
+                artifact_id,
                 deadline,
             )
             await session.commit()
@@ -322,9 +330,7 @@ class ThreadService:
         )
         await repository.add_generation_outbox(execution.id, job.to_json())
 
-    def _validate_retry_artifact(
-        self, answerer: AnswererDefinition, artifact_id: str
-    ) -> None:
+    def _validate_retry_artifact(self, answerer: AnswererDefinition, artifact_id: str) -> None:
         if answerer.runtime_kind is RuntimeKind.PSEUDO_MODEL:
             if artifact_id != ASUKA_PSEUDO_ARTIFACT_ID:
                 raise AnswererUnavailableError
@@ -351,7 +357,9 @@ class ThreadService:
         if not admitted:
             raise GenerationCapacityError
 
-    def _resolve_runtime(self, answerer: AnswererDefinition) -> tuple[str, str]:
+    def _resolve_runtime(self, answerer: AnswererDefinition) -> tuple[str, str | None]:
+        if answerer.runtime_kind is RuntimeKind.HUMAN:
+            return f"human:{answerer.runtime_name}", None
         if answerer.runtime_kind is RuntimeKind.PSEUDO_MODEL:
             return f"pseudo:{answerer.runtime_name}", ASUKA_PSEUDO_ARTIFACT_ID
         try:
@@ -386,6 +394,23 @@ class ThreadService:
         return datetime.now(timezone.utc) + timedelta(
             seconds=self._settings.inference_job_timeout_seconds
         )
+
+    def _execution_deadline(self, answerer: AnswererDefinition) -> datetime | None:
+        if answerer.runtime_kind is RuntimeKind.HUMAN:
+            return None
+        return self._generation_deadline()
+
+    @staticmethod
+    def _required_artifact(artifact_id: str | None) -> str:
+        if artifact_id is None:
+            raise AnswererUnavailableError
+        return artifact_id
+
+    @staticmethod
+    def _required_deadline(deadline: datetime | None) -> datetime:
+        if deadline is None:
+            raise AnswererUnavailableError
+        return deadline
 
 
 @lru_cache

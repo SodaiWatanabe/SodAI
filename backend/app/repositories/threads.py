@@ -51,6 +51,7 @@ from app.domain.threads import (
     ThreadSearchSource,
     ThreadSummary,
 )
+from app.models.humans import HumanTaskModel
 from app.models.platform import (
     ActorModel,
     EntryTextContentModel,
@@ -65,6 +66,7 @@ from app.models.platform import (
     ThreadModel,
     ThreadParticipantModel,
 )
+from app.repositories.response_completion import complete_response
 
 EXECUTION_ADMISSION_LOCK_KEY = 0x534F44414902
 
@@ -160,8 +162,8 @@ class SqlAlchemyThreadRepository:
         answerer: AnswererDefinition,
         *,
         execution_target: str,
-        artifact_id: str,
-        deadline_at: datetime,
+        artifact_id: str | None,
+        deadline_at: datetime | None,
     ) -> ResponseCreation:
         now = datetime.now(timezone.utc)
         thread = ThreadModel(
@@ -212,8 +214,8 @@ class SqlAlchemyThreadRepository:
         answerer: AnswererDefinition,
         *,
         execution_target: str,
-        artifact_id: str,
-        deadline_at: datetime,
+        artifact_id: str | None,
+        deadline_at: datetime | None,
         model_limit: int,
         guest_model_limit: int,
     ) -> ResponseCreation:
@@ -323,7 +325,7 @@ class SqlAlchemyThreadRepository:
             return ExecutionRetry(
                 thread=await self.get(principal, request.thread_id),
                 response=self._to_response(request),
-                execution=self._to_execution(replayed),
+                execution=self._to_execution(replayed, AnswererId(request.requested_answerer)),
                 replayed=True,
             )
 
@@ -338,7 +340,8 @@ class SqlAlchemyThreadRepository:
             (
                 execution
                 for execution in request.executions
-                if execution.status in {
+                if execution.status
+                in {
                     ResponseStatus.QUEUED.value,
                     ResponseStatus.RUNNING.value,
                 }
@@ -355,6 +358,8 @@ class SqlAlchemyThreadRepository:
 
         answerer = AnswererId(request.requested_answerer)
         answerer_definition = get_answerer(answerer)
+        if answerer_definition is None or answerer_definition.runtime_kind is RuntimeKind.HUMAN:
+            raise ResponseNotRetryableError
         if (
             answerer_definition is not None
             and answerer_definition.runtime_kind is RuntimeKind.LOCAL_MODEL
@@ -398,7 +403,7 @@ class SqlAlchemyThreadRepository:
         return ExecutionRetry(
             thread=refreshed_thread,
             response=self._to_response(request),
-            execution=self._to_execution(execution),
+            execution=self._to_execution(execution, answerer),
             replayed=False,
         )
 
@@ -410,8 +415,8 @@ class SqlAlchemyThreadRepository:
         answerer: AnswererDefinition,
         *,
         execution_target: str,
-        artifact_id: str,
-        deadline_at: datetime,
+        artifact_id: str | None,
+        deadline_at: datetime | None,
         ordinal: int,
     ) -> None:
         input_entry = ThreadEntryModel(
@@ -445,29 +450,42 @@ class SqlAlchemyThreadRepository:
             partial_output="",
             deadline_at=deadline_at,
         )
-        execution.model_execution = ModelExecutionModel(
-            requested_model=answerer.id.value,
-            resolved_model=None,
-            artifact_id=artifact_id,
-        )
+        if answerer.runtime_kind is RuntimeKind.HUMAN:
+            if answerer.required_human_rank is None:
+                raise RuntimeError("Human answerer is missing its required rank")
+            execution.human_task = HumanTaskModel(required_rank_level=answerer.required_human_rank)
+        else:
+            if artifact_id is None:
+                raise RuntimeError("Model execution is missing its artifact")
+            execution.model_execution = ModelExecutionModel(
+                requested_model=answerer.id.value,
+                resolved_model=None,
+                artifact_id=artifact_id,
+            )
         self._session.add_all([response_request, execution])
         await self._session.flush()
-        await self._snapshot_context(response_request)
+        await self._snapshot_context(
+            response_request,
+            full_thread=answerer.runtime_kind is RuntimeKind.HUMAN,
+        )
 
-    async def _snapshot_context(self, request: ResponseRequestModel) -> None:
+    async def _snapshot_context(
+        self, request: ResponseRequestModel, *, full_thread: bool = False
+    ) -> None:
         statement = (
             select(ThreadEntryModel, EntryTextContentModel)
             .join(EntryTextContentModel, EntryTextContentModel.entry_id == ThreadEntryModel.id)
             .where(ThreadEntryModel.thread_id == request.thread_id)
             .order_by(ThreadEntryModel.ordinal.desc())
-            .limit(MAX_GENERATION_TURNS)
         )
+        if not full_thread:
+            statement = statement.limit(MAX_GENERATION_TURNS)
         rows = (await self._session.execute(statement)).all()
         selected: list[ThreadEntryModel] = []
         input_bytes = 0
         for entry, text_content in rows:
             size = len(text_content.content.encode("utf-8"))
-            if input_bytes + size > MAX_GENERATION_INPUT_BYTES:
+            if not full_thread and input_bytes + size > MAX_GENERATION_INPUT_BYTES:
                 if not selected:
                     raise ValueError("latest entry exceeds the generation context limit")
                 break
@@ -586,11 +604,7 @@ class SqlAlchemyThreadRepository:
         has_more = len(rows) > limit
         hits = []
         for thread, entry_id, content in rows[:limit]:
-            source = (
-                ThreadSearchSource.ENTRY
-                if entry_id is not None
-                else ThreadSearchSource.TITLE
-            )
+            source = ThreadSearchSource.ENTRY if entry_id is not None else ThreadSearchSource.TITLE
             hits.append(
                 ThreadSearchHit(
                     thread=self._to_summary(thread),
@@ -747,35 +761,46 @@ class SqlAlchemyThreadRepository:
 
     async def project_generation_event(self, event: GenerationEvent) -> ProjectionResult:
         thread_id = await self._session.scalar(
-            select(ExecutionModel.thread_id).where(ExecutionModel.id == event.execution_id)
+            select(ExecutionModel.thread_id)
+            .join(
+                ModelExecutionModel,
+                ModelExecutionModel.execution_id == ExecutionModel.id,
+            )
+            .where(ExecutionModel.id == event.execution_id)
         )
         if thread_id is None:
             return ProjectionResult(EventDisposition.IGNORE)
         thread = await self._session.scalar(
-            select(ThreadModel)
-            .where(ThreadModel.id == thread_id)
-            .with_for_update()
+            select(ThreadModel).where(ThreadModel.id == thread_id).with_for_update()
         )
         if thread is None:
             return ProjectionResult(EventDisposition.IGNORE)
         statement = (
-            select(ExecutionModel, ResponseRequestModel, SpaceModel)
+            select(
+                ExecutionModel,
+                ModelExecutionModel,
+                ResponseRequestModel,
+                SpaceModel,
+            )
             .join(
                 ResponseRequestModel,
                 ResponseRequestModel.id == ExecutionModel.response_request_id,
+            )
+            .join(
+                ModelExecutionModel,
+                ModelExecutionModel.execution_id == ExecutionModel.id,
             )
             .join(SpaceModel, SpaceModel.id == thread.space_id)
             .where(
                 ExecutionModel.id == event.execution_id,
                 ExecutionModel.thread_id == thread.id,
             )
-            .options(selectinload(ExecutionModel.model_execution))
-            .with_for_update(of=(ExecutionModel, ResponseRequestModel))
+            .with_for_update(of=(ExecutionModel, ModelExecutionModel, ResponseRequestModel))
         )
         row = (await self._session.execute(statement)).one_or_none()
         if row is None:
             return ProjectionResult(EventDisposition.IGNORE)
-        execution, request, space = row
+        execution, model_execution, request, space = row
         if event.thread_id != execution.thread_id:
             return ProjectionResult(EventDisposition.IGNORE)
         disposition = classify_generation_event(
@@ -789,7 +814,13 @@ class SqlAlchemyThreadRepository:
         if disposition in {EventDisposition.IGNORE, EventDisposition.DEFER}:
             return ProjectionResult(disposition)
         if disposition is EventDisposition.APPLY:
-            await self._apply_event(execution, request, thread, event)
+            await self._apply_event(
+                execution,
+                model_execution,
+                request,
+                thread,
+                event,
+            )
             execution.last_event_sequence = event.sequence
             execution.last_event_id = event.id
             execution.last_event_type = event.type.value
@@ -802,6 +833,7 @@ class SqlAlchemyThreadRepository:
     async def _apply_event(
         self,
         execution: ExecutionModel,
+        model_execution: ModelExecutionModel,
         request: ResponseRequestModel,
         thread: ThreadModel,
         event: GenerationEvent,
@@ -814,7 +846,7 @@ class SqlAlchemyThreadRepository:
             execution.started_at = execution.started_at or now
             execution.lease_expires_at = now + timedelta(minutes=3)
             execution.input_tokens = event.input_tokens
-            execution.model_execution.resolved_model = event.resolved_model
+            model_execution.resolved_model = event.resolved_model
             request.status = ResponseStatus.RUNNING.value
             request.started_at = request.started_at or now
             return
@@ -831,30 +863,9 @@ class SqlAlchemyThreadRepository:
             if not content.strip():
                 self._fail_execution(execution, request, thread, now, "empty_generation")
                 return
-            last_ordinal = await self._session.scalar(
-                select(func.max(ThreadEntryModel.ordinal)).where(
-                    ThreadEntryModel.thread_id == thread.id
-                )
-            )
-            result = ThreadEntryModel(
-                id=uuid4(),
-                thread_id=thread.id,
-                author_actor_id=request.target_actor_id,
-                kind=EntryKind.MESSAGE.value,
-                ordinal=(last_ordinal if last_ordinal is not None else -1) + 1,
-            )
-            result.text = EntryTextContentModel(content=content)
-            self._session.add(result)
-            execution.partial_output = content
-            execution.status = ResponseStatus.COMPLETED.value
-            execution.result_entry_id = result.id
+            await complete_response(self._session, execution, request, thread, content, now)
             execution.output_tokens = event.output_tokens
             execution.finish_reason = event.finish_reason.value if event.finish_reason else None
-            execution.finished_at = now
-            execution.lease_expires_at = None
-            request.status = ResponseStatus.COMPLETED.value
-            request.finished_at = now
-            thread.last_activity_at = now
             return
         self._fail_execution(
             execution,
@@ -897,6 +908,10 @@ class SqlAlchemyThreadRepository:
         candidates = (
             await self._session.execute(
                 select(ExecutionModel.id, ExecutionModel.thread_id)
+                .join(
+                    ModelExecutionModel,
+                    ModelExecutionModel.execution_id == ExecutionModel.id,
+                )
                 .where(expiration_filter)
                 .order_by(ExecutionModel.deadline_at)
                 .limit(limit)
@@ -916,6 +931,10 @@ class SqlAlchemyThreadRepository:
                 .join(
                     ResponseRequestModel,
                     ResponseRequestModel.id == ExecutionModel.response_request_id,
+                )
+                .join(
+                    ModelExecutionModel,
+                    ModelExecutionModel.execution_id == ExecutionModel.id,
                 )
                 .join(SpaceModel, SpaceModel.id == thread.space_id)
                 .where(
@@ -986,8 +1005,15 @@ class SqlAlchemyThreadRepository:
     async def _latest_response(self, thread_id: UUID) -> ResponseRequest:
         statement = (
             select(ResponseRequestModel)
+            .join(
+                ThreadEntryModel,
+                and_(
+                    ThreadEntryModel.id == ResponseRequestModel.input_entry_id,
+                    ThreadEntryModel.thread_id == ResponseRequestModel.thread_id,
+                ),
+            )
             .where(ResponseRequestModel.thread_id == thread_id)
-            .order_by(ResponseRequestModel.created_at.desc())
+            .order_by(ThreadEntryModel.ordinal.desc())
             .limit(1)
             .options(
                 selectinload(ResponseRequestModel.target_actor),
@@ -1061,7 +1087,12 @@ class SqlAlchemyThreadRepository:
 
     @classmethod
     def _to_thread(cls, model: ThreadModel) -> Thread:
-        latest = max(model.response_requests, key=lambda item: item.created_at, default=None)
+        entry_ordinals = {entry.id: entry.ordinal for entry in model.entries}
+        latest = max(
+            model.response_requests,
+            key=lambda item: entry_ordinals.get(item.input_entry_id, -1),
+            default=None,
+        )
         return Thread(
             id=model.id,
             space_id=model.space_id,
@@ -1107,25 +1138,26 @@ class SqlAlchemyThreadRepository:
                 name=model.target_actor.name,
             ),
             status=ResponseStatus(model.status),
-            execution=cls._to_execution(execution),
+            execution=cls._to_execution(execution, AnswererId(model.requested_answerer)),
             created_at=model.created_at,
         )
 
     @staticmethod
-    def _to_execution(model: ExecutionModel) -> Execution:
+    def _to_execution(model: ExecutionModel, answerer: AnswererId) -> Execution:
+        model_execution = model.model_execution
         return Execution(
             id=model.id,
             response_request_id=model.response_request_id,
             thread_id=model.thread_id,
             result_entry_id=model.result_entry_id,
-            answerer=AnswererId(model.model_execution.requested_model),
+            answerer=answerer,
             target=model.execution_target,
             status=ResponseStatus(model.status),
             attempt_no=model.attempt_no,
             attempt_id=model.attempt_id,
             partial_output=model.partial_output,
-            resolved_model=model.model_execution.resolved_model,
-            artifact_id=model.model_execution.artifact_id,
+            resolved_model=(model_execution.resolved_model if model_execution else None),
+            artifact_id=(model_execution.artifact_id if model_execution else None),
             error_code=model.error_code,
             created_at=model.created_at,
         )

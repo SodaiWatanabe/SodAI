@@ -1,0 +1,48 @@
+# Human Brain MVP
+
+SodAI ChatとSodAI Brainは、同じResponse/Execution/Thread基盤を別の入口から使う。
+ChatではHuman LiteまたはHuman ProへPromptを送り、BrainではHumanとして割り当てを受ける。
+
+## 不変条件
+
+- `human-lite`と`human-pro`は変更しない公開IDで、表示名はcatalogから変更できる。
+- Humanモデルの差は`required_human_rank`だけで表す。matcherはモデルIDで分岐しない。
+- Prompt作成者と実回答者は別のUserでなければならない。
+- 実回答者はThread memberにせず、active Claimを持つ間だけ全文脈を読める。
+- Thread上の回答者はHuman Lite/ProのModel Actorとする。実回答者UserはClaimだけに記録する。
+- 回答本文は`thread_entries`、完了状態はResponseRequest/Executionを正本とし、Human用に複製しない。
+
+## 最小データ
+
+- `human_profiles`: Userの現在rank。
+- `human_tasks`: Human Executionの必要rankとFIFO時刻。
+- `human_wait_entries`: 準備OKになったHumanのFIFO待機とreadiness lease。
+- `human_claims`: Taskと実回答者の一時割当、skip/answer/expire履歴。
+
+MVPのrank変更は`make human-rank USER_ID=<uuid> RANK=2`で行う。評価による自動昇降は後から
+同じprofile更新境界へ接続する。
+
+Response作成時にHuman TaskはThreadの全Entryを既存`response_context_items`へsnapshotする。
+AI生成用のturn/byte上限は適用しない。Human回答はAI回答と同じ完了関数でThreadEntryへ確定する。
+
+## Realtime matching
+
+Task作成、readiness更新、skip、answerの後に同じmatcherを起動する。matcherはPostgreSQLの
+transaction advisory lock内で、次の順に一組ずつ割り当てる。
+
+1. 現在マッチ可能なTaskを`queued_at, execution_id`順に選ぶ。
+2. そのTaskに適格なHumanを`ready_at, wait_entry_id`順に選ぶ。
+3. 自分のPrompt、rank不足、同じTaskを過去にskip/expireしたHumanを除外する。
+
+古いTaskが現在のHumanと非互換でも、新しい互換Taskを妨げない。DB commit後、Prompt側へ
+`response.started/completed/queued`、Brain側へ`human.assigned`を既存WebSocketで通知する。
+Brainは10秒ごとの冪等な`PUT /human/readiness`と再接続時の`GET /human/state`で状態を復元する。
+
+現在のRealtimeHubはprocess-localなので、MVPのAPIは単一workerを前提とする。複数worker化では
+event fan-outとticket storeを共有brokerへ移すが、DB matcherとClaimの一意制約はそのまま保つ。
+
+## 拡張点
+
+思考可能時間はモデル名やrankと分離し、将来`human_tasks`へ離散的なeffort snapshotとして追加する。
+画像生成などのToolもTask requirementとAssignment payloadを追加し、matcherへ能力条件を一つ足す。
+テキスト回答の正本やThread参加モデルは変えない。価格・報酬・評価・需要表示はMVPの外に置く。

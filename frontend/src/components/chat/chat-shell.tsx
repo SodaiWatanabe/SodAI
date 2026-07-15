@@ -6,15 +6,14 @@ import { type FormEvent, useEffect, useRef, useState } from "react";
 import { useChatData } from "@/components/chat/chat-data-provider";
 import { ChatHeader } from "@/components/chat/chat-header";
 import { settleComposerFocus } from "@/components/chat/composer-focus";
+import { HumanPrivacyCard } from "@/components/chat/human-privacy-card";
 import { MessageComposer } from "@/components/chat/message-composer";
 import { useKeyboardShortcuts } from "@/components/preferences/keyboard-shortcuts-provider";
 import { useToast } from "@/components/ui/toast-provider";
+import { isApiErrorStatus } from "@/lib/api/api-error";
 import type { AvailableAnswerer } from "@/lib/chat/types";
-import {
-  INSUFFICIENT_CREDITS_MESSAGE,
-  isInsufficientCreditsError,
-} from "@/lib/chat/api-error";
 import { useChatApi } from "@/lib/chat/use-chat-api";
+import { INSUFFICIENT_CREDITS_MESSAGE } from "@/lib/credits/error";
 
 type ChatShellProps = {
   greeting: string;
@@ -36,6 +35,7 @@ export function ChatShell(props: ChatShellProps) {
     requestedAnswerer ??
     answerers.find((availableAnswerer) => availableAnswerer.is_default)?.id ??
     answerers[0]?.id;
+  const selectedAnswerer = answerers.find((option) => option.id === answerer);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -60,7 +60,7 @@ export function ChatShell(props: ChatShellProps) {
     } catch (error) {
       if (!mountedRef.current) return;
       setSubmitting(false);
-      const insufficientCredits = isInsufficientCreditsError(error);
+      const insufficientCredits = isApiErrorStatus(error, 402);
       showToast({
         id: "thread-create",
         message: insufficientCredits
@@ -101,6 +101,9 @@ export function ChatShell(props: ChatShellProps) {
             textareaRef={inputRef}
             value={message}
           />
+          {selectedAnswerer?.kind === "human" ? (
+            <HumanPrivacyCard />
+          ) : null}
         </div>
       </section>
     </>

@@ -8,11 +8,7 @@ import {
   SquarePen,
   X,
 } from "lucide-react";
-import {
-  usePathname,
-  useRouter,
-  useSelectedLayoutSegments,
-} from "next/navigation";
+import { useRouter, useSelectedLayoutSegments } from "next/navigation";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 
 import { AuthDialog } from "@/components/auth/auth-dialog";
@@ -23,6 +19,11 @@ import {
 } from "@/components/chat/sidebar-account";
 import { ChatAuthProvider } from "@/components/chat/chat-auth-context";
 import { useChatData } from "@/components/chat/chat-data-provider";
+import {
+  resolveChatFrameRoute,
+  type SodaiProduct,
+} from "@/components/chat/chat-frame-route";
+import { ProductSwitcher } from "@/components/chat/product-switcher";
 import { ThreadListItem } from "@/components/chat/thread-list-item";
 import { ThreadSearchDialog } from "@/components/chat/thread-search-dialog";
 import {
@@ -52,6 +53,7 @@ type SidebarProps = {
   compact: boolean;
   contentVisible: boolean;
   newChatActive: boolean;
+  product: SodaiProduct;
   threads: ThreadSummary[];
   guestActionsVisible: boolean;
   onClose: () => void;
@@ -60,6 +62,7 @@ type SidebarProps = {
   onOpenCredits: () => void;
   onOpenSearch: () => void;
   onOpenSettings: () => void;
+  onSelectProduct: (product: SodaiProduct) => void;
   onSelectThread: (id: string) => void;
   onSignOut: () => void;
   signingOut: boolean;
@@ -71,6 +74,7 @@ function Sidebar({
   compact,
   contentVisible,
   newChatActive,
+  product,
   threads,
   guestActionsVisible,
   onClose,
@@ -79,6 +83,7 @@ function Sidebar({
   onOpenCredits,
   onOpenSearch,
   onOpenSettings,
+  onSelectProduct,
   onSelectThread,
   onSignOut,
   signingOut,
@@ -91,12 +96,11 @@ function Sidebar({
   return (
     <>
       <div className="relative flex h-12 shrink-0 items-center px-1.5">
-        <span
-          aria-hidden={!contentVisible}
-          className={`absolute left-4 whitespace-nowrap text-lg font-semibold tracking-[-0.025em] text-[var(--text)] transition-opacity duration-150 ${contentVisibility}`}
-        >
-          SodAI
-        </span>
+        <ProductSwitcher
+          contentVisible={contentVisible}
+          product={product}
+          onChange={onSelectProduct}
+        />
         <button
           type="button"
           aria-label={compact ? "サイドバーを開く" : "サイドバーを閉じる"}
@@ -121,9 +125,9 @@ function Sidebar({
 
       <nav
         className="flex min-h-0 flex-1 flex-col overflow-hidden px-1.5 pt-2"
-        aria-label="会話"
+        aria-label={product === "chat" ? "会話" : "Brain"}
       >
-        <button
+        {product === "chat" ? <><button
           type="button"
           title="新しい会話"
           aria-current={newChatActive ? "page" : undefined}
@@ -181,7 +185,7 @@ function Sidebar({
               ))}
             </div>
           </div>
-        ) : null}
+        ) : null}</> : null}
       </nav>
 
       <div className="px-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom))] pt-1.5">
@@ -227,9 +231,9 @@ export function ChatFrame({
   initialUser,
 }: ChatFrameProps) {
   authClient.useSession();
-  const pathname = usePathname();
   const router = useRouter();
   const childSegments = useSelectedLayoutSegments();
+  const frameRoute = resolveChatFrameRoute(childSegments);
   const { invalidate: invalidateAccessToken } = useApiAccessToken();
   const { subscribeRealtime, threads } = useChatData();
   const { recordingAction, shortcuts } = useKeyboardShortcuts();
@@ -253,6 +257,7 @@ export function ChatFrame({
   );
   const [googleAuthError, setGoogleAuthError] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
+  const product = frameRoute.product;
   const openAuth = useCallback(() => setAuthOpen(true), []);
   const openMobileSidebar = useCallback(() => {
     setMobileGuestActionsVisible(false);
@@ -281,8 +286,7 @@ export function ChatFrame({
     },
     [closeMobileSidebar, router],
   );
-  const activeThreadId =
-    childSegments.at(0) === "t" ? childSegments.at(1) : undefined;
+  const activeThreadId = frameRoute.activeThreadId;
 
   useEffect(() => {
     const url = new URL(window.location.href);
@@ -414,6 +418,16 @@ export function ChatFrame({
     router.push("/settings/credits");
   }
 
+  function navigateToProduct(nextProduct: SodaiProduct) {
+    closeMobileSidebar();
+    setSearchNavigationTarget(null);
+    if (nextProduct === "brain" && !initialUser) {
+      openAuth();
+      return;
+    }
+    router.push(nextProduct === "brain" ? "/brain" : "/");
+  }
+
   function navigateToSearchResult(hit: ThreadSearchHit, query: string) {
     searchOpenedFromMobileRef.current = false;
     setSearchOpen(false);
@@ -463,7 +477,8 @@ export function ChatFrame({
       activeThreadId={activeThreadId}
       compact={compact}
       contentVisible={contentVisible}
-      newChatActive={pathname === "/"}
+      newChatActive={frameRoute.newChatActive}
+      product={product}
       threads={threads}
       guestActionsVisible={guestActionsVisible}
       onClose={onClose}
@@ -472,6 +487,7 @@ export function ChatFrame({
       onOpenCredits={navigateToCredits}
       onOpenSearch={openSearch}
       onOpenSettings={navigateToSettings}
+      onSelectProduct={navigateToProduct}
       onSelectThread={navigate}
       onSignOut={signOut}
       signingOut={signingOut}

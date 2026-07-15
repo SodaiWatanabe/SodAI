@@ -12,6 +12,7 @@ import {
 import { useChatData } from "@/components/chat/chat-data-provider";
 import { ChatHeader } from "@/components/chat/chat-header";
 import { settleComposerFocus } from "@/components/chat/composer-focus";
+import { HUMAN_PRIVACY_NOTICE } from "@/components/chat/human-privacy-card";
 import { MessageComposer } from "@/components/chat/message-composer";
 import { reduceThreadRealtime } from "@/components/chat/thread-realtime";
 import { ThreadViewport } from "@/components/chat/thread-viewport";
@@ -25,11 +26,9 @@ import type {
   Thread,
   ThreadEntry,
 } from "@/lib/chat/types";
-import {
-  INSUFFICIENT_CREDITS_MESSAGE,
-  isInsufficientCreditsError,
-} from "@/lib/chat/api-error";
+import { isApiErrorStatus } from "@/lib/api/api-error";
 import { useChatApi } from "@/lib/chat/use-chat-api";
+import { INSUFFICIENT_CREDITS_MESSAGE } from "@/lib/credits/error";
 
 type ThreadShellProps = {
   threadId: string;
@@ -86,6 +85,17 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const responding = submitting || isResponding(thread);
+  const selectedAnswerer = answerers.find((option) => option.id === answerer);
+  const latestResponse = thread?.latest_response;
+  const respondingAnswererId =
+    latestResponse?.status === "queued" || latestResponse?.status === "running"
+      ? latestResponse.requested_answerer
+      : submitting
+        ? answerer
+        : undefined;
+  const respondingAnswerer = answerers.find(
+    (option) => option.id === respondingAnswererId,
+  );
   const activeSearchTarget =
     targetEntryId &&
     searchNavigationTarget?.threadId === threadId &&
@@ -306,7 +316,7 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
       if (!mountedRef.current) return;
       setMessage((current) => (current.trim() ? current : input));
       setSubmitting(false);
-      const insufficientCredits = isInsufficientCreditsError(error);
+      const insufficientCredits = isApiErrorStatus(error, 402);
       showToast({
         id: "message-send",
         message: insufficientCredits
@@ -339,6 +349,7 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
           thread={thread}
           loading={loading}
           responding={responding}
+          humanResponse={respondingAnswerer?.kind === "human"}
           targetEntryId={targetEntryId}
           targetSearchQuery={targetSearchQuery}
         />
@@ -375,7 +386,9 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
             value={message}
           />
           <p className="relative z-10 mx-auto mt-2 max-w-[760px] text-center text-xs text-[var(--muted)]">
-            SodAIは息をするように嘘をつきます。安易に信用しないでください。
+            {selectedAnswerer?.kind === "human"
+              ? HUMAN_PRIVACY_NOTICE
+              : "SodAIは息をするように嘘をつきます。安易に信用しないでください。"}
           </p>
         </div>
       </div>

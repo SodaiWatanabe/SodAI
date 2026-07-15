@@ -10,7 +10,7 @@ COMPOSE_DEV = $(COMPOSE_BASE) -f compose.dev.yaml
 
 .PHONY: install install-contracts install-auth install-backend install-frontend install-inference \
 	dev-auth dev-backend dev-frontend dev-inference import-hina deploy-hina \
-	inference-status credits-grant credits-expire test-inference-e2e \
+	inference-status credits-grant credits-expire human-rank test-inference-e2e \
 	infra-check-env infra-config infra-up infra-up-internal infra-down infra-logs infra-ps \
 	tunnel-up tunnel-down db-shell redis-cli db-backup db-restore \
 	migrate migrate-auth migrate-app reinitialize-app-schema \
@@ -82,6 +82,12 @@ credits-grant:
 
 credits-expire:
 	cd backend && .venv/bin/python -m app.cli.credits_expire
+
+human-rank:
+	@test -n "$(USER_ID)" || { echo 'USER_ID=<uuid> を指定してください。' >&2; exit 1; }
+	@test -n "$(RANK)" || { echo 'RANK=<level> を指定してください。' >&2; exit 1; }
+	cd backend && .venv/bin/python -m app.cli.human_rank \
+		--user-id "$(USER_ID)" --rank "$(RANK)"
 
 test-inference-e2e: infra-check-env
 	ENV_FILE="$(ENV_FILE)" ./infra/scripts/test-inference-e2e.sh

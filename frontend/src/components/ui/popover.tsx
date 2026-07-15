@@ -167,11 +167,20 @@ export function Popover({
       return;
     }
 
+    const content = contentRef.current;
+    const trigger = triggerRef.current;
+    if (!content || !trigger) {
+      return;
+    }
+
     positionContent();
+    const resizeObserver = new ResizeObserver(positionContent);
+    resizeObserver.observe(trigger);
     window.addEventListener("resize", positionContent);
     window.addEventListener("scroll", positionContent, true);
 
     return () => {
+      resizeObserver.disconnect();
       window.removeEventListener("resize", positionContent);
       window.removeEventListener("scroll", positionContent, true);
     };

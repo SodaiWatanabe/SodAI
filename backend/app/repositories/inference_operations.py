@@ -21,6 +21,7 @@ class InferenceOperationsRepository:
             (
                 await self._session.execute(
                     select(ExecutionModel.status, func.count())
+                    .join(ModelExecutionModel)
                     .group_by(ExecutionModel.status)
                 )
             ).all()
@@ -54,6 +55,7 @@ class InferenceOperationsRepository:
         failed_last_hour = await self._session.scalar(
             select(func.count())
             .select_from(ExecutionModel)
+            .join(ModelExecutionModel)
             .where(
                 ExecutionModel.status == "failed",
                 ExecutionModel.finished_at >= now - timedelta(hours=1),
@@ -76,9 +78,9 @@ class InferenceOperationsRepository:
             )
         )
         oldest_queued_at = await self._session.scalar(
-            select(func.min(ExecutionModel.created_at)).where(
-                ExecutionModel.status == "queued"
-            )
+            select(func.min(ExecutionModel.created_at))
+            .join(ModelExecutionModel)
+            .where(ExecutionModel.status == "queued")
         )
         schema_revision = await self._session.scalar(
             text("SELECT version_num FROM app.alembic_version LIMIT 1")

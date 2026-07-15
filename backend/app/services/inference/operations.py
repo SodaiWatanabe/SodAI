@@ -136,6 +136,8 @@ class InferenceOperationsService:
         runtime_specs: list[tuple[AnswererId, str, str | None, bool, bool]] = []
         current_artifacts: set[tuple[AnswererId, str]] = set()
         for answerer in ANSWERER_CATALOG:
+            if answerer.runtime_kind is RuntimeKind.HUMAN:
+                continue
             artifact_id, deployment_available = self._artifact(
                 answerer.runtime_kind, answerer.runtime_name
             )
@@ -291,6 +293,8 @@ class InferenceOperationsService:
         runtimes = []
         current_artifacts: set[tuple[AnswererId, str]] = set()
         for answerer in ANSWERER_CATALOG:
+            if answerer.runtime_kind is RuntimeKind.HUMAN:
+                continue
             artifact_id, deployment_available = self._artifact(
                 answerer.runtime_kind, answerer.runtime_name
             )

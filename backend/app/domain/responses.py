@@ -32,7 +32,7 @@ class Execution:
     attempt_id: UUID
     partial_output: str
     resolved_model: str | None
-    artifact_id: str
+    artifact_id: str | None
     error_code: str | None
     created_at: datetime
 

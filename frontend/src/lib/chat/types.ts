@@ -78,7 +78,9 @@ export type AvailableAnswerer = {
   id: string;
   name: string;
   description: string;
+  kind: "ai" | "human";
   is_default: boolean;
+  is_legacy: boolean;
   pricing: {
     kind: "free" | "metered";
     asset_code: string;
@@ -105,6 +107,7 @@ export type RealtimeEvent = {
     | "response.delta"
     | "response.completed"
     | "response.failed"
+    | "human.assigned"
     | "sync.required";
   space_id: string;
   thread_id: string;
@@ -126,5 +129,6 @@ export type RealtimeEvent = {
     updated_at?: string;
     last_activity_at?: string;
     attempt_no?: number;
+    claim_id?: string;
   };
 };

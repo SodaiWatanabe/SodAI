@@ -4,7 +4,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
-from app.domain.answerers import AnswererId, AnswererPricingKind
+from app.domain.answerers import AnswererId, AnswererKind, AnswererPricingKind
 
 ANSWERER_SELECTION_DESCRIPTION = (
     "Answerer ID. Omit to use Hina for guests or Asuka 1 for authenticated accounts."
@@ -168,7 +168,9 @@ class AnswererResponse(BaseModel):
     id: AnswererId
     name: str
     description: str
+    kind: AnswererKind
     is_default: bool
+    is_legacy: bool
     pricing: AnswererPricingResponse
 
 

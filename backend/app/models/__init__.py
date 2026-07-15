@@ -10,6 +10,12 @@ from app.models.credits import (
     InferenceCreditReservationModel,
     InferenceUsageRecordModel,
 )
+from app.models.humans import (
+    HumanClaimModel,
+    HumanProfileModel,
+    HumanTaskModel,
+    HumanWaitEntryModel,
+)
 from app.models.platform import (
     ActorModel,
     EntryTextContentModel,
@@ -38,6 +44,10 @@ __all__ = [
     "EntryTextContentModel",
     "ExecutionModel",
     "GuestSessionModel",
+    "HumanClaimModel",
+    "HumanProfileModel",
+    "HumanTaskModel",
+    "HumanWaitEntryModel",
     "InferenceBillingIntentModel",
     "InferenceCreditReservationModel",
     "InferenceUsageRecordModel",

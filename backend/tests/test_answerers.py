@@ -41,6 +41,8 @@ def test_answerer_catalog_is_the_single_ui_source() -> None:
     assert [(item.id, item.name, item.description, item.is_default) for item in answerers] == [
         (AnswererId.ASUKA_1, "Asuka 1", "会話に最適。", True),
         (AnswererId.HINA, "Hina", "知能の萌芽を捉える。", False),
+        (AnswererId.HUMAN_LITE, "Human Lite", "日常のやりとりに最適。", False),
+        (AnswererId.HUMAN_PRO, "Human Pro", "より高度な応答。", False),
     ]
     by_id = {item.id: item for item in answerers}
     assert by_id[AnswererId.ASUKA_1].pricing.kind is AnswererPricingKind.METERED
@@ -53,6 +55,11 @@ def test_answerer_catalog_is_the_single_ui_source() -> None:
         by_id[AnswererId.ASUKA_1].pricing.unmetered_charge,
     ) == ("asuka-1-flat-v2", 100_000, 0, 0, 100_000, 100_000)
     assert by_id[AnswererId.HINA].pricing.kind is AnswererPricingKind.FREE
+    assert by_id[AnswererId.HINA].is_legacy is True
+    assert by_id[AnswererId.HUMAN_LITE].is_legacy is False
+    assert by_id[AnswererId.HUMAN_PRO].is_legacy is False
+    assert by_id[AnswererId.HUMAN_LITE].pricing.kind is AnswererPricingKind.FREE
+    assert by_id[AnswererId.HUMAN_PRO].pricing.kind is AnswererPricingKind.FREE
     guest_answerers = ThreadService.available_answerers(principal(PrincipalKind.GUEST))
     assert all(item.pricing.kind is AnswererPricingKind.FREE for item in guest_answerers)
 

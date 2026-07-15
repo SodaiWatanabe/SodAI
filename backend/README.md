@@ -45,6 +45,11 @@ projector is the only component allowed to apply runtime events to PostgreSQL an
 the public WebSocket stream. Hina and the in-process Asuka stand-in use this same
 path.
 
+Human Lite and Human Pro reuse the same ResponseRequest, Execution, context, and
+ThreadEntry records without creating a model outbox job. Their rank-based FIFO
+matching, Brain readiness lease, skip loop, and extension boundary are documented in
+`docs/architecture/human-brain.md`.
+
 Generation jobs carry at most 32 recent turns and 64 KiB of Entry content.
 PostgreSQL advisory locking enforces the configured per-guest/model and per-model active
 Execution limits before Hina work is committed. Processed Redis entries and

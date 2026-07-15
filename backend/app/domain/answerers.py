@@ -13,6 +13,8 @@ from app.domain.credits import (
 class AnswererId(str, Enum):
     HINA = "hina"
     ASUKA_1 = "asuka-1"
+    HUMAN_LITE = "human-lite"
+    HUMAN_PRO = "human-pro"
 
 
 class AnswererAudience(str, Enum):
@@ -23,11 +25,17 @@ class AnswererAudience(str, Enum):
 class RuntimeKind(str, Enum):
     LOCAL_MODEL = "local_model"
     PSEUDO_MODEL = "pseudo_model"
+    HUMAN = "human"
 
 
 class AnswererPricingKind(str, Enum):
     FREE = "free"
     METERED = "metered"
+
+
+class AnswererKind(str, Enum):
+    AI = "ai"
+    HUMAN = "human"
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,6 +62,8 @@ class AnswererDefinition:
     tariff: InferenceTariff
     audiences: frozenset[AnswererAudience]
     default_for: frozenset[AnswererAudience] = frozenset()
+    required_human_rank: int | None = None
+    is_legacy: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,12 +71,16 @@ class AvailableAnswerer:
     id: AnswererId
     name: str
     description: str
+    kind: AnswererKind
     is_default: bool
+    is_legacy: bool
     pricing: AnswererPricing
 
 
 HINA_ACTOR_ID = UUID("00000000-0000-4000-8000-000000000001")
 ASUKA_1_ACTOR_ID = UUID("00000000-0000-4000-8000-000000000002")
+HUMAN_LITE_ACTOR_ID = UUID("00000000-0000-4000-8000-000000000003")
+HUMAN_PRO_ACTOR_ID = UUID("00000000-0000-4000-8000-000000000004")
 ASUKA_1_FIXED_CHARGE = CREDIT_SCALE // 10
 
 ASUKA_1_TARIFF = InferenceTariff(
@@ -98,6 +112,29 @@ ANSWERER_CATALOG = (
         tariff=FREE_INFERENCE_TARIFF,
         audiences=frozenset(AnswererAudience),
         default_for=frozenset({AnswererAudience.GUEST}),
+        is_legacy=True,
+    ),
+    AnswererDefinition(
+        id=AnswererId.HUMAN_LITE,
+        actor_id=HUMAN_LITE_ACTOR_ID,
+        name="Human Lite",
+        description="日常のやりとりに最適。",
+        runtime_kind=RuntimeKind.HUMAN,
+        runtime_name="human-lite",
+        tariff=FREE_INFERENCE_TARIFF,
+        audiences=frozenset({AnswererAudience.AUTHENTICATED}),
+        required_human_rank=1,
+    ),
+    AnswererDefinition(
+        id=AnswererId.HUMAN_PRO,
+        actor_id=HUMAN_PRO_ACTOR_ID,
+        name="Human Pro",
+        description="より高度な応答。",
+        runtime_kind=RuntimeKind.HUMAN,
+        runtime_name="human-pro",
+        tariff=FREE_INFERENCE_TARIFF,
+        audiences=frozenset({AnswererAudience.AUTHENTICATED}),
+        required_human_rank=2,
     ),
 )
 _ANSWERERS_BY_ID = {answerer.id: answerer for answerer in ANSWERER_CATALOG}
@@ -109,6 +146,11 @@ if any(
     for answerer in ANSWERER_CATALOG
 ):
     raise RuntimeError("Guest answerers must use a free tariff")
+if any(
+    (answerer.runtime_kind is RuntimeKind.HUMAN) != (answerer.required_human_rank is not None)
+    for answerer in ANSWERER_CATALOG
+):
+    raise RuntimeError("Only Human answerers must define a required Human rank")
 
 _DEFAULTS: dict[AnswererAudience, AnswererDefinition] = {}
 for audience in AnswererAudience:
@@ -133,12 +175,14 @@ def list_available_answerers(audience: AnswererAudience) -> list[AvailableAnswer
             id=item.id,
             name=item.name,
             description=item.description,
+            kind=(
+                AnswererKind.HUMAN if item.runtime_kind is RuntimeKind.HUMAN else AnswererKind.AI
+            ),
             is_default=item.id is default.id,
+            is_legacy=item.is_legacy,
             pricing=AnswererPricing(
                 kind=(
-                    AnswererPricingKind.FREE
-                    if item.tariff.is_free
-                    else AnswererPricingKind.METERED
+                    AnswererPricingKind.FREE if item.tariff.is_free else AnswererPricingKind.METERED
                 ),
                 asset_code=CREDIT_ASSET_CODE,
                 scale=CREDIT_SCALE,
@@ -153,3 +197,16 @@ def list_available_answerers(audience: AnswererAudience) -> list[AvailableAnswer
         for item in ANSWERER_CATALOG
         if audience in item.audiences
     ]
+
+
+def get_human_rank_name(rank_level: int) -> str:
+    eligible = [
+        item
+        for item in ANSWERER_CATALOG
+        if item.runtime_kind is RuntimeKind.HUMAN
+        and item.required_human_rank is not None
+        and item.required_human_rank <= rank_level
+    ]
+    if not eligible:
+        return "Human"
+    return max(eligible, key=lambda item: item.required_human_rank or 0).name

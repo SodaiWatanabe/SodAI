@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     CheckConstraint,
@@ -18,6 +19,9 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import APPLICATION_SCHEMA, Base
+
+if TYPE_CHECKING:
+    from app.models.humans import HumanTaskModel
 
 
 def utc_now() -> datetime:
@@ -469,7 +473,7 @@ class ExecutionModel(Base):
     input_tokens: Mapped[int | None] = mapped_column(Integer)
     output_tokens: Mapped[int | None] = mapped_column(Integer)
     finish_reason: Mapped[str | None] = mapped_column(String(32))
-    deadline_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    deadline_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=sql_func.now()
@@ -478,7 +482,10 @@ class ExecutionModel(Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     response_request: Mapped[ResponseRequestModel] = relationship(back_populates="executions")
-    model_execution: Mapped["ModelExecutionModel"] = relationship(
+    model_execution: Mapped["ModelExecutionModel | None"] = relationship(
+        back_populates="execution", cascade="all, delete-orphan", uselist=False
+    )
+    human_task: Mapped["HumanTaskModel | None"] = relationship(
         back_populates="execution", cascade="all, delete-orphan", uselist=False
     )
 

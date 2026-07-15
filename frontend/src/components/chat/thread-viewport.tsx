@@ -8,6 +8,8 @@ import {
 } from "react";
 
 import { SearchHighlight } from "@/components/chat/search-highlight";
+import { getConversationMessageLayout } from "@/components/conversation/conversation-layout";
+import { ConversationMessage } from "@/components/conversation/conversation-message";
 import { IOSSpinner } from "@/components/ui/ios-spinner";
 import type { Thread, ThreadEntry } from "@/lib/chat/types";
 
@@ -16,6 +18,7 @@ type ThreadViewportProps = {
   thread?: Thread;
   loading: boolean;
   responding: boolean;
+  humanResponse?: boolean;
   targetEntryId?: string;
   targetSearchQuery?: string;
 };
@@ -104,38 +107,31 @@ function ThreadMessage({
   searchQuery?: string;
   searchAnchor: boolean;
 }) {
-  const isPartner = entry.author.kind === "human";
+  const layout = getConversationMessageLayout(entry.author.kind, "prompter");
   return (
-    <article
+    <ConversationMessage
       id={`thread-entry-${entry.id}`}
-      tabIndex={searchAnchor ? -1 : undefined}
-      className={`${isPartner ? "flex justify-end" : "flex justify-start"} thread-message scroll-mt-24 rounded-2xl outline-none`}
+      searchAnchor={searchAnchor}
+      {...layout}
     >
-      <div
-        className={
-          isPartner
-            ? "max-w-[82%] whitespace-pre-wrap rounded-[22px] rounded-br-md bg-[var(--field)] px-4 py-2.5 text-[15px] leading-6 text-[var(--text)]"
-            : "max-w-[92%] whitespace-pre-wrap text-[15px] leading-7 text-[var(--text)]"
-        }
-      >
-        {!isPartner && entry.responseStatus === "streaming" ? (
-          <StreamedText content={entry.content} />
-        ) : searchQuery ? (
-          <SearchHighlight
-            markFirstMatch={searchAnchor}
-            query={searchQuery}
-            text={entry.content}
-          />
-        ) : (
-          entry.content
-        )}
-        {entry.responseStatus === "failed" ? (
-          <span className="text-[var(--danger-text)]">
-            応答を完了できませんでした。
-          </span>
-        ) : null}
-      </div>
-    </article>
+      {layout.surface === "generated" &&
+      entry.responseStatus === "streaming" ? (
+        <StreamedText content={entry.content} />
+      ) : searchQuery ? (
+        <SearchHighlight
+          markFirstMatch={searchAnchor}
+          query={searchQuery}
+          text={entry.content}
+        />
+      ) : (
+        entry.content
+      )}
+      {entry.responseStatus === "failed" ? (
+        <span className="text-[var(--danger-text)]">
+          応答を完了できませんでした。
+        </span>
+      ) : null}
+    </ConversationMessage>
   );
 }
 
@@ -174,6 +170,7 @@ export function ThreadViewport({
   thread,
   loading,
   responding,
+  humanResponse = false,
   targetEntryId,
   targetSearchQuery,
 }: ThreadViewportProps) {
@@ -191,6 +188,11 @@ export function ThreadViewport({
           entry.content.trim().length > 0,
       )
     : entries;
+  const responseStatusText = humanResponse
+    ? thread?.latest_response?.status === "running"
+      ? "Humanが回答しています…"
+      : "Humanを探しています…"
+    : "SodAIが応答しています";
 
   return (
     <section
@@ -200,7 +202,7 @@ export function ThreadViewport({
     >
       {responding ? (
         <span role="status" className="sr-only">
-          SodAIが応答しています
+          {responseStatusText}
         </span>
       ) : null}
 
@@ -221,9 +223,13 @@ export function ThreadViewport({
             {waitingForFirstToken ? (
               <article
                 aria-hidden="true"
-                className="flex h-7 items-center justify-start text-[15px]"
+                className="flex h-7 items-center justify-start text-sm text-[var(--muted)]"
               >
-                <span className="response-waiting-dot" />
+                {humanResponse ? (
+                  <span>{responseStatusText}</span>
+                ) : (
+                  <span className="response-waiting-dot" />
+                )}
               </article>
             ) : null}
           </div>
