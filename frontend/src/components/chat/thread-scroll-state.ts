@@ -20,6 +20,12 @@ export type TurnScrollLayout = {
   spacerHeight: number;
 };
 
+export type ScrollPositionMetrics = {
+  containerHeight: number;
+  scrollHeight: number;
+  scrollTop: number;
+};
+
 export function transitionThreadScrollMode(
   current: ThreadScrollMode,
   event: ThreadScrollEvent,
@@ -59,4 +65,28 @@ export function calculateTurnScrollLayout(
     scrollTop,
     spacerHeight,
   };
+}
+
+export function isScrollNearBottom(
+  metrics: ScrollPositionMetrics,
+  threshold: number,
+) {
+  const distance =
+    metrics.scrollHeight - metrics.scrollTop - metrics.containerHeight;
+  return distance <= threshold;
+}
+
+export function shouldShowScrollToBottom(
+  mode: ThreadScrollMode,
+  metrics: ScrollPositionMetrics,
+  threshold: number,
+) {
+  return mode === "detached" && !isScrollNearBottom(metrics, threshold);
+}
+
+export function resolveScrollToBottomMode(
+  turnSpacerHeight: number,
+  tolerance: number,
+): Extract<ThreadScrollMode, "bottom" | "turn"> {
+  return turnSpacerHeight > tolerance ? "turn" : "bottom";
 }

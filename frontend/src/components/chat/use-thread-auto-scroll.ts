@@ -13,6 +13,9 @@ import {
 
 import {
   calculateTurnScrollLayout,
+  isScrollNearBottom,
+  resolveScrollToBottomMode,
+  shouldShowScrollToBottom,
   type ThreadScrollEvent,
   type ThreadScrollMode,
   transitionThreadScrollMode,
@@ -37,9 +40,14 @@ type UseThreadAutoScrollOptions = {
 };
 
 function isNearBottom(element: HTMLDivElement) {
-  const distance =
-    element.scrollHeight - element.scrollTop - element.clientHeight;
-  return distance <= STICK_TO_BOTTOM_THRESHOLD;
+  return isScrollNearBottom(
+    {
+      containerHeight: element.clientHeight,
+      scrollHeight: element.scrollHeight,
+      scrollTop: element.scrollTop,
+    },
+    STICK_TO_BOTTOM_THRESHOLD,
+  );
 }
 
 export function useThreadAutoScroll({
@@ -55,15 +63,15 @@ export function useThreadAutoScroll({
   const expectedTurnScrollTopRef = useRef<number | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const animatedScrollRef = useRef(false);
-  const [scrollState, setScrollState] = useState<{
-    mode: ThreadScrollMode;
+  const [scrollUiState, setScrollUiState] = useState<{
+    buttonVisible: boolean;
     resetKey: string;
-  }>({ mode: "bottom", resetKey });
-  if (scrollState.resetKey !== resetKey) {
-    setScrollState({ mode: "bottom", resetKey });
+  }>({ buttonVisible: false, resetKey });
+  if (scrollUiState.resetKey !== resetKey) {
+    setScrollUiState({ buttonVisible: false, resetKey });
   }
   const showScrollToBottom =
-    scrollState.resetKey === resetKey && scrollState.mode === "detached";
+    scrollUiState.resetKey === resetKey && scrollUiState.buttonVisible;
 
   const applyScrollEvent = useCallback(
     (event: ThreadScrollEvent) => {
@@ -72,11 +80,45 @@ export function useThreadAutoScroll({
         event,
       );
       scrollModeRef.current = nextMode;
-      setScrollState((current) => {
-        if (current.resetKey === resetKey && current.mode === nextMode) {
+      setScrollUiState((current) => {
+        const buttonVisible =
+          nextMode === "detached" && current.resetKey === resetKey
+            ? current.buttonVisible
+            : false;
+        if (
+          current.resetKey === resetKey &&
+          current.buttonVisible === buttonVisible
+        ) {
           return current;
         }
-        return { mode: nextMode, resetKey };
+        return { buttonVisible, resetKey };
+      });
+    },
+    [resetKey],
+  );
+
+  const syncScrollButtonVisibility = useCallback(
+    (container: HTMLDivElement) => {
+      const buttonVisible = shouldShowScrollToBottom(
+        scrollModeRef.current,
+        {
+          containerHeight: container.clientHeight,
+          scrollHeight: container.scrollHeight,
+          scrollTop: container.scrollTop,
+        },
+        STICK_TO_BOTTOM_THRESHOLD,
+      );
+      setScrollUiState((current) => {
+        if (
+          current.resetKey === resetKey &&
+          current.buttonVisible === buttonVisible
+        ) {
+          return current;
+        }
+        return {
+          buttonVisible,
+          resetKey,
+        };
       });
     },
     [resetKey],
@@ -87,39 +129,49 @@ export function useThreadAutoScroll({
     expectedTurnScrollTopRef.current = null;
   }, []);
 
-  const applyTurnLayout = useCallback((alignToTurn: boolean) => {
-    const container = containerRef.current;
-    const entry = turnAnchorRef.current;
-    const spacer = turnSpacerRef.current;
-    if (!container || !entry || !spacer) return false;
+  const applyTurnLayout = useCallback(
+    (alignToTurn: boolean, behavior: ScrollBehavior = "auto") => {
+      const container = containerRef.current;
+      const entry = turnAnchorRef.current;
+      const spacer = turnSpacerRef.current;
+      if (!container || !entry || !spacer) return false;
 
-    const containerRect = container.getBoundingClientRect();
-    const entryRect = entry.getBoundingClientRect();
-    const spacerHeight = spacer.getBoundingClientRect().height;
-    const parsedScrollMarginTop = Number.parseFloat(
-      window.getComputedStyle(entry).scrollMarginTop,
-    );
-    const layout = calculateTurnScrollLayout({
-      containerHeight: container.clientHeight,
-      containerScrollTop: container.scrollTop,
-      containerTop: containerRect.top,
-      entryTop: entryRect.top,
-      scrollHeight: container.scrollHeight,
-      scrollMarginTop: Number.isFinite(parsedScrollMarginTop)
-        ? parsedScrollMarginTop
-        : 0,
-      spacerHeight,
-    });
-    const nextSpacerHeight = Math.ceil(layout.spacerHeight);
-    if (Math.abs(spacerHeight - nextSpacerHeight) > SCROLL_POSITION_TOLERANCE) {
-      spacer.style.height = `${nextSpacerHeight}px`;
-    }
-    if (alignToTurn) {
-      container.scrollTop = layout.scrollTop;
-      expectedTurnScrollTopRef.current = container.scrollTop;
-    }
-    return true;
-  }, []);
+      const containerRect = container.getBoundingClientRect();
+      const entryRect = entry.getBoundingClientRect();
+      const spacerHeight = spacer.getBoundingClientRect().height;
+      const parsedScrollMarginTop = Number.parseFloat(
+        window.getComputedStyle(entry).scrollMarginTop,
+      );
+      const layout = calculateTurnScrollLayout({
+        containerHeight: container.clientHeight,
+        containerScrollTop: container.scrollTop,
+        containerTop: containerRect.top,
+        entryTop: entryRect.top,
+        scrollHeight: container.scrollHeight,
+        scrollMarginTop: Number.isFinite(parsedScrollMarginTop)
+          ? parsedScrollMarginTop
+          : 0,
+        spacerHeight,
+      });
+      const nextSpacerHeight = Math.ceil(layout.spacerHeight);
+      if (
+        Math.abs(spacerHeight - nextSpacerHeight) > SCROLL_POSITION_TOLERANCE
+      ) {
+        spacer.style.height = `${nextSpacerHeight}px`;
+      }
+      if (alignToTurn) {
+        expectedTurnScrollTopRef.current = layout.scrollTop;
+        if (behavior === "smooth") {
+          container.scrollTo({ top: layout.scrollTop, behavior });
+        } else {
+          container.scrollTop = layout.scrollTop;
+          expectedTurnScrollTopRef.current = container.scrollTop;
+        }
+      }
+      return true;
+    },
+    [],
+  );
 
   const syncScrollPosition = useCallback(() => {
     if (animationFrameRef.current !== null) return;
@@ -131,15 +183,16 @@ export function useThreadAutoScroll({
       if (scrollModeRef.current === "bottom") {
         container.scrollTop = container.scrollHeight;
       } else if (scrollModeRef.current === "turn") {
-        applyTurnLayout(true);
+        applyTurnLayout(!animatedScrollRef.current);
       } else if (
         (turnSpacerRef.current?.getBoundingClientRect().height ?? 0) >
         SCROLL_POSITION_TOLERANCE
       ) {
         applyTurnLayout(false);
       }
+      syncScrollButtonVisibility(container);
     });
-  }, [applyTurnLayout]);
+  }, [applyTurnLayout, syncScrollButtonVisibility]);
 
   const pinToBottom = useCallback(() => {
     animatedScrollRef.current = false;
@@ -148,19 +201,31 @@ export function useThreadAutoScroll({
     syncScrollPosition();
   }, [applyScrollEvent, clearTurnLayout, syncScrollPosition]);
 
-  const anchorTurn = useCallback(() => {
+  const anchorTurn = useCallback((behavior: ScrollBehavior = "auto") => {
     if (animationFrameRef.current !== null) {
       cancelAnimationFrame(animationFrameRef.current);
       animationFrameRef.current = null;
     }
-    animatedScrollRef.current = false;
+    animatedScrollRef.current = behavior === "smooth";
     applyScrollEvent("anchor-turn");
-    return applyTurnLayout(true);
+    return applyTurnLayout(true, behavior);
   }, [applyScrollEvent, applyTurnLayout]);
 
   const scrollToBottom = useCallback(() => {
     const container = containerRef.current;
     if (!container) return;
+
+    const turnSpacerHeight =
+      turnSpacerRef.current?.getBoundingClientRect().height ?? 0;
+    if (
+      resolveScrollToBottomMode(
+        turnSpacerHeight,
+        SCROLL_POSITION_TOLERANCE,
+      ) === "turn"
+    ) {
+      anchorTurn("smooth");
+      return;
+    }
 
     if (animationFrameRef.current !== null) {
       cancelAnimationFrame(animationFrameRef.current);
@@ -170,12 +235,22 @@ export function useThreadAutoScroll({
     applyScrollEvent("pin-bottom");
     animatedScrollRef.current = true;
     container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
-  }, [applyScrollEvent, clearTurnLayout]);
+  }, [anchorTurn, applyScrollEvent, clearTurnLayout]);
 
   const handleScroll = useCallback<UIEventHandler<HTMLDivElement>>(
     (event) => {
       if (scrollModeRef.current === "turn") {
         const expectedScrollTop = expectedTurnScrollTopRef.current;
+        if (animatedScrollRef.current) {
+          if (
+            expectedScrollTop !== null &&
+            Math.abs(event.currentTarget.scrollTop - expectedScrollTop) <=
+              SCROLL_POSITION_TOLERANCE
+          ) {
+            animatedScrollRef.current = false;
+          }
+          return;
+        }
         if (
           expectedScrollTop === null ||
           Math.abs(event.currentTarget.scrollTop - expectedScrollTop) <=
@@ -192,7 +267,7 @@ export function useThreadAutoScroll({
         (turnSpacerRef.current?.getBoundingClientRect().height ?? 0) >
           SCROLL_POSITION_TOLERANCE
       ) {
-        applyScrollEvent("detach");
+        syncScrollButtonVisibility(event.currentTarget);
         return;
       }
       const nearBottom = isNearBottom(event.currentTarget);
@@ -201,8 +276,9 @@ export function useThreadAutoScroll({
         return;
       }
       applyScrollEvent(nearBottom ? "pin-bottom" : "detach");
+      syncScrollButtonVisibility(event.currentTarget);
     },
-    [applyScrollEvent, syncScrollPosition],
+    [applyScrollEvent, syncScrollButtonVisibility, syncScrollPosition],
   );
 
   const detachFromTurn = useCallback(() => {

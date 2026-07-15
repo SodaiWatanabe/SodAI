@@ -3,6 +3,8 @@ import test from "node:test";
 
 import {
   calculateTurnScrollLayout,
+  resolveScrollToBottomMode,
+  shouldShowScrollToBottom,
   transitionThreadScrollMode,
 } from "./thread-scroll-state.ts";
 
@@ -13,6 +15,34 @@ test("送信ターンと手動スクロールを独立した状態として遷�
     transitionThreadScrollMode("detached", "pin-bottom"),
     "bottom",
   );
+});
+
+test("追従解除中でも実際の最下部では移動ボタンを表示しない", () => {
+  const bottom = {
+    containerHeight: 600,
+    scrollHeight: 1_000,
+    scrollTop: 400,
+  };
+
+  assert.equal(shouldShowScrollToBottom("detached", bottom, 120), false);
+  assert.equal(
+    shouldShowScrollToBottom(
+      "detached",
+      { ...bottom, scrollTop: 279 },
+      120,
+    ),
+    true,
+  );
+  assert.equal(
+    shouldShowScrollToBottom("turn", { ...bottom, scrollTop: 0 }, 120),
+    false,
+  );
+});
+
+test("送信ターンの余白がある間はボタン操作後も余白を保持する", () => {
+  assert.equal(resolveScrollToBottomMode(240, 1), "turn");
+  assert.equal(resolveScrollToBottomMode(1, 1), "bottom");
+  assert.equal(resolveScrollToBottomMode(0, 1), "bottom");
 });
 
 test("既に下側の余裕がある場合は送信ターン用の余白を加えない", () => {
