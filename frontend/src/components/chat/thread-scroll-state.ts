@@ -20,6 +20,11 @@ export type TurnScrollLayout = {
   spacerHeight: number;
 };
 
+export type TurnScrollUpdate = {
+  scrollTop: number | null;
+  spacerHeight: number;
+};
+
 export type ScrollPositionMetrics = {
   containerHeight: number;
   scrollHeight: number;
@@ -67,6 +72,17 @@ export function calculateTurnScrollLayout(
   };
 }
 
+export function calculateTurnScrollUpdate(
+  metrics: TurnScrollMetrics,
+  realign: boolean,
+): TurnScrollUpdate {
+  const layout = calculateTurnScrollLayout(metrics);
+  return {
+    scrollTop: realign ? layout.scrollTop : null,
+    spacerHeight: layout.spacerHeight,
+  };
+}
+
 export function isScrollNearBottom(
   metrics: ScrollPositionMetrics,
   threshold: number,
@@ -89,4 +105,11 @@ export function resolveScrollToBottomMode(
   tolerance: number,
 ): Extract<ThreadScrollMode, "bottom" | "turn"> {
   return turnSpacerHeight > tolerance ? "turn" : "bottom";
+}
+
+export function shouldRealignTurnAfterResize(
+  containerChanged: boolean,
+  footerChanged: boolean,
+) {
+  return containerChanged || footerChanged;
 }

@@ -1,12 +1,6 @@
 "use client";
 
-import {
-  type Ref,
-  type RefObject,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from "react";
+import { type Ref, type RefObject } from "react";
 
 import { SearchHighlight } from "@/components/chat/search-highlight";
 import { MessageActions } from "@/components/chat/message-actions";
@@ -21,7 +15,7 @@ import type {
 } from "@/lib/chat/types";
 
 type ThreadViewportProps = {
-  contentRef: RefObject<HTMLDivElement | null>;
+  messageListRef: RefObject<HTMLDivElement | null>;
   thread?: Thread;
   loading: boolean;
   responding: boolean;
@@ -34,79 +28,12 @@ type ThreadViewportProps = {
   answerers: AvailableAnswerer[];
 };
 
-type StreamSegment = {
-  entering: boolean;
-  key: number;
-  text: string;
-};
-
 type DisplayEntry = ThreadEntry & {
   responseStatus: "completed" | "streaming" | "failed";
 };
 
 function StreamedText({ content }: { content: string }) {
-  const previousContentRef = useRef(content);
-  const sequenceRef = useRef(0);
-  const [segments, setSegments] = useState<StreamSegment[]>([
-    { entering: false, key: 0, text: content },
-  ]);
-
-  useLayoutEffect(() => {
-    const previousContent = previousContentRef.current;
-    if (content === previousContent) return;
-    previousContentRef.current = content;
-    sequenceRef.current += 1;
-
-    if (content.startsWith(previousContent)) {
-      setSegments((current) => [
-        ...current,
-        {
-          entering: true,
-          key: sequenceRef.current,
-          text: content.slice(previousContent.length),
-        },
-      ]);
-      return;
-    }
-
-    setSegments([{ entering: false, key: sequenceRef.current, text: content }]);
-  }, [content]);
-
-  function settleSegment(key: number) {
-    setSegments((current) => {
-      const settledIndex = current.findIndex((segment) => segment.key === key);
-      if (settledIndex < 0) return current;
-      return [
-        {
-          entering: false,
-          key,
-          text: current
-            .slice(0, settledIndex + 1)
-            .map((segment) => segment.text)
-            .join(""),
-        },
-        ...current.slice(settledIndex + 1),
-      ];
-    });
-  }
-
-  return (
-    <>
-      {segments.map((segment) =>
-        segment.entering ? (
-          <span
-            key={segment.key}
-            className="stream-token-enter"
-            onAnimationEnd={() => settleSegment(segment.key)}
-          >
-            {segment.text}
-          </span>
-        ) : (
-          <span key={segment.key}>{segment.text}</span>
-        ),
-      )}
-    </>
-  );
+  return <span className="stream-response-enter">{content}</span>;
 }
 
 function ThreadMessage({
@@ -197,7 +124,7 @@ function displayEntries(thread: Thread): DisplayEntry[] {
 
 export function ThreadViewport({
   answerers,
-  contentRef,
+  messageListRef,
   thread,
   loading,
   responding,
@@ -246,10 +173,9 @@ export function ThreadViewport({
 
       {thread ? (
         <div
-          ref={contentRef}
           className={`relative z-10 mx-auto w-full max-w-[760px] px-5 pb-12 sm:px-8 ${turnAnchorStartsThread ? "pt-4" : "pt-10"}`}
         >
-          <div className="space-y-8">
+          <div ref={messageListRef} className="space-y-8">
             {visibleEntries.map((entry) => (
               <ThreadMessage
                 key={entry.id}

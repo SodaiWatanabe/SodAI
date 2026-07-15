@@ -475,8 +475,8 @@ button {
   }
 }
 
-.stream-token-enter {
-  animation: stream-token-enter 180ms ease-out both;
+.stream-response-enter {
+  animation: stream-response-enter 180ms ease-out both;
 }
 
 .response-waiting-dot {
@@ -530,7 +530,7 @@ button {
   }
 }
 
-@keyframes stream-token-enter {
+@keyframes stream-response-enter {
   from {
     opacity: 0;
   }

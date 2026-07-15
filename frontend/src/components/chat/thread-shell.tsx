@@ -122,7 +122,7 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
   const {
     anchorTurn,
     containerRef,
-    contentRef,
+    messageListRef,
     footerRef,
     handleScroll,
     handleScrollKeyDown,
@@ -519,7 +519,7 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
   return (
     <div
       ref={containerRef}
-      className="flex min-h-0 flex-1 flex-col overflow-y-auto"
+      className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain [overflow-anchor:none]"
       onKeyDown={handleScrollKeyDown}
       onPointerDown={handleScrollPointerDown}
       onScroll={handleScroll}
@@ -537,7 +537,7 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
 
         <ThreadViewport
           answerers={answerers}
-          contentRef={contentRef}
+          messageListRef={messageListRef}
           thread={thread}
           loading={loading}
           responding={responding}

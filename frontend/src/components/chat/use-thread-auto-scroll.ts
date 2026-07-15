@@ -12,9 +12,10 @@ import {
 } from "react";
 
 import {
-  calculateTurnScrollLayout,
+  calculateTurnScrollUpdate,
   isScrollNearBottom,
   resolveScrollToBottomMode,
+  shouldRealignTurnAfterResize,
   shouldShowScrollToBottom,
   type ThreadScrollEvent,
   type ThreadScrollMode,
@@ -55,13 +56,14 @@ export function useThreadAutoScroll({
   resetKey,
 }: UseThreadAutoScrollOptions) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const contentRef = useRef<HTMLDivElement>(null);
+  const messageListRef = useRef<HTMLDivElement>(null);
   const footerRef = useRef<HTMLDivElement>(null);
   const turnAnchorRef = useRef<HTMLElement>(null);
   const turnSpacerRef = useRef<HTMLDivElement>(null);
   const scrollModeRef = useRef<ThreadScrollMode>("bottom");
   const expectedTurnScrollTopRef = useRef<number | null>(null);
   const animationFrameRef = useRef<number | null>(null);
+  const pendingTurnAlignmentRef = useRef(false);
   const animatedScrollRef = useRef(false);
   const [scrollUiState, setScrollUiState] = useState<{
     buttonVisible: boolean;
@@ -127,6 +129,7 @@ export function useThreadAutoScroll({
   const clearTurnLayout = useCallback(() => {
     turnSpacerRef.current?.style.removeProperty("height");
     expectedTurnScrollTopRef.current = null;
+    pendingTurnAlignmentRef.current = false;
   }, []);
 
   const applyTurnLayout = useCallback(
@@ -142,29 +145,37 @@ export function useThreadAutoScroll({
       const parsedScrollMarginTop = Number.parseFloat(
         window.getComputedStyle(entry).scrollMarginTop,
       );
-      const layout = calculateTurnScrollLayout({
-        containerHeight: container.clientHeight,
-        containerScrollTop: container.scrollTop,
-        containerTop: containerRect.top,
-        entryTop: entryRect.top,
-        scrollHeight: container.scrollHeight,
-        scrollMarginTop: Number.isFinite(parsedScrollMarginTop)
-          ? parsedScrollMarginTop
-          : 0,
-        spacerHeight,
-      });
+      const layout = calculateTurnScrollUpdate(
+        {
+          containerHeight: container.clientHeight,
+          containerScrollTop: container.scrollTop,
+          containerTop: containerRect.top,
+          entryTop: entryRect.top,
+          scrollHeight: container.scrollHeight,
+          scrollMarginTop: Number.isFinite(parsedScrollMarginTop)
+            ? parsedScrollMarginTop
+            : 0,
+          spacerHeight,
+        },
+        alignToTurn,
+      );
       const nextSpacerHeight = Math.ceil(layout.spacerHeight);
       if (
         Math.abs(spacerHeight - nextSpacerHeight) > SCROLL_POSITION_TOLERANCE
       ) {
         spacer.style.height = `${nextSpacerHeight}px`;
       }
-      if (alignToTurn) {
-        expectedTurnScrollTopRef.current = layout.scrollTop;
+      if (layout.scrollTop !== null) {
         if (behavior === "smooth") {
+          expectedTurnScrollTopRef.current = layout.scrollTop;
           container.scrollTo({ top: layout.scrollTop, behavior });
         } else {
-          container.scrollTop = layout.scrollTop;
+          if (
+            Math.abs(container.scrollTop - layout.scrollTop) >
+            SCROLL_POSITION_TOLERANCE
+          ) {
+            container.scrollTop = layout.scrollTop;
+          }
           expectedTurnScrollTopRef.current = container.scrollTop;
         }
       }
@@ -173,17 +184,20 @@ export function useThreadAutoScroll({
     [],
   );
 
-  const syncScrollPosition = useCallback(() => {
+  const syncScrollPosition = useCallback((alignTurn = false) => {
+    pendingTurnAlignmentRef.current ||= alignTurn;
     if (animationFrameRef.current !== null) return;
 
     animationFrameRef.current = requestAnimationFrame(() => {
       animationFrameRef.current = null;
+      const shouldAlignTurn = pendingTurnAlignmentRef.current;
+      pendingTurnAlignmentRef.current = false;
       const container = containerRef.current;
       if (!container) return;
       if (scrollModeRef.current === "bottom") {
         container.scrollTop = container.scrollHeight;
       } else if (scrollModeRef.current === "turn") {
-        applyTurnLayout(!animatedScrollRef.current);
+        applyTurnLayout(shouldAlignTurn && !animatedScrollRef.current);
       } else if (
         (turnSpacerRef.current?.getBoundingClientRect().height ?? 0) >
         SCROLL_POSITION_TOLERANCE
@@ -206,6 +220,7 @@ export function useThreadAutoScroll({
       cancelAnimationFrame(animationFrameRef.current);
       animationFrameRef.current = null;
     }
+    pendingTurnAlignmentRef.current = false;
     animatedScrollRef.current = behavior === "smooth";
     applyScrollEvent("anchor-turn");
     return applyTurnLayout(true, behavior);
@@ -231,6 +246,7 @@ export function useThreadAutoScroll({
       cancelAnimationFrame(animationFrameRef.current);
       animationFrameRef.current = null;
     }
+    pendingTurnAlignmentRef.current = false;
     clearTurnLayout();
     applyScrollEvent("pin-bottom");
     animatedScrollRef.current = true;
@@ -258,7 +274,7 @@ export function useThreadAutoScroll({
         ) {
           return;
         }
-        syncScrollPosition();
+        syncScrollPosition(true);
         return;
       }
 
@@ -329,6 +345,7 @@ export function useThreadAutoScroll({
         cancelAnimationFrame(animationFrameRef.current);
         animationFrameRef.current = null;
       }
+      pendingTurnAlignmentRef.current = false;
       clearTurnLayout();
       applyScrollEvent("detach");
       animatedScrollRef.current = false;
@@ -358,12 +375,22 @@ export function useThreadAutoScroll({
   useEffect(() => {
     if (!ready || typeof ResizeObserver === "undefined") return;
 
+    const container = containerRef.current;
+    const messageList = messageListRef.current;
+    const footer = footerRef.current;
     const observedElements = [
-      containerRef.current,
-      contentRef.current,
-      footerRef.current,
+      container,
+      messageList,
+      footer,
     ].filter((element): element is HTMLDivElement => element !== null);
-    const observer = new ResizeObserver(syncScrollPosition);
+    const observer = new ResizeObserver((entries) => {
+      syncScrollPosition(
+        shouldRealignTurnAfterResize(
+          entries.some((entry) => entry.target === container),
+          entries.some((entry) => entry.target === footer),
+        ),
+      );
+    });
     for (const element of observedElements) observer.observe(element);
 
     return () => observer.disconnect();
@@ -374,6 +401,7 @@ export function useThreadAutoScroll({
       if (animationFrameRef.current !== null) {
         cancelAnimationFrame(animationFrameRef.current);
       }
+      pendingTurnAlignmentRef.current = false;
     },
     [],
   );
@@ -381,7 +409,7 @@ export function useThreadAutoScroll({
   return {
     anchorTurn,
     containerRef,
-    contentRef,
+    messageListRef,
     footerRef,
     handleScrollKeyDown,
     handleScrollPointerDown,

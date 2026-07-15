@@ -3,7 +3,9 @@ import test from "node:test";
 
 import {
   calculateTurnScrollLayout,
+  calculateTurnScrollUpdate,
   resolveScrollToBottomMode,
+  shouldRealignTurnAfterResize,
   shouldShowScrollToBottom,
   transitionThreadScrollMode,
 } from "./thread-scroll-state.ts";
@@ -133,4 +135,28 @@ test("上端より上を要求する場合はスクロール位置を0に収め�
       spacerHeight: 0,
     },
   );
+});
+
+test("本文の行追加では余白だけを更新し表示領域の変化だけ再整列する", () => {
+  assert.equal(shouldRealignTurnAfterResize(false, false), false);
+  assert.equal(shouldRealignTurnAfterResize(true, false), true);
+  assert.equal(shouldRealignTurnAfterResize(false, true), true);
+
+  const metrics = {
+    containerHeight: 700,
+    containerScrollTop: 604,
+    containerTop: 100,
+    entryTop: 196,
+    scrollHeight: 1_504,
+    scrollMarginTop: 96,
+    spacerHeight: 304,
+  };
+  assert.deepEqual(calculateTurnScrollUpdate(metrics, false), {
+    scrollTop: null,
+    spacerHeight: 104,
+  });
+  assert.deepEqual(calculateTurnScrollUpdate(metrics, true), {
+    scrollTop: 604,
+    spacerHeight: 104,
+  });
 });
