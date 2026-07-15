@@ -5,12 +5,17 @@
 - `compose.yaml`: 本番の基準。PostgreSQLとRedisは`internal` networkだけに所属し、ホストポートを公開しない
 - `compose.dev.yaml`: 開発用。データポートとMailpitを`127.0.0.1`だけへ公開する
 - `.env`: Compose用の秘密値。Git管理しない
+- `auth/.env`: Better Auth、認証DB、OAuth、SMTP用の秘密値。Git管理しない
+- `frontend/.env.local`: Auth/FastAPIの内部到達URL。認証秘密値は置かない
 - `infra/postgres/init/`: 新規volumeを初期化するときだけ実行されるDB境界設定
 
 ## 初回起動
 
 ```bash
 cp .env.example .env
+cp auth/.env.example auth/.env
+cp backend/.env.example backend/.env
+cp frontend/.env.example frontend/.env.local
 openssl rand -hex 32
 ```
 
@@ -22,12 +27,14 @@ openssl rand -hex 32
 - `REDIS_PASSWORD`
 
 ```bash
-chmod 600 .env
+chmod 600 .env auth/.env backend/.env frontend/.env.local
 ```
 
 起動前検査はサンプル値、短すぎる値、4項目間の使い回しを拒否します。
 
-アプリケーション用の`frontend/.env.local`と`backend/.env`もGit管理外です。`BETTER_AUTH_SECRET`、Google OAuth secret、SMTP password、DB接続URLはpassword managerなどへ別途保管し、ファイルを`chmod 600`にします。特に`BETTER_AUTH_SECRET`はDB内のJWT署名鍵を復号するため、PostgreSQL dumpとは別の安全な場所にも保持します。
+アプリケーション用の`auth/.env`、`frontend/.env.local`、`backend/.env`もGit管理外です。`BETTER_AUTH_SECRET`、Google OAuth secret、SMTP password、DB接続URLはpassword managerなどへ別途保管し、ファイルを`chmod 600`にします。これらの秘密値は`auth/.env`だけに置き、Next.jsへ渡しません。特に`BETTER_AUTH_SECRET`はDB内のJWT署名鍵を復号するため、PostgreSQL dumpとは別の安全な場所にも保持します。
+
+本番の認証レート制限へ利用者IPを渡す場合は、公開originへの直接アクセスを閉じ、信頼済みgatewayが上書きするヘッダー名だけを`auth/.env`の`AUTH_TRUSTED_CLIENT_IP_HEADER`へ設定します。Cloudflare専用originなら`cf-connecting-ip`、自前proxyなら受信値を破棄して再生成する`x-forwarded-for`などを使用します。
 
 設定を検査して、開発構成を起動します。
 
@@ -43,7 +50,17 @@ make infra-ps
 make migrate
 ```
 
-このコマンドはBetter Authの定義を`auth`schemaへ、Alembicの定義を`app`schemaへ適用します。
+このコマンドはAuthサービスからBetter Authの定義を`auth`schemaへ、Alembicの定義を`app`schemaへ適用します。
+
+## アプリケーションの更新
+
+認証を含む更新は、Auth、FastAPI、Frontendの順に起動します。Authは`/healthz`ではなく、DB接続も確認する`/readyz`が200になってから後続へ進みます。Frontendの`AUTH_SERVICE_URL`は実行時に評価されるため、ビルド時と起動時で同じ値を焼き込む必要はありません。
+
+Next.js内蔵のBetter Authから初めて分離するときは、既存の`AUTH_DATABASE_URL`、`BETTER_AUTH_SECRET`、`BETTER_AUTH_URL`を値を変えずに`frontend/.env.local`から`auth/.env`へ移します。特に`BETTER_AUTH_SECRET`を再生成すると、既存session Cookieが無効になり、DB内のJWT署名鍵も従来の秘密値で復号できなくなります。Google OAuthとSMTPの設定もAuthへ移し、移行完了後はNext.js側から認証秘密値を削除します。
+
+切り替え前に、Honoの`/readyz`、既存Cookieを付けた`/api/auth/get-session`と`/api/auth/token`、Next.js経由の同じ2 endpointを順に確認します。Googleを利用する環境ではcallback、メール認証ではOTP送信・検証・sign-outも確認してからトラフィックを切り替えます。応答ヘッダーに既存の`sodai` Cookieが保たれることも確認します。
+
+rollback時は、DB migrationに後方互換性がある範囲でFrontend、FastAPI、Authの順に旧版へ戻します。認証schemaを戻す必要がある変更では、先に書き込みを止め、取得済みのPostgreSQL backupから復元します。`BETTER_AUTH_URL`はJWT issuer / audienceであり、内部配置の変更では書き換えません。
 
 ### app schemaを再初期化するとき
 
@@ -59,7 +76,7 @@ CONFIRM_REINITIALIZE_APP_SCHEMA=1 make reinitialize-app-schema
 
 通常の起動や更新でこのtargetを使ってはいけません。確認変数がない実行は拒否されます。
 
-開発用の確認メールはSMTP `127.0.0.1:1025`へ送信し、<http://127.0.0.1:8025>で確認できます。Next.jsをホストで動かす場合の設定は次の通りです。
+開発用の確認メールはSMTP `127.0.0.1:1025`へ送信し、<http://127.0.0.1:8025>で確認できます。Authサービスをホストで動かす場合の設定は次の通りです。
 
 ```dotenv
 AUTH_EMAIL_DELIVERY=smtp
@@ -69,7 +86,7 @@ AUTH_SMTP_SECURE=false
 AUTH_EMAIL_FROM="SodAI <no-reply@sodai.local>"
 ```
 
-MailpitではSMTPユーザー名とパスワードを設定しません。Next.jsもコンテナ化する場合は`AUTH_SMTP_HOST=mailpit`へ変更します。Mailpitは開発overrideにだけ存在し、メールはコンテナの一時領域へ保持されます。本番のメール配送には使用しません。
+MailpitではSMTPユーザー名とパスワードを設定しません。Authサービスをコンテナ化する場合は`AUTH_SMTP_HOST=mailpit`へ変更します。Mailpitは開発overrideにだけ存在し、メールはコンテナの一時領域へ保持されます。本番のメール配送には使用しません。
 
 開発構成でも公開先は`127.0.0.1`です。LANへ公開する目的で`POSTGRES_BIND_ADDRESS`や`REDIS_BIND_ADDRESS`を変更しないでください。本番でアプリケーションもコンテナ化した場合は、データポートを公開しない次の構成を使います。
 
@@ -105,7 +122,7 @@ RedisはAOFで再起動時の状態を保持しますが、アカウント、ク
 
 ## 復元
 
-復元は現在のデータベース内容を置き換えます。書き込みを行うNext.js、FastAPI、workerを停止し、対象ファイルを確認してから実行します。
+復元は現在のデータベース内容を置き換えます。書き込みを行うAuthサービス、FastAPI、workerを停止し、対象ファイルを確認してから実行します。
 
 ```bash
 make db-restore BACKUP=/absolute/path/to/sodai-20260101T000000Z.dump
@@ -130,7 +147,7 @@ CLOUDFLARE_TUNNEL_TOKEN=<secret tunnel token>
 make tunnel-up
 ```
 
-公開hostnameのoriginはCloudflare側で設定します。コンテナ本番構成では、Next.jsとFastAPIを`sodai-edge` networkへ接続し、それぞれサービス名（例: `http://frontend:3000`、`http://backend:8000`）をoriginにします。PostgreSQLやRedisを公開hostnameへ登録してはいけません。
+公開hostnameのoriginはCloudflare側で設定します。コンテナ本番構成では、Next.js、Authサービス、FastAPIを`sodai-edge` networkへ接続します。Authは`AUTH_HOST=0.0.0.0`でコンテナ内を待ち受けますが、host portは公開せず内部networkからだけ到達可能にします。`/api/auth/*`はNext.jsの実行時proxyを通す構成と、CloudflareからAuthへ直接振り分ける構成のどちらか一方に統一し、同一originを維持します。後者では`/api/v1/*`をFastAPI、それ以外をNext.jsへ振り分けます。いずれも迂回できる別の公開originを作らず、PostgreSQLやRedisを公開hostnameへ登録してはいけません。
 
 現在のようにアプリをホストプロセスとして起動する開発時は、ホストへインストールした`cloudflared`から`127.0.0.1`へ接続する方が安全です。Compose内のTunnelからホストへ接続するためにアプリを`0.0.0.0`へ無制限公開する運用は避けます。
 

@@ -1,8 +1,11 @@
-import { toNextJsHandler } from "better-auth/next-js";
+import { proxyAuthRequest } from "@/lib/auth/proxy";
+import { getAuthServiceUrl } from "@/lib/auth/service-url";
 
-import { auth } from "@/lib/auth/server";
-
-export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
-export const { GET, POST } = toNextJsHandler(auth);
+function handleAuthRequest(request: Request): Promise<Response> {
+  return proxyAuthRequest(request, { serviceUrl: getAuthServiceUrl() });
+}
+
+export { handleAuthRequest as GET, handleAuthRequest as POST };

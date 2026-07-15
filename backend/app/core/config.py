@@ -39,7 +39,7 @@ class Settings(BaseSettings):
 
     auth_issuer: str = "http://localhost:3000"
     auth_audience: str = "http://localhost:3000"
-    auth_jwks_url: str = "http://localhost:3000/api/auth/jwks"
+    auth_jwks_url: str = "http://127.0.0.1:3001/api/auth/jwks"
     auth_jwt_algorithm: str = "EdDSA"
     auth_jwt_leeway_seconds: int = Field(default=30, ge=0, le=300)
     auth_jwks_cache_seconds: int = Field(default=3600, ge=30, le=86400)

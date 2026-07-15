@@ -1,15 +1,22 @@
 import nodemailer, { type Transporter } from "nodemailer";
 
-import type { AuthEmail, AuthEmailDelivery } from "./types";
+import type { AuthEmail, AuthEmailDelivery } from "./types.js";
 
 function requireSmtpEnvironment(name: string): string {
   const value = process.env[name]?.trim();
-
   if (!value) {
     throw new Error(`${name} is required when AUTH_EMAIL_DELIVERY=smtp.`);
   }
-
   return value;
+}
+
+function getSmtpPort(): number {
+  const configured = process.env.AUTH_SMTP_PORT?.trim() || "587";
+  const port = Number(configured);
+  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+    throw new Error("AUTH_SMTP_PORT must be an integer between 1 and 65535.");
+  }
+  return port;
 }
 
 export class SmtpAuthEmailDelivery implements AuthEmailDelivery {
@@ -28,7 +35,7 @@ export class SmtpAuthEmailDelivery implements AuthEmailDelivery {
 
     this.transporter = nodemailer.createTransport({
       host: requireSmtpEnvironment("AUTH_SMTP_HOST"),
-      port: Number(process.env.AUTH_SMTP_PORT ?? 587),
+      port: getSmtpPort(),
       secure: process.env.AUTH_SMTP_SECURE === "true",
       auth: user && password ? { user, pass: password } : undefined,
       connectionTimeout: 10_000,

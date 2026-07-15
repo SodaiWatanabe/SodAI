@@ -1,23 +1,27 @@
 import type { BetterAuthOptions } from "better-auth";
 import { emailOTP, jwt } from "better-auth/plugins";
 
-import { authDatabasePool } from "./database";
+import { authDatabasePool } from "./database.js";
 import {
   getAuthBaseUrl,
+  getClientIpAddressHeaders,
   getGoogleCredentials,
   getTrustedOrigins,
-  requireServerEnvironment,
-  shouldTrustCloudflareIpHeader,
-} from "./environment";
-import { sendSignInOtpEmail } from "./email";
+  requireEnvironment,
+} from "./environment.js";
+import { sendSignInOtpEmail } from "./email/index.js";
 
 const authBaseUrl = getAuthBaseUrl();
 const googleCredentials = getGoogleCredentials();
 
+export const authCapabilities = Object.freeze({
+  google: Boolean(googleCredentials),
+});
+
 export const authOptions = {
   appName: "SodAI",
   baseURL: authBaseUrl,
-  secret: requireServerEnvironment("BETTER_AUTH_SECRET"),
+  secret: requireEnvironment("BETTER_AUTH_SECRET"),
   trustedOrigins: getTrustedOrigins(),
   database: authDatabasePool,
   socialProviders: googleCredentials
@@ -36,6 +40,7 @@ export const authOptions = {
     },
   },
   session: {
+    deferSessionRefresh: true,
     expiresIn: 60 * 60 * 24 * 7,
     updateAge: 60 * 60 * 24,
   },
@@ -50,13 +55,9 @@ export const authOptions = {
     database: {
       generateId: "uuid",
     },
-    ...(shouldTrustCloudflareIpHeader()
-      ? {
-          ipAddress: {
-            ipAddressHeaders: ["cf-connecting-ip"],
-          },
-        }
-      : {}),
+    ipAddress: {
+      ipAddressHeaders: getClientIpAddressHeaders(),
+    },
   },
   plugins: [
     emailOTP({

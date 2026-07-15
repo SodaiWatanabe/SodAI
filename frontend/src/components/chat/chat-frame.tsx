@@ -192,6 +192,7 @@ export function ChatFrame({
   initialProfileIncomplete,
   initialUser,
 }: ChatFrameProps) {
+  authClient.useSession();
   const router = useRouter();
   const childSegments = useSelectedLayoutSegments();
   const { invalidate: invalidateAccessToken } = useApiAccessToken();

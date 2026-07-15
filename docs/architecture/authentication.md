@@ -8,7 +8,7 @@ SodAIはBetter Authをセルフホストします。ただし、Better Authを�
 Google / Email OTP
       │
       ▼
-Better Auth ── auth schema
+Hono / Better Auth ── auth schema
       │ issuer + subject
       ▼
 SodAI identity mapping ── app schema
@@ -33,11 +33,13 @@ SodAI identity mapping ── app schema
 アプリケーションの接続契約は次の通りです。
 
 ```text
-Next.js:  AUTH_DATABASE_URL=postgresql://sodai_auth:...@HOST:5432/sodai
+Auth:     AUTH_DATABASE_URL=postgresql://sodai_auth:...@HOST:5432/sodai
 FastAPI:  DATABASE_URL=postgresql+asyncpg://sodai_app:...@HOST:5432/sodai
 ```
 
 Dockerネットワーク内の`HOST`は`postgres`、ホストから開発する場合は`127.0.0.1`です。パスワードを含むURLはコミットしません。
+
+Next.jsは認証DBへ接続しません。ブラウザ向けの`/api/auth/*`は実行時の薄いRoute Handlerで同一originのままHonoへ転送し、Server Componentは受信Cookieを内部Auth URLへ転送してセッションと短命JWTを取得します。セッション更新はブラウザ経路だけが所有し、Server Componentは読み取り時にCookieを更新しません。OAuth secret、SMTP secret、`BETTER_AUTH_SECRET`はAuthサービスだけに配置します。
 
 ## アプリ内の不変ID
 

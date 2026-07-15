@@ -6,8 +6,7 @@ import { ChatFrame } from "@/components/chat/chat-frame";
 import { CreditBalanceProvider } from "@/components/credits/credit-balance-provider";
 import { ToastProvider } from "@/components/ui/toast-provider";
 import { getCurrentAccount } from "@/lib/account/server";
-import { isGoogleAuthConfigured } from "@/lib/auth/environment";
-import { getCurrentSession } from "@/lib/auth/session";
+import { getAuthCapabilities, getCurrentSession } from "@/lib/auth/session";
 import {
   DESKTOP_SIDEBAR_COOKIE_NAME,
   parseDesktopSidebarPreference,
@@ -20,8 +19,9 @@ export default async function ChatLayout({
   children: React.ReactNode;
   settings: React.ReactNode;
 }>) {
-  const [session, cookieStore] = await Promise.all([
+  const [session, authCapabilities, cookieStore] = await Promise.all([
     getCurrentSession(),
+    getAuthCapabilities(),
     cookies(),
   ]);
   const sidebarPreference = parseDesktopSidebarPreference(
@@ -43,7 +43,7 @@ export default async function ChatLayout({
         <CreditBalanceProvider>
           <ChatDataProvider>
             <ChatFrame
-              googleAuthEnabled={isGoogleAuthConfigured()}
+              googleAuthEnabled={authCapabilities.google}
               initialAccountUnavailable={Boolean(
                 account && account.status !== "active",
               )}

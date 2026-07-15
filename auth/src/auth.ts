@@ -1,7 +1,5 @@
-import "server-only";
-
 import { betterAuth } from "better-auth";
 
-import { authOptions } from "./options";
+import { authOptions } from "./options.js";
 
 export const auth = betterAuth(authOptions);

@@ -1,79 +1,43 @@
-# SodAI frontend / authentication service
+# SodAI Web
 
-Next.js App Router、TypeScript、Tailwind CSS、Better Authで構成したSodAIのWeb・認証サービスです。
-ユーザー、セッション、外部アカウント、検証トークン、JWT署名鍵は、すべてSodAIが所有するPostgreSQLの`auth`スキーマへ保存します。
+Next.js App Router、TypeScript、Tailwind CSSで構成したSodAIのWebアプリケーションです。UI、ルーティング、Server Component、ブラウザ向けAuth/APIクライアントだけを所有します。認証DB、OAuth secret、SMTP、Better Authサーバーは`auth/`サービスが所有します。
 
 ## ローカル起動
 
 ```bash
 cp .env.example .env.local
 npm install
-npm run auth:migrate
 npm run dev
 ```
 
-開発サーバーは <http://localhost:3000> で起動します。`AUTH_EMAIL_DELIVERY=console`の場合、メールのワンタイムログインコードはNext.jsサーバーの標準出力へ表示されます。本番環境ではconsole配送を拒否するため、SMTPを設定してください。
+先にリポジトリルートから`make dev-auth`と`make dev-backend`を起動してください。Webは <http://localhost:3000> で起動します。
 
-## データベース境界
+## Authサービスとの境界
 
-Better Authは`AUTH_DATABASE_URL`だけを参照します。接続Poolは常にPostgreSQLの`search_path=auth,public`を強制し、マイグレーションコマンドも`current_schema()`が`auth`でなければ停止します。
+ブラウザには従来どおり同一originの`/api/auth/*`を公開します。薄いRoute Handlerがリクエスト時の`AUTH_SERVICE_URL`へ透過転送するため、Cookie名、複数の`Set-Cookie`、Google OAuth callback、JWT issuerは変わりません。転送先はビルド成果物へ固定されず、起動環境ごとに設定できます。
+
+Server Componentは受信CookieをAuthサービスへ転送し、セッションまたは10分有効のJWTを読み取ります。セッション期限の更新は同一originのブラウザ経路だけが担い、サーバー描画中に再発行Cookieを失いません。ブラウザ側のJWTは有効期限直前までメモリ上だけで共有し、FastAPIへBearer tokenとして送信します。
+
+Next.jsへ次の秘密値や依存を追加しないでください。
+
+- `AUTH_DATABASE_URL`
+- `BETTER_AUTH_SECRET`
+- Google Client Secret
+- SMTP password
+- `pg`、`nodemailer`
+
+Googleログインの有効状態はAuthサービスの`GET /api/auth/capabilities`から取得し、Web側でsecretの有無を判定しません。
+
+## FastAPIとの接続
+
+- `NEXT_PUBLIC_API_BASE_URL`: ブラウザからFastAPIへ到達する公開URL
+- `SODAI_API_BASE_URL`: Server ComponentからFastAPIへ到達する内部URL
+- `AUTH_SERVICE_URL`: Next.jsからHonoへ到達する内部URL
+
+## 確認
 
 ```bash
-npm run auth:migrate        # 不足テーブル・カラムを適用
-npm run auth:migrate:check  # 差分があれば非ゼロ終了
+npm test
+npm run lint
+npm run build
 ```
-
-Better Auth 1.6.23ではPostgreSQLの`rateLimit.lastRequest`を検査すると、実体が正しい
-`int8`でも期待型との差を示す警告が出ます。`Better Auth schema is up to date.`と表示され、
-終了コードが0であれば未適用migrationはありません。
-
-`auth`スキーマはインフラ初期化時に作成し、認証専用DBロールだけをownerにします。会話、クレジット、モデル権限などのアプリケーションデータをBetter Authのユーザーテーブルへ追加しないでください。それらはFastAPI側の不変なSodAIユーザーIDに紐付け、認証identityは`issuer + subject`として関連付けます。
-
-## Google OAuth
-
-Google Cloud ConsoleでWeb applicationのOAuth clientを作成し、次のredirect URIを登録します。
-
-```text
-http://localhost:3000/api/auth/callback/google
-https://platform.sodai.me/api/auth/callback/google
-```
-
-`GOOGLE_CLIENT_ID`と`GOOGLE_CLIENT_SECRET`は必ず両方設定します。未設定時もメール認証は利用できます。
-
-## FastAPIとの認証契約
-
-ブラウザのBetter AuthセッションはNext.js内でのみ利用します。FastAPIへはBetter Authから取得した10分有効のJWTをBearer tokenとして送信します。
-
-- issuer: `BETTER_AUTH_URL`
-- audience: `BETTER_AUTH_URL`
-- subject: Better Authの`user.id`
-- algorithm: EdDSA / Ed25519
-- JWKS: `${BETTER_AUTH_URL}/api/auth/jwks`
-- claims: `sub`, `email`, `emailVerified`, `name`, `iat`, `exp`, `iss`, `aud`
-
-JWTはセッションの代替ではなく、FastAPIなど別サービスへ本人性を渡すためだけに発行します。JWT署名秘密鍵も`auth.jwks`へ暗号化して保存されます。
-
-チャットレイアウトはServer Componentで確定した認証状態とSodAIアカウントをクライアントへ引き継ぎます。ゲストは認証APIを呼ばず、ログインユーザーのJWTは有効期限直前までメモリ上で共有します。これにより、FastAPIへの各リクエスト前に`/get-session`を重複実行しません。
-
-## メールOTP認証
-
-メール認証はパスワードを持たない単一フローです。メールアドレスへ6桁のコードを送り、検証に成功すると既存ユーザーはログインし、未登録ユーザーはBetter Auth上に自動作成されます。アカウントの存在有無を返すAPIは設けません。
-
-- 有効期限: 5分
-- 入力上限: 3回
-- 発行・検証のレート制限: 1分あたり3回
-- DB保存: ハッシュ化
-- 再送信: 以前のコードを失効させてローテーション
-
-OTP検証後、FastAPIの`GET /api/v1/account/me`でSodAI所有のアカウントを解決します。`display_name`が未設定の場合だけプロフィール設定へ進み、`PATCH /api/v1/account/me`で完成させます。認証identityとプロダクトプロフィールの所有境界は混在させません。
-
-ブラウザ向けの`NEXT_PUBLIC_API_BASE_URL`とは別に、Next.jsサーバーからFastAPIへ到達する内部URLを`SODAI_API_BASE_URL`で指定できます。未指定時はブラウザ向けURLを利用します。
-
-## メール配送
-
-メール配送は`AuthEmailDelivery`インターフェースで分離されています。
-
-- `console`: ローカル開発専用
-- `smtp`: 本番またはMailpit用。特定ベンダーに依存しない標準SMTP
-
-SMTPでは`AUTH_EMAIL_FROM`、`AUTH_SMTP_HOST`、`AUTH_SMTP_PORT`、`AUTH_SMTP_SECURE`を指定します。認証が必要な場合だけ`AUTH_SMTP_USER`と`AUTH_SMTP_PASSWORD`を両方設定してください。

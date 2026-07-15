@@ -1,15 +1,15 @@
 # SodAI
 
-SodAI は、独自LLMをチャット・評価・クレジット・将来のモデル公開へつなぐ、データ主権を重視したAIプラットフォームです。Next.js、Better Auth、FastAPI、PostgreSQL、Redis、独立GPU推論ワーカーを用いてセルフホストできます。
+SodAI は、独自LLMをチャット・評価・クレジット・将来のモデル公開へつなぐ、データ主権を重視したAIプラットフォームです。Next.js、Hono上のBetter Auth、FastAPI、PostgreSQL、Redis、独立GPU推論ワーカーを用いてセルフホストできます。
 
 ## アーキテクチャ
 
 ```text
 Browser
-  ├─ Next.js / Better Auth  ── PostgreSQL auth schema
-  └─ FastAPI                ── PostgreSQL app schema / inference outbox
-                                  │
-                                  └─ Redis Streams ── Hina GPU worker
+  ├─ Next.js ── /api/auth/* ── Hono / Better Auth ── PostgreSQL auth schema
+  └─ FastAPI ─────────────────────────────────────── PostgreSQL app schema / inference outbox
+                                                             │
+                                                             └─ Redis Streams ── Hina GPU worker
 
 Internet ── Cloudflare Tunnel ── 自宅環境
                                       └─ SodAI GPU worker
@@ -24,7 +24,8 @@ Internet ── Cloudflare Tunnel ── 自宅環境
 ```text
 SodAI/
 ├── backend/                 # FastAPI、app schema、認証トークン検証
-├── frontend/                # Next.js、Better Auth、auth schema
+├── auth/                    # Hono、Better Auth、auth schema、認証メール
+├── frontend/                # Next.js、UI、Auth/APIクライアント
 ├── inference/               # HinaのGPU推論worker
 ├── packages/contracts/      # APIとworkerのversioned内部契約
 ├── var/models/              # Git管理外のimmutableモデル成果物
@@ -68,10 +69,11 @@ make infra-config
 make infra-up
 make install
 cp backend/.env.example backend/.env
+cp auth/.env.example auth/.env
 cp frontend/.env.example frontend/.env.local
 ```
 
-`frontend/.env.local`の`AUTH_DATABASE_URL`には`.env`の`AUTH_DATABASE_PASSWORD`と同じ値を、`backend/.env`の`DATABASE_URL`には`APP_DATABASE_PASSWORD`と同じ値を設定します。`BETTER_AUTH_SECRET`はこれらと別のランダム値にします。最後に両schemaのmigrationを適用します。
+`auth/.env`の`AUTH_DATABASE_URL`には`.env`の`AUTH_DATABASE_PASSWORD`と同じ値を、`backend/.env`の`DATABASE_URL`には`APP_DATABASE_PASSWORD`と同じ値を設定します。`BETTER_AUTH_SECRET`はこれらと別のランダム値にします。最後に両schemaのmigrationを適用します。
 
 ```bash
 make migrate
@@ -100,6 +102,7 @@ make deploy-hina ARTIFACT_ID=<importで表示されたartifact-id>
 別々のターミナルで起動します。
 
 ```bash
+make dev-auth
 make dev-backend
 make dev-frontend
 make dev-inference
@@ -109,6 +112,8 @@ make dev-inference
 必要はありません。
 
 - Frontend: <http://localhost:3000>
+- Auth liveness（内部待受）: <http://127.0.0.1:3001/healthz>
+- Auth readiness（内部待受）: <http://127.0.0.1:3001/readyz>
 - API: <http://localhost:8000>
 - OpenAPI UI: <http://localhost:8000/api/v1/docs>
 - Mailpit（開発メール）: <http://localhost:8025>

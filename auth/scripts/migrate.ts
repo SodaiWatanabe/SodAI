@@ -1,12 +1,9 @@
-import { loadEnvConfig } from "@next/env";
+import "dotenv/config";
+
 import { getMigrations } from "better-auth/db/migration";
 
-loadEnvConfig(process.cwd());
-
-const [{ authDatabasePool }, { authOptions }] = await Promise.all([
-  import("../src/lib/auth/database"),
-  import("../src/lib/auth/options"),
-]);
+import { authDatabasePool } from "../src/database.js";
+import { authOptions } from "../src/options.js";
 
 const checkOnly = process.argv.includes("--check");
 
@@ -32,7 +29,6 @@ async function main(): Promise<void> {
     console.info("Better Auth schema is up to date.");
     return;
   }
-
   if (checkOnly) {
     console.error(
       `Better Auth schema has pending changes: ${pendingTables} table(s), ${pendingColumns} column(s).`,

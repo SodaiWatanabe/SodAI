@@ -8,15 +8,18 @@ COMPOSE ?= docker compose
 COMPOSE_BASE = $(COMPOSE) --env-file $(ENV_FILE) -f compose.yaml
 COMPOSE_DEV = $(COMPOSE_BASE) -f compose.dev.yaml
 
-.PHONY: install install-contracts install-backend install-frontend install-inference \
-	dev-backend dev-frontend dev-inference import-hina deploy-hina \
+.PHONY: install install-contracts install-auth install-backend install-frontend install-inference \
+	dev-auth dev-backend dev-frontend dev-inference import-hina deploy-hina \
 	inference-status credits-grant credits-expire test-inference-e2e \
 	infra-check-env infra-config infra-up infra-up-internal infra-down infra-logs infra-ps \
 	tunnel-up tunnel-down db-shell redis-cli db-backup db-restore \
 	migrate migrate-auth migrate-app reinitialize-app-schema \
 	test test-integration lint build check
 
-install: install-backend install-frontend install-inference
+install: install-auth install-backend install-frontend install-inference
+
+install-auth:
+	cd auth && npm install
 
 install-contracts: $(BACKEND_VENV)/bin/python
 	$(BACKEND_PYTHON) -m pip install -e packages/contracts
@@ -38,6 +41,9 @@ install-inference:
 	$(INFERENCE_PYTHON) -m pip install 'torch==2.5.1' --index-url https://download.pytorch.org/whl/cu121
 	$(INFERENCE_PYTHON) -m pip install -e packages/contracts
 	$(INFERENCE_PYTHON) -m pip install -e 'inference[dev]'
+
+dev-auth:
+	cd auth && npm run dev
 
 dev-backend:
 	cd backend && .venv/bin/uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
@@ -130,7 +136,7 @@ db-restore: infra-check-env
 migrate: migrate-auth migrate-app
 
 migrate-auth:
-	cd frontend && npm run auth:migrate
+	cd auth && npm run migrate
 
 migrate-app:
 	cd backend && .venv/bin/alembic upgrade head
@@ -140,6 +146,7 @@ reinitialize-app-schema: infra-check-env
 	$(MAKE) migrate-app
 
 test:
+	cd auth && npm test
 	$(BACKEND_PYTHON) -m pytest packages/contracts/tests
 	cd backend && .venv/bin/pytest
 	cd inference && .venv/bin/pytest
@@ -151,12 +158,14 @@ test-integration: infra-check-env
 		SODAI_INTEGRATION_TESTS=1 .venv/bin/pytest tests/test_redis_integration.py
 
 lint:
+	cd auth && npm run lint && npm run typecheck
 	$(BACKEND_PYTHON) -m ruff check packages/contracts
 	cd backend && .venv/bin/ruff check .
 	cd inference && .venv/bin/ruff check .
 	cd frontend && npm run lint
 
 build:
+	cd auth && npm run build
 	cd frontend && npm run build
 
 check: test lint build

@@ -5,4 +5,7 @@ import { emailOTPClient, jwtClient } from "better-auth/client/plugins";
 
 export const authClient = createAuthClient({
   plugins: [emailOTPClient(), jwtClient()],
+  sessionOptions: {
+    refetchInterval: 60 * 60 * 4,
+  },
 });
