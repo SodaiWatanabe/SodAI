@@ -126,8 +126,8 @@ export function BrainShell() {
     return (
       <section className="grid flex-1 place-items-center px-6">
         <div className="max-w-sm text-center">
-          <h1 className="text-2xl font-semibold tracking-[-0.04em] text-[var(--text)]">
-            SodAI Brain
+          <h1 className="text-4xl font-semibold leading-none tracking-[-0.055em] text-[var(--text)] sm:text-[42px]">
+            Keep Thinking.
           </h1>
           <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
             Humanとしてプロンプトに答えるには、ログインしてください。
@@ -225,17 +225,20 @@ export function BrainShell() {
   return (
     <section className="grid flex-1 place-items-center px-6">
       <div className="w-full max-w-sm text-center">
-        <p className="text-xs font-medium text-[var(--muted)]">
-          {state.rank_name}
-        </p>
-        <h1 className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-[var(--text)]">
-          {state.status === "waiting" ? "割り当てを待っています" : "SodAI Brain"}
-        </h1>
-        <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
-          {state.status === "waiting"
-            ? "条件に合うプロンプトが届くと、ここに表示されます。"
-            : "準備ができたら、Humanとしてプロンプトに答えられます。"}
-        </p>
+        {state.status === "waiting" ? (
+          <>
+            <h1 className="text-2xl font-semibold tracking-[-0.04em] text-[var(--text)]">
+              割り当てを待っています
+            </h1>
+            <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
+              条件に合うプロンプトが届くと、ここに表示されます。
+            </p>
+          </>
+        ) : (
+          <h1 className="text-4xl font-semibold leading-none tracking-[-0.055em] text-[var(--text)] sm:text-[42px]">
+            Keep Thinking.
+          </h1>
+        )}
         {state.status === "waiting" ? (
           <button
             type="button"
@@ -252,7 +255,7 @@ export function BrainShell() {
             className="mt-6 h-10 rounded-full bg-[var(--primary)] px-5 text-sm font-medium text-[var(--on-primary)] hover:bg-[var(--primary-hover)] disabled:opacity-50"
             onClick={() => run(humanApi.ready)}
           >
-            脳の重みをロード
+            思考を始める
           </button>
         )}
         {error ? <p className="mt-4 text-xs text-[var(--danger-text)]">{error}</p> : null}
