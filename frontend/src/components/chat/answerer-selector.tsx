@@ -207,7 +207,7 @@ export function AnswererSelector({
             ) : null}
             {pastAnswerers.length > 0 ? (
               <AnswererSubmenu
-                label="過去のモデル"
+                label="過去のAIモデル"
                 options={pastAnswerers}
                 selectedId={selected?.id}
                 onSelect={(id) => {
@@ -223,7 +223,7 @@ export function AnswererSelector({
               <AnswererSubmenu
                 description="人類の底力。"
                 emphasizeLabel
-                label="Human"
+                label="ヒト"
                 options={humanAnswerers}
                 selectedId={selected?.id}
                 onSelect={(id) => {
