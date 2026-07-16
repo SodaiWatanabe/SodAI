@@ -265,9 +265,19 @@ async def test_human_matching_uses_oldest_compatible_task_and_returns_answer() -
     junior = principal()
     senior = principal()
     second_senior = principal()
+    standard_performer = principal()
     pro_owner = principal()
+    standard_owner = principal()
     lite_owner = principal()
-    users = [junior, senior, second_senior, pro_owner, lite_owner]
+    users = [
+        junior,
+        senior,
+        second_senior,
+        standard_performer,
+        pro_owner,
+        standard_owner,
+        lite_owner,
+    ]
     factory = get_session_factory()
     human = HumanService(factory)
 
@@ -284,20 +294,32 @@ async def test_human_matching_uses_oldest_compatible_task_and_returns_answer() -
         pro_thread_id, pro_execution_id = await create_task(
             pro_owner, AnswererId.HUMAN_PRO, "Proだけが回答できるPrompt"
         )
+        standard_thread_id, standard_execution_id = await create_task(
+            standard_owner,
+            AnswererId.HUMAN_STANDARD,
+            "Standard以上が回答できるPrompt",
+        )
         lite_thread_id, lite_execution_id = await create_contextual_task(lite_owner)
         base = datetime.now(timezone.utc) - timedelta(minutes=1)
         async with factory() as session:
             for offset, execution_id in enumerate(
-                [self_execution_id, pro_execution_id, lite_execution_id]
+                [
+                    self_execution_id,
+                    pro_execution_id,
+                    standard_execution_id,
+                    lite_execution_id,
+                ]
             ):
                 task = await session.get(HumanTaskModel, execution_id)
                 assert task is not None, f"missing HumanTask for {execution_id}"
                 task.queued_at = base + timedelta(seconds=offset)
             await session.commit()
         await human.set_rank(senior.id, 2)
-        await human.set_rank(second_senior.id, 2)
+        await human.set_rank(second_senior.id, 3)
+        await human.set_rank(standard_performer.id, 2)
 
         junior_state = await human.ready(junior.id)
+        assert junior_state.rank_name == "Human Lite"
         assert junior_state.assignment is not None
         assert junior_state.assignment.execution_id == lite_execution_id
         assert [entry.content for entry in junior_state.assignment.context] == [
@@ -312,11 +334,17 @@ async def test_human_matching_uses_oldest_compatible_task_and_returns_answer() -
         ]
 
         senior_state = await human.ready(senior.id)
-        assert senior_state.rank_name == "Human Pro"
+        assert senior_state.rank_name == "Human Standard"
         assert senior_state.assignment is not None
         assert senior_state.assignment.execution_id == self_execution_id
 
+        standard_state = await human.ready(standard_performer.id)
+        assert standard_state.rank_name == "Human Standard"
+        assert standard_state.assignment is not None
+        assert standard_state.assignment.execution_id == standard_execution_id
+
         second_senior_state = await human.ready(second_senior.id)
+        assert second_senior_state.rank_name == "Human Pro"
         assert second_senior_state.assignment is not None
         assert second_senior_state.assignment.execution_id == pro_execution_id
 
@@ -346,6 +374,20 @@ async def test_human_matching_uses_oldest_compatible_task_and_returns_answer() -
         assert human_task is not None
         assert model_execution is None
         assert model_expirations == []
+
+        standard_answered_state = await human.answer(
+            standard_performer.id,
+            standard_state.assignment.claim_id,
+            "Human Standardからの回答です。",
+        )
+        assert standard_answered_state.status.value == "waiting"
+        async with factory() as session:
+            standard_thread = await SqlAlchemyThreadRepository(session).get(
+                standard_owner,
+                standard_thread_id,
+            )
+        assert standard_thread.entries[-1].author.key == "model:human-standard"
+        assert standard_thread.entries[-1].answerer is AnswererId.HUMAN_STANDARD
 
         async with factory() as session:
             repository = SqlAlchemyThreadRepository(session)

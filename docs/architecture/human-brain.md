@@ -1,15 +1,15 @@
 # Human Brain MVP
 
 SodAI ChatとSodAI Brainは、同じResponse/Execution/Thread基盤を別の入口から使う。
-ChatではHuman LiteまたはHuman ProへPromptを送り、BrainではHumanとして割り当てを受ける。
+ChatではHuman Lite、Human Standard、Human ProへPromptを送り、BrainではHumanとして割り当てを受ける。
 
 ## 不変条件
 
-- `human-lite`と`human-pro`は変更しない公開IDで、表示名はcatalogから変更できる。
+- `human-lite`、`human-standard`、`human-pro`は変更しない公開IDで、表示名はcatalogから変更できる。
 - Humanモデルの差は`required_human_rank`だけで表す。matcherはモデルIDで分岐しない。
 - Prompt作成者と実回答者は別のUserでなければならない。
 - 実回答者はThread memberにせず、active Claimを持つ間だけ全文脈を読める。
-- Thread上の回答者はHuman Lite/ProのModel Actorとする。実回答者UserはClaimだけに記録する。
+- Thread上の回答者はHuman Lite/Standard/ProのModel Actorとする。実回答者UserはClaimだけに記録する。
 - 回答本文は`thread_entries`、完了状態はResponseRequest/Executionを正本とし、Human用に複製しない。
 
 ## 最小データ
@@ -19,7 +19,8 @@ ChatではHuman LiteまたはHuman ProへPromptを送り、BrainではHumanと�
 - `human_wait_entries`: 準備OKになったHumanのFIFO待機とreadiness lease。
 - `human_claims`: Taskと実回答者の一時割当、skip/answer/expire履歴。
 
-MVPのrank変更は`make human-rank USER_ID=<uuid> RANK=2`で行う。評価による自動昇降は後から
+rankはLiteを1、Standardを2、Proを3とする。MVPのrank変更は
+`make human-rank USER_ID=<uuid> RANK=2`で行う。評価による自動昇降は後から
 同じprofile更新境界へ接続する。
 
 Response作成時にHuman TaskはThreadの全Entryを既存`response_context_items`へsnapshotする。

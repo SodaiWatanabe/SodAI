@@ -68,8 +68,15 @@ GRANT USAGE ON SCHEMA app TO sodai_app;
 SQL
   ' >/dev/null
 
+(cd backend && DATABASE_URL="$database_url" .venv/bin/alembic upgrade 20260715_0005)
+DATABASE_URL="$database_url" \
+SODAI_HUMAN_STANDARD_MIGRATION_TEST=prepare \
+backend/.venv/bin/pytest -q backend/tests/test_human_standard_migration.py
 (cd backend && DATABASE_URL="$database_url" .venv/bin/alembic upgrade head)
 (cd backend && DATABASE_URL="$database_url" .venv/bin/alembic check)
+DATABASE_URL="$database_url" \
+SODAI_HUMAN_STANDARD_MIGRATION_TEST=verify \
+backend/.venv/bin/pytest -q backend/tests/test_human_standard_migration.py
 
 DATABASE_URL="$database_url" \
 SODAI_INTEGRATION_TESTS=1 \

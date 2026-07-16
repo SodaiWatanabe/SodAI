@@ -198,7 +198,7 @@ make credits-expire
 - クレジット購入: 決済providerの確定eventを冪等な`purchased` Lotへ変換する
 - サブスクリプション: entitlement期間ごとに`subscription` Lotを発行する
 - 貢献報酬・Human推論: 成果確定を`earned` Lotとして付与する
-- Human Answerer: `Human Lite`、`Human Medium`、`Human High`、`Human Pro`を独立した安定IDで追加する
+- Human Answerer: 現在の`Human Lite`、`Human Standard`、`Human Pro`に加え、将来のtierも独立した安定IDで追加する
 - Asuka Thinking: Lite／Highなどを独立したAnswerer IDと料金表revisionで追加し、Asukaの主体IDは共有する
 - 返金・取消: 元取引を参照する`reversal`取引を追加する
 - 自動期限切れ: schedulerが既存の期限切れServiceを繰り返し実行する

@@ -45,7 +45,7 @@ projector is the only component allowed to apply runtime events to PostgreSQL an
 the public WebSocket stream. Hina and the in-process Asuka stand-in use this same
 path.
 
-Human Lite and Human Pro reuse the same ResponseRequest, Execution, context, and
+Human Lite, Human Standard, and Human Pro reuse the same ResponseRequest, Execution, context, and
 ThreadEntry records without creating a model outbox job. Their rank-based FIFO
 matching, Brain readiness lease, skip loop, and extension boundary are documented in
 `docs/architecture/human-brain.md`.

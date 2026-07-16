@@ -14,6 +14,7 @@ class AnswererId(str, Enum):
     HINA = "hina"
     ASUKA_1 = "asuka-1"
     HUMAN_LITE = "human-lite"
+    HUMAN_STANDARD = "human-standard"
     HUMAN_PRO = "human-pro"
 
 
@@ -81,6 +82,7 @@ HINA_ACTOR_ID = UUID("00000000-0000-4000-8000-000000000001")
 ASUKA_1_ACTOR_ID = UUID("00000000-0000-4000-8000-000000000002")
 HUMAN_LITE_ACTOR_ID = UUID("00000000-0000-4000-8000-000000000003")
 HUMAN_PRO_ACTOR_ID = UUID("00000000-0000-4000-8000-000000000004")
+HUMAN_STANDARD_ACTOR_ID = UUID("00000000-0000-4000-8000-000000000005")
 ASUKA_1_FIXED_CHARGE = CREDIT_SCALE // 10
 
 ASUKA_1_TARIFF = InferenceTariff(
@@ -126,6 +128,17 @@ ANSWERER_CATALOG = (
         required_human_rank=1,
     ),
     AnswererDefinition(
+        id=AnswererId.HUMAN_STANDARD,
+        actor_id=HUMAN_STANDARD_ACTOR_ID,
+        name="Human Standard",
+        description="幅広い相談に対応。",
+        runtime_kind=RuntimeKind.HUMAN,
+        runtime_name="human-standard",
+        tariff=FREE_INFERENCE_TARIFF,
+        audiences=frozenset({AnswererAudience.AUTHENTICATED}),
+        required_human_rank=2,
+    ),
+    AnswererDefinition(
         id=AnswererId.HUMAN_PRO,
         actor_id=HUMAN_PRO_ACTOR_ID,
         name="Human Pro",
@@ -134,7 +147,7 @@ ANSWERER_CATALOG = (
         runtime_name="human-pro",
         tariff=FREE_INFERENCE_TARIFF,
         audiences=frozenset({AnswererAudience.AUTHENTICATED}),
-        required_human_rank=2,
+        required_human_rank=3,
     ),
 )
 _ANSWERERS_BY_ID = {answerer.id: answerer for answerer in ANSWERER_CATALOG}

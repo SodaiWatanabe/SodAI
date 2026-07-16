@@ -2,7 +2,12 @@ from uuid import uuid4
 
 import pytest
 
-from app.domain.answerers import AnswererId, AnswererPricingKind, RuntimeKind
+from app.domain.answerers import (
+    AnswererId,
+    AnswererPricingKind,
+    RuntimeKind,
+    get_answerer,
+)
 from app.domain.principals import Principal, PrincipalKind
 from app.services.inference.asuka import AsukaPseudoGenerator
 from app.services.thread import AnswererAccessError, ThreadService
@@ -42,6 +47,7 @@ def test_answerer_catalog_is_the_single_ui_source() -> None:
         (AnswererId.ASUKA_1, "Asuka 1", "会話に最適。", True),
         (AnswererId.HINA, "Hina", "知能の萌芽を捉える。", False),
         (AnswererId.HUMAN_LITE, "Human Lite", "日常のやりとりに最適。", False),
+        (AnswererId.HUMAN_STANDARD, "Human Standard", "幅広い相談に対応。", False),
         (AnswererId.HUMAN_PRO, "Human Pro", "より高度な応答。", False),
     ]
     by_id = {item.id: item for item in answerers}
@@ -57,9 +63,17 @@ def test_answerer_catalog_is_the_single_ui_source() -> None:
     assert by_id[AnswererId.HINA].pricing.kind is AnswererPricingKind.FREE
     assert by_id[AnswererId.HINA].is_legacy is True
     assert by_id[AnswererId.HUMAN_LITE].is_legacy is False
+    assert by_id[AnswererId.HUMAN_STANDARD].is_legacy is False
     assert by_id[AnswererId.HUMAN_PRO].is_legacy is False
     assert by_id[AnswererId.HUMAN_LITE].pricing.kind is AnswererPricingKind.FREE
+    assert by_id[AnswererId.HUMAN_STANDARD].pricing.kind is AnswererPricingKind.FREE
     assert by_id[AnswererId.HUMAN_PRO].pricing.kind is AnswererPricingKind.FREE
+    lite = get_answerer(AnswererId.HUMAN_LITE)
+    standard = get_answerer(AnswererId.HUMAN_STANDARD)
+    pro = get_answerer(AnswererId.HUMAN_PRO)
+    assert lite is not None and lite.required_human_rank == 1
+    assert standard is not None and standard.required_human_rank == 2
+    assert pro is not None and pro.required_human_rank == 3
     guest_answerers = ThreadService.available_answerers(principal(PrincipalKind.GUEST))
     assert all(item.pricing.kind is AnswererPricingKind.FREE for item in guest_answerers)
 
