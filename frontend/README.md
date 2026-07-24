@@ -7,10 +7,10 @@ Next.js App Router、TypeScript、Tailwind CSSで構成したSodAIのWebアプ�
 ```bash
 cp .env.example .env.local
 npm install
-npm run dev
+npm run dev -- --hostname 127.0.0.1 --port 13200
 ```
 
-先にリポジトリルートから`make dev-auth`と`make dev-backend`を起動してください。Webは <http://localhost:3000> で起動します。
+先にリポジトリルートから`make dev-auth`と`make dev-backend`を起動してください。Webは <http://localhost:13200> で起動します。リポジトリルートの`make dev-frontend`はSodAI専用ポートを明示して起動します。
 
 ## Authサービスとの境界
 

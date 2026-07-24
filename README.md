@@ -111,12 +111,18 @@ make dev-inference
 上のimport手順でpinned workerをすでに起動している場合、同じartifactのworkerを重ねて起動する
 必要はありません。
 
-- Frontend: <http://localhost:3000>
-- Auth liveness（内部待受）: <http://127.0.0.1:3001/healthz>
-- Auth readiness（内部待受）: <http://127.0.0.1:3001/readyz>
-- API: <http://localhost:8000>
-- OpenAPI UI: <http://localhost:8000/api/v1/docs>
-- Mailpit（開発メール）: <http://localhost:8025>
+- Frontend: <http://localhost:13200>
+- Auth liveness（内部待受）: <http://127.0.0.1:13201/healthz>
+- Auth readiness（内部待受）: <http://127.0.0.1:13201/readyz>
+- API: <http://localhost:13202>
+- OpenAPI UI: <http://localhost:13202/api/v1/docs>
+- PostgreSQL（localhost限定）: `127.0.0.1:13203`
+- Redis（localhost限定）: `127.0.0.1:13204`
+- Mailpit SMTP: `127.0.0.1:13205`
+- Mailpit UI: <http://localhost:13206>
+
+ローカル開発では`13200`から`13209`までをSodAI専用として扱います。Compose project、
+volume、networkも`sodai-*`で固定されており、同じホスト上の別プラットフォームとは共有しません。
 
 ## インフラ運用
 

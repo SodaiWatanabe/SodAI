@@ -11,7 +11,7 @@ npm run migrate
 npm run dev
 ```
 
-既定では`127.0.0.1:3001`で待ち受けます。ブラウザはこの内部ポートへ直接アクセスせず、Next.jsの`/api/auth/*` Route Handlerを通して公開originへアクセスします。`BETTER_AUTH_URL`はJWTのissuerとaudienceでもあるため、内部の待受URLではなく公開originを設定します。
+既定では`127.0.0.1:13201`で待ち受けます。ブラウザはこの内部ポートへ直接アクセスせず、Next.jsの`/api/auth/*` Route Handlerを通して公開originへアクセスします。`BETTER_AUTH_URL`はJWTのissuerとaudienceでもあるため、内部の待受URLではなく公開originを設定します。
 
 ## 所有境界
 
@@ -52,7 +52,7 @@ Better Auth 1.6.23ではPostgreSQLの`rateLimit.lastRequest`を検査すると�
 Google Cloud ConsoleでWeb applicationのOAuth clientを作成し、公開originのcallback URIを登録します。Authサービスの内部ポートは登録しません。
 
 ```text
-http://localhost:3000/api/auth/callback/google
+http://localhost:13200/api/auth/callback/google
 https://platform.sodai.me/api/auth/callback/google
 ```
 

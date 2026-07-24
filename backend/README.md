@@ -14,7 +14,7 @@ alembic upgrade head
 `DATABASE_URL` must use SQLAlchemy's asyncpg form:
 
 ```text
-postgresql+asyncpg://sodai_app:<password>@localhost:5432/sodai
+postgresql+asyncpg://sodai_app:<password>@localhost:13203/sodai
 ```
 
 ## Authentication contract

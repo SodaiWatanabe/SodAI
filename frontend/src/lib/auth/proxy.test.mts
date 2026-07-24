@@ -30,13 +30,13 @@ test("認証リクエストと応答を同一origin proxyで透過する", async
         forwardedInit = init;
         return upstreamResponse;
       },
-      serviceUrl: "http://auth.internal:3001",
+      serviceUrl: "http://auth.internal:13201",
     },
   );
 
   assert.equal(
     forwardedUrl?.toString(),
-    "http://auth.internal:3001/api/auth/callback/google?code=value",
+    "http://auth.internal:13201/api/auth/callback/google?code=value",
   );
   assert.equal(forwardedInit?.method, "POST");
   assert.equal(forwardedInit?.redirect, "manual");
@@ -60,7 +60,7 @@ test("認証サービスへ接続できない場合は機密情報を含めず50
       fetch: async () => {
         throw new Error("private upstream detail");
       },
-      serviceUrl: "http://auth.internal:3001",
+      serviceUrl: "http://auth.internal:13201",
     },
   );
 

@@ -82,7 +82,7 @@ export function getServiceHost(): string {
 }
 
 export function getServicePort(): number {
-  const configured = process.env.AUTH_PORT?.trim() || "3001";
+  const configured = process.env.AUTH_PORT?.trim() || "13201";
   const port = Number(configured);
   if (!Number.isInteger(port) || port < 1 || port > 65_535) {
     throw new Error("AUTH_PORT must be an integer between 1 and 65535.");

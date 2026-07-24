@@ -1,4 +1,4 @@
-const DEFAULT_AUTH_SERVICE_URL = "http://127.0.0.1:3001";
+const DEFAULT_AUTH_SERVICE_URL = "http://127.0.0.1:13201";
 
 export function getAuthServiceUrl(): string {
   const configured = process.env.AUTH_SERVICE_URL?.trim() || DEFAULT_AUTH_SERVICE_URL;

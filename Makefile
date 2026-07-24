@@ -7,6 +7,12 @@ ENV_FILE ?= .env
 COMPOSE ?= docker compose
 COMPOSE_BASE = $(COMPOSE) --env-file $(ENV_FILE) -f compose.yaml
 COMPOSE_DEV = $(COMPOSE_BASE) -f compose.dev.yaml
+DEV_FRONTEND_HOST ?= 127.0.0.1
+DEV_FRONTEND_PORT ?= 13200
+DEV_AUTH_HOST ?= 127.0.0.1
+DEV_AUTH_PORT ?= 13201
+DEV_BACKEND_HOST ?= 127.0.0.1
+DEV_BACKEND_PORT ?= 13202
 
 .PHONY: install install-contracts install-auth install-backend install-frontend install-inference \
 	dev-auth dev-backend dev-frontend dev-inference import-hina deploy-hina \
@@ -43,13 +49,15 @@ install-inference:
 	$(INFERENCE_PYTHON) -m pip install -e 'inference[dev]'
 
 dev-auth:
-	cd auth && npm run dev
+	cd auth && AUTH_HOST=$(DEV_AUTH_HOST) AUTH_PORT=$(DEV_AUTH_PORT) npm run dev
 
 dev-backend:
-	cd backend && .venv/bin/uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+	cd backend && .venv/bin/uvicorn app.main:app --reload \
+		--host $(DEV_BACKEND_HOST) --port $(DEV_BACKEND_PORT)
 
 dev-frontend:
-	cd frontend && npm run dev
+	cd frontend && npm run dev -- \
+		--hostname $(DEV_FRONTEND_HOST) --port $(DEV_FRONTEND_PORT)
 
 dev-inference: infra-check-env
 	set -a; . ./$(ENV_FILE); set +a; exec env \

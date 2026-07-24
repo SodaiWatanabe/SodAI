@@ -16,11 +16,11 @@ class Settings(BaseSettings):
     app_name: str = "SodAI API"
     app_env: str = "development"
     api_prefix: str = "/api/v1"
-    frontend_origin: str = "http://localhost:3000"
+    frontend_origin: str = "http://localhost:13200"
     guest_cookie_secure: bool = False
 
-    database_url: str = "postgresql+asyncpg://sodai_app:sodai@localhost:5432/sodai"
-    redis_url: str = "redis://127.0.0.1:6379/0"
+    database_url: str = "postgresql+asyncpg://sodai_app:sodai@localhost:13203/sodai"
+    redis_url: str = "redis://127.0.0.1:13204/0"
     redis_password: str | None = None
     model_root: Path = Field(
         default=REPOSITORY_ROOT / "var" / "models",
@@ -37,9 +37,9 @@ class Settings(BaseSettings):
     inference_status_timeout_seconds: float = Field(default=1, gt=0, le=10)
     inference_status_cache_seconds: float = Field(default=2, ge=0, le=30)
 
-    auth_issuer: str = "http://localhost:3000"
-    auth_audience: str = "http://localhost:3000"
-    auth_jwks_url: str = "http://127.0.0.1:3001/api/auth/jwks"
+    auth_issuer: str = "http://localhost:13200"
+    auth_audience: str = "http://localhost:13200"
+    auth_jwks_url: str = "http://127.0.0.1:13201/api/auth/jwks"
     auth_jwt_algorithm: str = "EdDSA"
     auth_jwt_leeway_seconds: int = Field(default=30, ge=0, le=300)
     auth_jwks_cache_seconds: int = Field(default=3600, ge=30, le=86400)
