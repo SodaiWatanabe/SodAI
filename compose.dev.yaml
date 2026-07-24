@@ -1,14 +1,14 @@
 services:
   postgres:
     ports:
-      - "${POSTGRES_BIND_ADDRESS:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432"
+      - "${POSTGRES_BIND_ADDRESS:-127.0.0.1}:${POSTGRES_PORT:-13203}:5432"
     networks:
       - data
       - dev-access
 
   redis:
     ports:
-      - "${REDIS_BIND_ADDRESS:-127.0.0.1}:${REDIS_PORT:-6379}:6379"
+      - "${REDIS_BIND_ADDRESS:-127.0.0.1}:${REDIS_PORT:-13204}:6379"
     networks:
       - data
       - dev-access
@@ -20,8 +20,8 @@ services:
       MP_DATABASE: /tmp/mailpit.db
       MP_MAX_MESSAGES: "1000"
     ports:
-      - "127.0.0.1:${MAILPIT_SMTP_PORT:-1025}:1025"
-      - "127.0.0.1:${MAILPIT_UI_PORT:-8025}:8025"
+      - "127.0.0.1:${MAILPIT_SMTP_PORT:-13205}:1025"
+      - "127.0.0.1:${MAILPIT_UI_PORT:-13206}:8025"
     networks:
       - data
       - dev-access

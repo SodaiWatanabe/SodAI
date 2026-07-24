@@ -34,7 +34,7 @@ class Settings:
             model_root = REPOSITORY_ROOT / model_root
         return cls(
             model_root=model_root.resolve(),
-            redis_url=os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0"),
+            redis_url=os.getenv("REDIS_URL", "redis://127.0.0.1:13204/0"),
             redis_password=redis_password,
             device=os.getenv("HINA_DEVICE", "cuda:0"),
             consumer_name=os.getenv(

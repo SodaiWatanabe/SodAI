@@ -36,7 +36,7 @@ async def test_event_publish_and_job_ack_are_atomic_in_redis() -> None:
     suffix = uuid4().hex
     settings = Settings(
         model_root=Path("."),
-        redis_url=os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0"),
+        redis_url=os.getenv("REDIS_URL", "redis://127.0.0.1:13204/0"),
         redis_password=os.getenv("REDIS_PASSWORD") or None,
         device="cpu",
         consumer_name="integration-consumer",

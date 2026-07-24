@@ -31,7 +31,7 @@ if not database_name.startswith("sodai_integration_"):
 url = make_url(get_settings().database_url)
 if url.host not in {"127.0.0.1", "localhost", "::1"}:
     raise SystemExit("integration PostgreSQL must use the local development endpoint")
-if (url.port or 5432) != int(os.getenv("POSTGRES_PORT", "5432")):
+if (url.port or 13203) != int(os.getenv("POSTGRES_PORT", "13203")):
     raise SystemExit("integration PostgreSQL port must match the development endpoint")
 print(url.set(database=database_name).render_as_string(hide_password=False))
 PY

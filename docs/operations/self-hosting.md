@@ -76,12 +76,12 @@ CONFIRM_REINITIALIZE_APP_SCHEMA=1 make reinitialize-app-schema
 
 通常の起動や更新でこのtargetを使ってはいけません。確認変数がない実行は拒否されます。
 
-開発用の確認メールはSMTP `127.0.0.1:1025`へ送信し、<http://127.0.0.1:8025>で確認できます。Authサービスをホストで動かす場合の設定は次の通りです。
+開発用の確認メールはSMTP `127.0.0.1:13205`へ送信し、<http://127.0.0.1:13206>で確認できます。Authサービスをホストで動かす場合の設定は次の通りです。
 
 ```dotenv
 AUTH_EMAIL_DELIVERY=smtp
 AUTH_SMTP_HOST=127.0.0.1
-AUTH_SMTP_PORT=1025
+AUTH_SMTP_PORT=13205
 AUTH_SMTP_SECURE=false
 AUTH_EMAIL_FROM="SodAI <no-reply@sodai.local>"
 ```

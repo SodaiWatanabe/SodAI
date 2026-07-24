@@ -33,11 +33,11 @@ if not database_name.startswith("sodai_e2e_"):
 settings = get_settings()
 url = make_url(settings.database_url)
 local_hosts = {"127.0.0.1", "localhost", "::1"}
-if url.host not in local_hosts or (url.port or 5432) != int(os.getenv("POSTGRES_PORT", "5432")):
+if url.host not in local_hosts or (url.port or 13203) != int(os.getenv("POSTGRES_PORT", "13203")):
     raise SystemExit("E2E PostgreSQL must use the local development endpoint")
 redis = urlparse(settings.redis_url)
-if redis.hostname not in local_hosts or (redis.port or 6379) != int(
-    os.getenv("REDIS_PORT", "6379")
+if redis.hostname not in local_hosts or (redis.port or 13204) != int(
+    os.getenv("REDIS_PORT", "13204")
 ):
     raise SystemExit("E2E Redis must use the local development endpoint")
 url = url.set(database=database_name)
@@ -79,7 +79,7 @@ from redis.asyncio import Redis
 
 async def cleanup() -> None:
     redis = Redis.from_url(
-        os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0"),
+        os.getenv("REDIS_URL", "redis://127.0.0.1:13204/0"),
         password=os.getenv("REDIS_PASSWORD") or None,
         decode_responses=True,
     )
@@ -167,7 +167,7 @@ from sodai_contracts.inference import InferenceNamespace
 
 async def wait_until_ready() -> None:
     redis = Redis.from_url(
-        os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0"),
+        os.getenv("REDIS_URL", "redis://127.0.0.1:13204/0"),
         password=os.getenv("REDIS_PASSWORD") or None,
         decode_responses=True,
     )
