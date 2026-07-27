@@ -6,6 +6,7 @@ const RESPONSE_EVENT_TYPES = new Set<RealtimeEvent["type"]>([
   "response.delta",
   "response.completed",
   "response.failed",
+  "response.cancelled",
 ]);
 
 export type ThreadRealtimeDecision = {
@@ -13,6 +14,22 @@ export type ThreadRealtimeDecision = {
   next: Thread | undefined;
   shouldSync: boolean;
 };
+
+export function mergeExecutionSnapshot(
+  current: Thread | undefined,
+  incoming: Thread,
+  executionId: string,
+): Thread {
+  if (!current) return incoming;
+  if (current.id !== incoming.id || incoming.revision < current.revision) {
+    return current;
+  }
+  if (incoming.revision > current.revision) return incoming;
+  return incoming.latest_response?.execution.id === executionId &&
+    current.latest_response?.execution.id === executionId
+    ? incoming
+    : current;
+}
 
 export function reduceThreadRealtime(
   current: Thread | undefined,
@@ -38,13 +55,24 @@ export function reduceThreadRealtime(
     return { handled: true, next: current, shouldSync: false };
   }
 
+  const currentIsTerminal = ["completed", "failed", "cancelled"].includes(
+    response.status,
+  );
+  if (currentIsTerminal) {
+    return { handled: true, next: current, shouldSync: true };
+  }
+
   const terminal =
-    event.type === "response.completed" || event.type === "response.failed";
+    event.type === "response.completed" ||
+    event.type === "response.failed" ||
+    event.type === "response.cancelled";
   const status =
     event.type === "response.completed"
       ? "completed"
       : event.type === "response.failed"
         ? "failed"
+        : event.type === "response.cancelled"
+          ? "cancelled"
         : "running";
   return {
     handled: true,

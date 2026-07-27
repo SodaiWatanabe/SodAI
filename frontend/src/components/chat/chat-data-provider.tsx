@@ -134,7 +134,8 @@ export function ChatDataProvider({ children }: { children: ReactNode }) {
       } else if (
         event.type === "response.queued" ||
         event.type === "response.completed" ||
-        event.type === "response.failed"
+        event.type === "response.failed" ||
+        event.type === "response.cancelled"
       ) {
         patchThread(event.thread_id, {
           last_activity_at: event.occurred_at,

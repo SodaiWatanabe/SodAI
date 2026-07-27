@@ -94,6 +94,13 @@ export function createChatApi(accessToken: ApiAccessTokenSource) {
     return (await response.json()) as Execution;
   }
 
+  async function cancelExecution(executionId: string): Promise<Thread> {
+    const response = await apiFetch(`/api/v1/executions/${executionId}/cancel`, {
+      method: "POST",
+    });
+    return (await response.json()) as Thread;
+  }
+
   async function createRealtimeSocket(after?: number): Promise<WebSocket> {
     const response = await apiFetch("/api/v1/realtime/tickets", {
       method: "POST",
@@ -111,6 +118,7 @@ export function createChatApi(accessToken: ApiAccessTokenSource) {
 
   return {
     archiveThread,
+    cancelExecution,
     createRealtimeSocket,
     createResponse,
     createThread,

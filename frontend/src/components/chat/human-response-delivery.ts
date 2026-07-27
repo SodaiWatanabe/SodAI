@@ -56,20 +56,6 @@ export function createHumanResponseDeliveryPlan(
   };
 }
 
-export function createHumanResponseDeliveryDelta(
-  completed: RealtimeEvent,
-  content: string,
-): RealtimeEvent {
-  return {
-    ...completed,
-    type: "response.delta",
-    data: {
-      target_actor_id: completed.data.target_actor_id,
-      content,
-    },
-  };
-}
-
 export function isLiveHumanResponseCompletion(
   current: Thread | undefined,
   event: RealtimeEvent,

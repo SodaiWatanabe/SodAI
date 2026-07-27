@@ -24,6 +24,7 @@ export type ThreadEntry = {
   ordinal: number;
   created_at: string;
   answerer: string | null;
+  response_status?: "completed" | "cancelled" | null;
 };
 
 export type Execution = {
@@ -33,7 +34,7 @@ export type Execution = {
   result_entry_id: string | null;
   answerer: string;
   target: string;
-  status: "queued" | "running" | "completed" | "failed";
+  status: "queued" | "running" | "completed" | "failed" | "cancelled";
   attempt_no: number;
   attempt_id: string;
   partial_output: string;
@@ -48,7 +49,7 @@ export type ResponseRequest = {
   input_entry_id: string;
   requested_answerer: string;
   target_actor: Actor;
-  status: "queued" | "running" | "completed" | "failed";
+  status: "queued" | "running" | "completed" | "failed" | "cancelled";
   execution: Execution;
   created_at: string;
 };
@@ -108,7 +109,9 @@ export type RealtimeEvent = {
     | "response.delta"
     | "response.completed"
     | "response.failed"
+    | "response.cancelled"
     | "human.assigned"
+    | "human.assignment.cancelled"
     | "sync.required";
   space_id: string;
   thread_id: string;
@@ -131,5 +134,6 @@ export type RealtimeEvent = {
     last_activity_at?: string;
     attempt_no?: number;
     claim_id?: string;
+    reason?: string;
   };
 };

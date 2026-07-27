@@ -11,6 +11,7 @@ import {
 
 import { useChatAuth } from "@/components/chat/chat-auth-context";
 import { useChatData } from "@/components/chat/chat-data-provider";
+import { removeCancelledAssignment } from "@/components/human/brain-assignment-state";
 import { BrainConversation } from "@/components/human/brain-conversation";
 import { BrainLobby } from "@/components/human/brain-lobby";
 import { IOSSpinner } from "@/components/ui/ios-spinner";
@@ -26,6 +27,7 @@ export function BrainShell() {
   const [answer, setAnswer] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
+  const [notice, setNotice] = useState<string>();
   const assignedViewRef = useRef<HTMLDivElement>(null);
   const answerRef = useRef<HTMLTextAreaElement>(null);
   const busyRef = useRef(false);
@@ -41,6 +43,7 @@ export function BrainShell() {
     if (claimIdRef.current !== nextClaimId) {
       setAnswer("");
       setError(undefined);
+      if (nextClaimId) setNotice(undefined);
     }
     claimIdRef.current = nextClaimId;
     setState(nextState);
@@ -78,12 +81,27 @@ export function BrainShell() {
     const initialRefresh = window.setTimeout(() => void refresh(), 0);
     const unsubscribe = subscribeRealtime((event) => {
       if (event.type === "human.assigned") void refresh();
+      const cancelledClaimId = event.data.claim_id;
+      if (
+        event.type === "human.assignment.cancelled" &&
+        cancelledClaimId &&
+        cancelledClaimId === claimIdRef.current
+      ) {
+        claimIdRef.current = undefined;
+        setAnswer("");
+        setError(undefined);
+        setNotice("依頼者がこの依頼を取り消しました。");
+        setState((current) =>
+          removeCancelledAssignment(current, cancelledClaimId),
+        );
+        void requestState(humanApi.state);
+      }
     });
     return () => {
       window.clearTimeout(initialRefresh);
       unsubscribe();
     };
-  }, [realtimeReadyRevision, refresh, subscribeRealtime]);
+  }, [humanApi, realtimeReadyRevision, refresh, requestState, subscribeRealtime]);
 
   useEffect(() => {
     if (!authenticated || !brainActive) return;
@@ -212,6 +230,7 @@ export function BrainShell() {
       busy={busy}
       error={error}
       mode={state.status === "waiting" ? "waiting" : "idle"}
+      notice={notice}
       onAction={() => {
         void run(state.status === "waiting" ? humanApi.stop : humanApi.ready);
       }}

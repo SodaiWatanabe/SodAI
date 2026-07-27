@@ -1,18 +1,25 @@
 "use client";
 
-import { type Ref, type RefObject } from "react";
+import { type Ref, type RefObject, useEffect, useRef, useState } from "react";
 
 import { SearchHighlight } from "@/components/chat/search-highlight";
 import { MessageActions } from "@/components/chat/message-actions";
 import { resolveMessageBrain } from "@/components/chat/message-brain";
+import {
+  appendStreamedText,
+  createStreamedTextState,
+  settleStreamedText,
+  STREAM_RESPONSE_FADE_DURATION_MS,
+} from "@/components/chat/streamed-text-state";
+import {
+  displayThreadEntries,
+  type DisplayEntry,
+  type ResponsePresentation,
+} from "@/components/chat/thread-display-entries";
 import { getConversationMessageLayout } from "@/components/conversation/conversation-layout";
 import { ConversationMessage } from "@/components/conversation/conversation-message";
 import { IOSSpinner } from "@/components/ui/ios-spinner";
-import type {
-  AvailableAnswerer,
-  Thread,
-  ThreadEntry,
-} from "@/lib/chat/types";
+import type { AvailableAnswerer, Thread } from "@/lib/chat/types";
 
 type ThreadViewportProps = {
   messageListRef: RefObject<HTMLDivElement | null>;
@@ -20,6 +27,7 @@ type ThreadViewportProps = {
   loading: boolean;
   responding: boolean;
   humanResponse?: boolean;
+  humanResponsePresentation?: ResponsePresentation;
   turnAnchorEntryId?: string;
   turnAnchorRef: Ref<HTMLElement>;
   turnSpacerRef: Ref<HTMLDivElement>;
@@ -28,12 +36,93 @@ type ThreadViewportProps = {
   answerers: AvailableAnswerer[];
 };
 
-type DisplayEntry = ThreadEntry & {
-  responseStatus: "completed" | "streaming" | "failed";
-};
+function StreamedText({
+  content,
+  markFirstMatch,
+  searchQuery,
+  streaming,
+}: {
+  content: string;
+  markFirstMatch: boolean;
+  searchQuery?: string;
+  streaming: boolean;
+}) {
+  const latestContentRef = useRef(content);
+  const frameRef = useRef<number | undefined>(undefined);
+  const settledThroughRef = useRef<number | undefined>(undefined);
+  const [stream, setStream] = useState(() =>
+    createStreamedTextState(content, streaming),
+  );
 
-function StreamedText({ content }: { content: string }) {
-  return <span className="stream-response-enter">{content}</span>;
+  useEffect(() => {
+    if (latestContentRef.current === content) return;
+    latestContentRef.current = content;
+    if (frameRef.current !== undefined) return;
+    frameRef.current = window.requestAnimationFrame(() => {
+      frameRef.current = undefined;
+      setStream((current) =>
+        appendStreamedText(
+          current,
+          latestContentRef.current,
+          settledThroughRef.current,
+        ),
+      );
+    });
+  }, [content]);
+
+  useEffect(
+    () => () => {
+      if (frameRef.current !== undefined) {
+        window.cancelAnimationFrame(frameRef.current);
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (streaming || !stream.animated || stream.content !== content) return;
+    const timer = window.setTimeout(() => {
+      setStream((current) =>
+        current.content === content ? settleStreamedText(current) : current,
+      );
+    }, STREAM_RESPONSE_FADE_DURATION_MS);
+    return () => window.clearTimeout(timer);
+  }, [content, stream.animated, stream.content, streaming]);
+
+  function markSegmentSettled(key: number) {
+    settledThroughRef.current = Math.max(
+      settledThroughRef.current ?? key,
+      key,
+    );
+  }
+
+  if (!stream.animated && searchQuery) {
+    return (
+      <SearchHighlight
+        markFirstMatch={markFirstMatch}
+        query={searchQuery}
+        text={stream.content}
+      />
+    );
+  }
+
+  return (
+    <>
+      {stream.segments.map((segment) => (
+        <span
+          key={segment.key}
+          className={segment.entering ? "stream-response-enter" : undefined}
+          onAnimationEnd={
+            segment.entering
+              ? () => markSegmentSettled(segment.key)
+              : undefined
+          }
+        >
+          {segment.text}
+        </span>
+      ))}
+    </>
+  );
 }
 
 function ThreadMessage({
@@ -54,7 +143,9 @@ function ThreadMessage({
   const layout = getConversationMessageLayout(entry.author.kind, "prompter");
   const showActions =
     layout.surface === "generated" &&
-    entry.responseStatus === "completed" &&
+    (entry.responseStatus === "completed" ||
+      entry.responseStatus === "cancelled") &&
+    !entry.presenting &&
     entry.content.length > 0;
   return (
     <ConversationMessage
@@ -64,9 +155,13 @@ function ThreadMessage({
       turnAnchor={turnAnchor}
       {...layout}
     >
-      {layout.surface === "generated" &&
-      entry.responseStatus === "streaming" ? (
-        <StreamedText content={entry.content} />
+      {layout.surface === "generated" ? (
+        <StreamedText
+          content={entry.content}
+          markFirstMatch={searchAnchor}
+          searchQuery={searchQuery}
+          streaming={entry.responseStatus === "streaming" || entry.presenting}
+        />
       ) : searchQuery ? (
         <SearchHighlight
           markFirstMatch={searchAnchor}
@@ -81,6 +176,11 @@ function ThreadMessage({
           応答を完了できませんでした。
         </span>
       ) : null}
+      {entry.responseStatus === "cancelled" && !entry.presenting ? (
+        <span className="mt-2 block text-[var(--muted)]">
+          応答を停止しました。
+        </span>
+      ) : null}
       {showActions ? (
         <MessageActions
           brain={resolveMessageBrain(entry, answerers)}
@@ -91,37 +191,6 @@ function ThreadMessage({
   );
 }
 
-function displayEntries(thread: Thread): DisplayEntry[] {
-  const entries: DisplayEntry[] = thread.entries.map((entry) => ({
-    ...entry,
-    responseStatus: "completed",
-  }));
-  const response = thread.latest_response;
-  if (!response) return entries;
-  const resultIsPersisted = response.execution.result_entry_id
-    ? entries.some((entry) => entry.id === response.execution.result_entry_id)
-    : false;
-  if (response.status === "completed" && resultIsPersisted) return entries;
-  const latestOrdinal = entries.at(-1)?.ordinal ?? -1;
-  entries.push({
-    id: response.execution.result_entry_id ?? `execution:${response.execution.id}`,
-    thread_id: thread.id,
-    author: response.target_actor,
-    kind: "message",
-    content: response.execution.partial_output,
-    ordinal: latestOrdinal + 1,
-    created_at: response.created_at,
-    answerer: response.requested_answerer,
-    responseStatus:
-      response.status === "failed"
-        ? "failed"
-        : response.status === "completed"
-          ? "completed"
-          : "streaming",
-  });
-  return entries;
-}
-
 export function ThreadViewport({
   answerers,
   messageListRef,
@@ -129,13 +198,16 @@ export function ThreadViewport({
   loading,
   responding,
   humanResponse = false,
+  humanResponsePresentation,
   turnAnchorEntryId,
   turnAnchorRef,
   turnSpacerRef,
   targetEntryId,
   targetSearchQuery,
 }: ThreadViewportProps) {
-  const entries = thread ? displayEntries(thread) : [];
+  const entries = thread
+    ? displayThreadEntries(thread, humanResponsePresentation)
+    : [];
   const waitingForFirstToken =
     responding &&
     !entries.some(
@@ -178,7 +250,7 @@ export function ThreadViewport({
           <div ref={messageListRef} className="space-y-8">
             {visibleEntries.map((entry) => (
               <ThreadMessage
-                key={entry.id}
+                key={entry.renderKey}
                 answerers={answerers}
                 entry={entry}
                 entryRef={

@@ -3,7 +3,6 @@ import test from "node:test";
 
 import type { RealtimeEvent, Thread } from "../../lib/chat/types.ts";
 import {
-  createHumanResponseDeliveryDelta,
   createHumanResponseDeliveryPlan,
   isLiveHumanResponseCompletion,
 } from "./human-response-delivery.ts";
@@ -92,16 +91,6 @@ test("1文字の回答は単一フレームとして即時確定できる", () =
 
   assert.deepEqual(plan.frames, ["は"]);
   assert.equal(plan.intervalMs, 0);
-});
-
-test("確定eventから結果IDを先出ししないdeltaを作る", () => {
-  const delta = createHumanResponseDeliveryDelta(completed, "Humanから");
-
-  assert.equal(delta.type, "response.delta");
-  assert.deepEqual(delta.data, {
-    target_actor_id: "human-lite",
-    content: "Humanから",
-  });
 });
 
 test("進行中の同じHuman Executionだけを配送対象にする", () => {

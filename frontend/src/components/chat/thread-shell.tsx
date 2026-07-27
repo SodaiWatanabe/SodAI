@@ -14,14 +14,27 @@ import { useChatData } from "@/components/chat/chat-data-provider";
 import { ChatHeader } from "@/components/chat/chat-header";
 import { settleComposerFocus } from "@/components/chat/composer-focus";
 import {
-  createHumanResponseDeliveryDelta,
   createHumanResponseDeliveryPlan,
   isLiveHumanResponseCompletion,
 } from "@/components/chat/human-response-delivery";
-import { HUMAN_PRIVACY_NOTICE } from "@/components/chat/human-privacy-notice";
+import { HumanPrivacyDialog } from "@/components/chat/human-privacy-dialog";
+import { shouldShowHumanPrivacyDialog } from "@/components/chat/human-privacy-transition";
 import { MessageComposer } from "@/components/chat/message-composer";
-import { reduceThreadRealtime } from "@/components/chat/thread-realtime";
+import {
+  IDLE_RESPONSE_OPERATION,
+  requestResponseCancellation,
+  resolveCreatedExecution,
+  resolveTerminalExecution,
+  responseOperationIsPending,
+  type ResponseOperation,
+} from "@/components/chat/response-operation";
+import { ResponseAmbient } from "@/components/chat/response-ambient";
+import {
+  mergeExecutionSnapshot,
+  reduceThreadRealtime,
+} from "@/components/chat/thread-realtime";
 import { ThreadViewport } from "@/components/chat/thread-viewport";
+import type { ResponsePresentation } from "@/components/chat/thread-display-entries";
 import { useThreadSearchNavigationTarget } from "@/components/chat/thread-search-navigation";
 import { useThreadAutoScroll } from "@/components/chat/use-thread-auto-scroll";
 import { useKeyboardShortcuts } from "@/components/preferences/keyboard-shortcuts-provider";
@@ -57,22 +70,8 @@ function isResponding(thread?: Thread) {
   return status === "queued" || status === "running";
 }
 
-function ResponseAmbient({ active }: { active: boolean }) {
-  return (
-    <div
-      aria-hidden="true"
-      data-active={active ? "true" : "false"}
-      className="response-ambient"
-    >
-      <span className="response-glow response-glow-one" />
-      <span className="response-glow response-glow-two" />
-      <span className="response-glow response-glow-three" />
-    </div>
-  );
-}
-
 export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
-  const { createResponse, getThread } = useChatApi();
+  const { cancelExecution, createResponse, getThread } = useChatApi();
   const searchNavigationTarget = useThreadSearchNavigationTarget();
   const {
     answerers,
@@ -92,19 +91,26 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
   const targetEntryIdRef = useRef(targetEntryId);
   const scrolledTargetRef = useRef<string | undefined>(undefined);
   const positionedTurnRef = useRef<string | undefined>(undefined);
+  const operationRef = useRef<ResponseOperation>(IDLE_RESPONSE_OPERATION);
   const [thread, setThreadState] = useState<Thread>();
   const [turnAnchor, setTurnAnchor] = useState<TurnAnchor>();
   const [answerer, setAnswerer] = useState<AvailableAnswerer["id"]>();
+  const [humanPrivacyDialogOpen, setHumanPrivacyDialogOpen] = useState(false);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
-  const responding = submitting || isResponding(thread);
+  const [humanResponsePresentation, setHumanResponsePresentation] =
+    useState<ResponsePresentation>();
+  const [operation, setOperationState] = useState<ResponseOperation>(
+    IDLE_RESPONSE_OPERATION,
+  );
+  const responding = operation.kind !== "idle" || isResponding(thread);
   const selectedAnswerer = answerers.find((option) => option.id === answerer);
   const latestResponse = thread?.latest_response;
   const respondingAnswererId =
     latestResponse?.status === "queued" || latestResponse?.status === "running"
       ? latestResponse.requested_answerer
-      : submitting
+      : operation.kind === "creating" ||
+          operation.kind === "waiting-for-execution-to-cancel"
         ? answerer
         : undefined;
   const respondingAnswerer = answerers.find(
@@ -149,6 +155,72 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
 
   const loadThread = useCallback(() => getThread(threadId), [getThread, threadId]);
 
+  function setOperation(next: ResponseOperation) {
+    operationRef.current = next;
+    setOperationState(next);
+  }
+
+  function selectAnswerer(nextAnswerer: AvailableAnswerer["id"]) {
+    const nextSelectedAnswerer = answerers.find(
+      (option) => option.id === nextAnswerer,
+    );
+    setAnswerer(nextAnswerer);
+    if (shouldShowHumanPrivacyDialog(selectedAnswerer, nextSelectedAnswerer)) {
+      setHumanPrivacyDialogOpen(true);
+    }
+  }
+
+  async function cancelResponse(executionId: string) {
+    setOperation({ kind: "cancelling", executionId });
+    dismissToast("response-cancel");
+    try {
+      const cancelledThread = await cancelExecution(executionId);
+      if (!mountedRef.current || cancelledThread.id !== threadId) return;
+      updateThread((current) =>
+        mergeExecutionSnapshot(current, cancelledThread, executionId),
+      );
+      patchThread(threadId, {
+        answerer: cancelledThread.answerer,
+        last_activity_at: cancelledThread.last_activity_at,
+        revision: cancelledThread.revision,
+        updated_at: cancelledThread.updated_at,
+      });
+    } catch {
+      if (!mountedRef.current) return;
+      if (
+        operationRef.current.kind !== "cancelling" ||
+        operationRef.current.executionId !== executionId
+      ) {
+        return;
+      }
+      showToast({
+        id: "response-cancel",
+        message: "応答を停止できませんでした。もう一度お試しください。",
+        tone: "error",
+      });
+    } finally {
+      if (
+        mountedRef.current &&
+        operationRef.current.kind === "cancelling" &&
+        operationRef.current.executionId === executionId
+      ) {
+        setOperation(IDLE_RESPONSE_OPERATION);
+      }
+    }
+  }
+
+  function stopResponse() {
+    const current = threadRef.current?.latest_response;
+    const executionId =
+      current && (current.status === "queued" || current.status === "running")
+        ? current.execution.id
+        : undefined;
+    const next = requestResponseCancellation(operationRef.current, executionId);
+    if (next === operationRef.current) return;
+    setOperation(next);
+    if (next.kind === "cancelling") void cancelResponse(next.executionId);
+  }
+
   useEffect(() => {
     targetEntryIdRef.current = targetEntryId;
   }, [targetEntryId]);
@@ -165,7 +237,8 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
     let cancelled = false;
     let humanDeliveryTimer: ReturnType<typeof setTimeout> | undefined;
     let humanDeliveryGeneration = 0;
-    let pendingHumanCompletion: RealtimeEvent | undefined;
+    let presentedExecutionId: string | undefined;
+    let presentedRevision: number | undefined;
     const humanAnswererIds = new Set(
       answerers
         .filter((option) => option.kind === "human")
@@ -179,12 +252,6 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
       try {
         const current = await loadThread();
         if (cancelled || generation !== refreshGenerationRef.current) return;
-        if (
-          pendingHumanCompletion?.execution_id ===
-          current.latest_response?.execution.id
-        ) {
-          return;
-        }
         setTurnAnchor((currentAnchor) => {
           if (targetEntryIdRef.current) return undefined;
           const activeEntryId = isResponding(current)
@@ -259,55 +326,51 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
       if (decision.next !== threadRef.current) {
         updateThread(() => decision.next);
       }
-      if (decision.shouldSync && sync) syncExecutionOnce(event.execution_id);
-    }
-
-    function preserveCurrentThreadRevision(event: RealtimeEvent) {
-      const currentRevision = threadRef.current?.revision;
-      if (currentRevision === undefined || currentRevision <= event.thread_revision) {
-        return event;
+      if (
+        event.type === "response.completed" ||
+        event.type === "response.failed" ||
+        event.type === "response.cancelled"
+      ) {
+        const nextOperation = resolveTerminalExecution(
+          operationRef.current,
+          event.execution_id,
+        );
+        if (nextOperation !== operationRef.current) setOperation(nextOperation);
       }
-      return { ...event, thread_revision: currentRevision };
+      if (decision.shouldSync && sync) syncExecutionOnce(event.execution_id);
     }
 
     function cancelHumanDelivery() {
       humanDeliveryGeneration += 1;
       if (humanDeliveryTimer) clearTimeout(humanDeliveryTimer);
       humanDeliveryTimer = undefined;
-      pendingHumanCompletion = undefined;
+      presentedExecutionId = undefined;
+      presentedRevision = undefined;
+      setHumanResponsePresentation(undefined);
     }
 
-    function finishHumanDelivery() {
-      const completed = pendingHumanCompletion;
-      if (!completed) return;
-      pendingHumanCompletion = undefined;
-      humanDeliveryTimer = undefined;
-      applyResponseEvent(preserveCurrentThreadRevision(completed));
-    }
-
-    function flushHumanDelivery(sync = true) {
-      const completed = pendingHumanCompletion;
-      if (!completed) return false;
+    function flushHumanDelivery() {
+      if (!presentedExecutionId) return false;
       cancelHumanDelivery();
-      applyResponseEvent(preserveCurrentThreadRevision(completed), sync);
       return true;
     }
 
     function startHumanDelivery(event: RealtimeEvent) {
       const content = event.data.content;
+      applyResponseEvent(event);
       if (!content) {
-        applyResponseEvent(event);
         return;
       }
       const plan = createHumanResponseDeliveryPlan(content);
       if (plan.frames.length < 2) {
-        applyResponseEvent(event);
         return;
       }
 
       cancelHumanDelivery();
       const generation = humanDeliveryGeneration;
-      pendingHumanCompletion = event;
+      if (!event.execution_id) return;
+      presentedExecutionId = event.execution_id;
+      presentedRevision = event.thread_revision;
       let frameIndex = 0;
 
       function revealNextFrame() {
@@ -318,17 +381,16 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
         }
         const frame = plan.frames[frameIndex];
         if (frame === undefined) {
-          finishHumanDelivery();
+          cancelHumanDelivery();
           return;
         }
-        applyResponseEvent(
-          preserveCurrentThreadRevision(
-            createHumanResponseDeliveryDelta(event, frame),
-          ),
-        );
+        setHumanResponsePresentation({
+          content: frame,
+          executionId: event.execution_id!,
+        });
         frameIndex += 1;
         if (frameIndex >= plan.frames.length) {
-          finishHumanDelivery();
+          cancelHumanDelivery();
           return;
         }
         humanDeliveryTimer = setTimeout(revealNextFrame, plan.intervalMs);
@@ -339,13 +401,14 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
 
     function applyRealtime(event: RealtimeEvent) {
       if (event.type === "sync.required") {
-        if (!flushHumanDelivery()) void syncThread(false);
+        flushHumanDelivery();
+        void syncThread(false);
         return;
       }
       if (event.thread_id !== threadId) return;
       if (
-        pendingHumanCompletion &&
-        event.thread_revision > pendingHumanCompletion.thread_revision
+        presentedRevision !== undefined &&
+        event.thread_revision > presentedRevision
       ) {
         flushHumanDelivery();
       }
@@ -378,8 +441,8 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
         return;
       }
       if (
-        pendingHumanCompletion &&
-        event.execution_id === pendingHumanCompletion.execution_id
+        presentedExecutionId &&
+        event.execution_id === presentedExecutionId
       ) {
         cancelHumanDelivery();
       }
@@ -394,11 +457,7 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
     document.addEventListener("visibilitychange", handleVisibilityChange);
     void syncThread(false);
     return () => {
-      if (mountedRef.current) {
-        flushHumanDelivery(false);
-      } else {
-        cancelHumanDelivery();
-      }
+      cancelHumanDelivery();
       cancelled = true;
       refreshGenerationRef.current += 1;
       pendingExecutionSyncRef.current = undefined;
@@ -471,7 +530,7 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
     positionedTurnRef.current = undefined;
     pinToBottom();
     setMessage("");
-    setSubmitting(true);
+    setOperation({ kind: "creating" });
     settleComposerFocus(inputRef.current);
     dismissToast("message-send");
     try {
@@ -497,16 +556,23 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
         entryId: created.response.input_entry_id,
         threadId,
       });
-      setSubmitting(false);
+      const nextOperation = resolveCreatedExecution(
+        operationRef.current,
+        created.response.execution.id,
+      );
+      setOperation(nextOperation);
       patchThread(threadId, {
         answerer,
         last_activity_at: created.thread.last_activity_at,
         revision: created.thread.revision,
       });
+      if (nextOperation.kind === "cancelling") {
+        await cancelResponse(nextOperation.executionId);
+      }
     } catch (error) {
       if (!mountedRef.current) return;
       setMessage((current) => (current.trim() ? current : input));
-      setSubmitting(false);
+      setOperation(IDLE_RESPONSE_OPERATION);
       const insufficientCredits = isApiErrorStatus(error, 402);
       showToast({
         id: "message-send",
@@ -531,8 +597,12 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
       <ChatHeader
         answerer={answerer}
         answerers={answerers}
-        onAnswererChange={setAnswerer}
+        onAnswererChange={selectAnswerer}
       />
+
+      {humanPrivacyDialogOpen ? (
+        <HumanPrivacyDialog onClose={() => setHumanPrivacyDialogOpen(false)} />
+      ) : null}
 
       <div className="relative isolate flex flex-1 flex-col">
         <ResponseAmbient active={responding} />
@@ -544,6 +614,7 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
           loading={loading}
           responding={responding}
           humanResponse={respondingAnswerer?.kind === "human"}
+          humanResponsePresentation={humanResponsePresentation}
           turnAnchorEntryId={turnAnchorEntryId}
           turnAnchorRef={turnAnchorRef}
           turnSpacerRef={turnSpacerRef}
@@ -570,9 +641,20 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
             <ArrowDown aria-hidden="true" className="size-4" strokeWidth={2} />
           </button>
           <MessageComposer
+            action={
+              responding
+                ? {
+                    kind: "stop",
+                    onStop: stopResponse,
+                    pending: responseOperationIsPending(operation),
+                  }
+                : {
+                    kind: "send",
+                    disabled: !message.trim() || !answerer,
+                  }
+            }
             autoFocus
             className="relative z-10 mx-auto max-w-[760px]"
-            disabled={!message.trim() || !answerer || responding}
             inputId="thread-message"
             inputLabel="対話を続ける"
             onBlur={handleComposerBlur}
@@ -589,7 +671,7 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
           />
           <p className="relative z-10 mx-auto mt-2 max-w-[760px] text-center text-xs text-[var(--muted)]">
             {selectedAnswerer?.kind === "human"
-              ? HUMAN_PRIVACY_NOTICE
+              ? "Humanは考え、迷い、ときに間違えます。"
               : "SodAIは息をするように嘘をつきます。安易に信用しないでください。"}
           </p>
         </div>

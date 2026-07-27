@@ -9,6 +9,13 @@ import { settleComposerFocus } from "@/components/chat/composer-focus";
 import { HumanPrivacyDialog } from "@/components/chat/human-privacy-dialog";
 import { shouldShowHumanPrivacyDialog } from "@/components/chat/human-privacy-transition";
 import { MessageComposer } from "@/components/chat/message-composer";
+import {
+  IDLE_RESPONSE_OPERATION,
+  requestResponseCancellation,
+  resolveCreatedExecution,
+  responseOperationIsPending,
+  type ResponseOperation,
+} from "@/components/chat/response-operation";
 import { useKeyboardShortcuts } from "@/components/preferences/keyboard-shortcuts-provider";
 import { useToast } from "@/components/ui/toast-provider";
 import { isApiErrorStatus } from "@/lib/api/api-error";
@@ -22,7 +29,7 @@ type ChatShellProps = {
 
 export function ChatShell(props: ChatShellProps) {
   const router = useRouter();
-  const { createThread } = useChatApi();
+  const { cancelExecution, createThread } = useChatApi();
   const { answerers, upsertThread } = useChatData();
   const { dismissToast, showToast } = useToast();
   const { shortcuts } = useKeyboardShortcuts();
@@ -31,13 +38,26 @@ export function ChatShell(props: ChatShellProps) {
   const [message, setMessage] = useState("");
   const [requestedAnswerer, setRequestedAnswerer] =
     useState<AvailableAnswerer["id"]>();
-  const [submitting, setSubmitting] = useState(false);
   const [humanPrivacyDialogOpen, setHumanPrivacyDialogOpen] = useState(false);
+  const operationRef = useRef<ResponseOperation>(IDLE_RESPONSE_OPERATION);
+  const [operation, setOperationState] = useState<ResponseOperation>(
+    IDLE_RESPONSE_OPERATION,
+  );
   const answerer =
     requestedAnswerer ??
     answerers.find((availableAnswerer) => availableAnswerer.is_default)?.id ??
     answerers[0]?.id;
   const selectedAnswerer = answerers.find((option) => option.id === answerer);
+
+  function setOperation(next: ResponseOperation) {
+    operationRef.current = next;
+    setOperationState(next);
+  }
+
+  function stopResponse() {
+    setOperation(requestResponseCancellation(operationRef.current));
+  }
+
   function selectAnswerer(nextAnswerer: AvailableAnswerer["id"]) {
     const nextSelectedAnswerer = answerers.find(
       (option) => option.id === nextAnswerer,
@@ -59,18 +79,16 @@ export function ChatShell(props: ChatShellProps) {
   async function submit(event: FormEvent) {
     event.preventDefault();
     const input = message.trim();
-    if (!input || !answerer || submitting) return;
-    setSubmitting(true);
+    if (!input || !answerer || operationRef.current.kind !== "idle") return;
+    setOperation({ kind: "creating" });
     settleComposerFocus(inputRef.current);
     dismissToast("thread-create");
+    let created;
     try {
-      const created = await createThread(input, answerer);
-      upsertThread(created.thread);
-      if (!mountedRef.current) return;
-      router.push(`/t/${created.thread.id}`);
+      created = await createThread(input, answerer);
     } catch (error) {
       if (!mountedRef.current) return;
-      setSubmitting(false);
+      setOperation(IDLE_RESPONSE_OPERATION);
       const insufficientCredits = isApiErrorStatus(error, 402);
       showToast({
         id: "thread-create",
@@ -80,7 +98,31 @@ export function ChatShell(props: ChatShellProps) {
         tone: insufficientCredits ? "warning" : "error",
       });
       requestAnimationFrame(() => inputRef.current?.focus());
+      return;
     }
+
+    if (!mountedRef.current) return;
+    const nextOperation = resolveCreatedExecution(
+      operationRef.current,
+      created.response.execution.id,
+    );
+    setOperation(nextOperation);
+    let thread = created.thread;
+    if (nextOperation.kind === "cancelling") {
+      try {
+        thread = await cancelExecution(nextOperation.executionId);
+      } catch {
+        showToast({
+          id: "response-cancel",
+          message: "応答を停止できませんでした。会話画面でもう一度お試しください。",
+          tone: "error",
+        });
+      }
+    }
+    if (!mountedRef.current) return;
+    setOperation(IDLE_RESPONSE_OPERATION);
+    upsertThread(thread);
+    router.push(`/t/${created.thread.id}`);
   }
 
   return (
@@ -102,10 +144,21 @@ export function ChatShell(props: ChatShellProps) {
             {props.greeting}
           </h1>
           <MessageComposer
+            action={
+              operation.kind === "idle"
+                ? {
+                    kind: "send",
+                    disabled: !message.trim() || !answerer,
+                  }
+                : {
+                    kind: "stop",
+                    onStop: stopResponse,
+                    pending: responseOperationIsPending(operation),
+                  }
+            }
             ariaLabel="新しい会話"
             autoFocus
             className="relative lg:mt-7"
-            disabled={!message.trim() || !answerer || submitting}
             inputId="chat-message"
             inputLabel="SodAIへのメッセージ"
             onChange={setMessage}

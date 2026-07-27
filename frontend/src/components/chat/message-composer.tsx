@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUp } from "lucide-react";
+import { ArrowUp, Square } from "lucide-react";
 import type {
   FocusEventHandler,
   FormEventHandler,
@@ -12,10 +12,10 @@ import { useComposerTextareaAutosize } from "@/components/chat/use-composer-text
 import type { KeyboardShortcut } from "@/lib/preferences/keyboard-shortcuts";
 
 type MessageComposerProps = {
+  action: MessageComposerAction;
   ariaLabel?: string;
   autoFocus?: boolean;
   className: string;
-  disabled: boolean;
   inputId: string;
   inputLabel: string;
   onBlur?: FocusEventHandler<HTMLTextAreaElement>;
@@ -28,11 +28,15 @@ type MessageComposerProps = {
   value: string;
 };
 
+export type MessageComposerAction =
+  | { kind: "send"; disabled: boolean }
+  | { kind: "stop"; onStop: () => void; pending: boolean };
+
 export function MessageComposer({
+  action,
   ariaLabel,
   autoFocus = false,
   className,
-  disabled,
   inputId,
   inputLabel,
   onBlur,
@@ -48,14 +52,28 @@ export function MessageComposer({
     textareaRef,
     value,
   );
-  const sendButton = (
+  const actionButton = action.kind === "send" ? (
     <button
       type="submit"
       aria-label="送信"
-      disabled={disabled}
+      disabled={action.disabled}
       className="grid size-10 shrink-0 place-items-center rounded-full bg-[var(--primary)] text-[var(--on-primary)] transition-opacity disabled:opacity-25"
     >
       <ArrowUp aria-hidden="true" className="size-[18px]" strokeWidth={2.2} />
+    </button>
+  ) : (
+    <button
+      type="button"
+      aria-label={action.pending ? "応答を停止しています" : "応答を停止"}
+      disabled={action.pending}
+      className="grid size-10 shrink-0 place-items-center rounded-full bg-[var(--primary)] text-[var(--on-primary)] transition-opacity disabled:opacity-60"
+      onClick={action.onStop}
+    >
+      <Square
+        aria-hidden="true"
+        className="size-[13px] fill-current"
+        strokeWidth={1.8}
+      />
     </button>
   );
 
@@ -85,7 +103,11 @@ export function MessageComposer({
             onChange={(event) => onChange(event.target.value)}
             onFocus={onFocus}
             onKeyDown={(event) =>
-              handleMessageSubmitKeyDown(event, sendShortcut)
+              handleMessageSubmitKeyDown(
+                event,
+                sendShortcut,
+                action.kind === "send",
+              )
             }
           />
           <div
@@ -107,7 +129,7 @@ export function MessageComposer({
             multiline ? "h-12" : "h-0"
           }`}
         />
-        <div className="absolute bottom-2 right-2">{sendButton}</div>
+        <div className="absolute bottom-2 right-2">{actionButton}</div>
       </div>
     </form>
   );

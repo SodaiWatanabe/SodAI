@@ -8,7 +8,9 @@ import {
 export function handleMessageSubmitKeyDown(
   event: KeyboardEvent<HTMLTextAreaElement>,
   shortcut: KeyboardShortcut,
+  enabled = true,
 ) {
+  if (!enabled) return;
   const shouldSubmit = matchesKeyboardShortcut(
     {
       altKey: event.altKey,
