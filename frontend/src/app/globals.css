@@ -154,6 +154,7 @@ button {
 }
 
 .auth-dialog::backdrop,
+.human-privacy-dialog::backdrop,
 .thread-search-dialog::backdrop {
   background: var(--dialog-backdrop);
   -webkit-backdrop-filter: blur(10px);
@@ -169,6 +170,7 @@ button {
 }
 
 .auth-dialog[open],
+.human-privacy-dialog[open],
 .thread-search-dialog[open] {
   animation: auth-dialog-in 220ms cubic-bezier(0.22, 1, 0.36, 1);
 }
@@ -200,6 +202,8 @@ button {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .human-privacy-dialog[open],
+  .human-privacy-dialog::backdrop,
   .thread-search-dialog[open],
   .thread-search-dialog::backdrop,
   .settings-dialog[open],
@@ -590,4 +594,5 @@ button {
     -webkit-text-fill-color: currentcolor;
     animation: none;
   }
+
 }

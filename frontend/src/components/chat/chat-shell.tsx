@@ -6,7 +6,8 @@ import { type FormEvent, useEffect, useRef, useState } from "react";
 import { useChatData } from "@/components/chat/chat-data-provider";
 import { ChatHeader } from "@/components/chat/chat-header";
 import { settleComposerFocus } from "@/components/chat/composer-focus";
-import { HumanPrivacyCard } from "@/components/chat/human-privacy-card";
+import { HumanPrivacyDialog } from "@/components/chat/human-privacy-dialog";
+import { shouldShowHumanPrivacyDialog } from "@/components/chat/human-privacy-transition";
 import { MessageComposer } from "@/components/chat/message-composer";
 import { useKeyboardShortcuts } from "@/components/preferences/keyboard-shortcuts-provider";
 import { useToast } from "@/components/ui/toast-provider";
@@ -31,11 +32,21 @@ export function ChatShell(props: ChatShellProps) {
   const [requestedAnswerer, setRequestedAnswerer] =
     useState<AvailableAnswerer["id"]>();
   const [submitting, setSubmitting] = useState(false);
+  const [humanPrivacyDialogOpen, setHumanPrivacyDialogOpen] = useState(false);
   const answerer =
     requestedAnswerer ??
     answerers.find((availableAnswerer) => availableAnswerer.is_default)?.id ??
     answerers[0]?.id;
   const selectedAnswerer = answerers.find((option) => option.id === answerer);
+  function selectAnswerer(nextAnswerer: AvailableAnswerer["id"]) {
+    const nextSelectedAnswerer = answerers.find(
+      (option) => option.id === nextAnswerer,
+    );
+    setRequestedAnswerer(nextAnswerer);
+    if (shouldShowHumanPrivacyDialog(selectedAnswerer, nextSelectedAnswerer)) {
+      setHumanPrivacyDialogOpen(true);
+    }
+  }
 
   useEffect(() => {
     mountedRef.current = true;
@@ -77,8 +88,11 @@ export function ChatShell(props: ChatShellProps) {
       <ChatHeader
         answerer={answerer}
         answerers={answerers}
-        onAnswererChange={setRequestedAnswerer}
+        onAnswererChange={selectAnswerer}
       />
+      {humanPrivacyDialogOpen ? (
+        <HumanPrivacyDialog onClose={() => setHumanPrivacyDialogOpen(false)} />
+      ) : null}
       <section className="mx-auto grid w-full max-w-[760px] flex-1 grid-rows-[1fr_auto] px-5 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-8 lg:flex lg:flex-col lg:justify-center lg:pb-16">
         <h1 className="self-center -translate-y-[3vh] text-center text-2xl font-normal tracking-[-0.04em] text-[var(--text)] sm:text-[28px] lg:hidden">
           {props.greeting}
@@ -101,9 +115,6 @@ export function ChatShell(props: ChatShellProps) {
             textareaRef={inputRef}
             value={message}
           />
-          {selectedAnswerer?.kind === "human" ? (
-            <HumanPrivacyCard />
-          ) : null}
         </div>
       </section>
     </>
