@@ -12,6 +12,7 @@ import {
 import { useChatAuth } from "@/components/chat/chat-auth-context";
 import { useChatData } from "@/components/chat/chat-data-provider";
 import { BrainConversation } from "@/components/human/brain-conversation";
+import { BrainLobby } from "@/components/human/brain-lobby";
 import { IOSSpinner } from "@/components/ui/ios-spinner";
 import { useTextareaAutosize } from "@/components/ui/use-textarea-autosize";
 import type { BrainState } from "@/lib/human/types";
@@ -124,23 +125,7 @@ export function BrainShell() {
 
   if (!authenticated) {
     return (
-      <section className="grid flex-1 place-items-center px-6">
-        <div className="max-w-sm text-center">
-          <h1 className="text-4xl font-semibold leading-none tracking-[-0.055em] text-[var(--text)] sm:text-[42px]">
-            Keep Thinking.
-          </h1>
-          <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
-            Humanとしてプロンプトに答えるには、ログインしてください。
-          </p>
-          <button
-            type="button"
-            className="mt-6 h-10 rounded-full bg-[var(--primary)] px-5 text-sm font-medium text-[var(--on-primary)] hover:bg-[var(--primary-hover)]"
-            onClick={openAuth}
-          >
-            ログイン
-          </button>
-        </div>
-      </section>
+      <BrainLobby mode="signed-out" onAction={openAuth} />
     );
   }
 
@@ -223,43 +208,13 @@ export function BrainShell() {
   }
 
   return (
-    <section className="grid flex-1 place-items-center px-6">
-      <div className="w-full max-w-sm text-center">
-        {state.status === "waiting" ? (
-          <>
-            <h1 className="text-2xl font-semibold tracking-[-0.04em] text-[var(--text)]">
-              割り当てを待っています
-            </h1>
-            <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
-              条件に合うプロンプトが届くと、ここに表示されます。
-            </p>
-          </>
-        ) : (
-          <h1 className="text-4xl font-semibold leading-none tracking-[-0.055em] text-[var(--text)] sm:text-[42px]">
-            Keep Thinking.
-          </h1>
-        )}
-        {state.status === "waiting" ? (
-          <button
-            type="button"
-            disabled={busy}
-            className="mt-6 h-10 rounded-full border border-[var(--border)] px-5 text-sm font-medium text-[var(--text)] hover:bg-[var(--hover)] disabled:opacity-50"
-            onClick={() => run(humanApi.stop)}
-          >
-            待機をやめる
-          </button>
-        ) : (
-          <button
-            type="button"
-            disabled={busy}
-            className="mt-6 h-10 rounded-full bg-[var(--primary)] px-5 text-sm font-medium text-[var(--on-primary)] hover:bg-[var(--primary-hover)] disabled:opacity-50"
-            onClick={() => run(humanApi.ready)}
-          >
-            思考を始める
-          </button>
-        )}
-        {error ? <p className="mt-4 text-xs text-[var(--danger-text)]">{error}</p> : null}
-      </div>
-    </section>
+    <BrainLobby
+      busy={busy}
+      error={error}
+      mode={state.status === "waiting" ? "waiting" : "idle"}
+      onAction={() => {
+        void run(state.status === "waiting" ? humanApi.stop : humanApi.ready);
+      }}
+    />
   );
 }
