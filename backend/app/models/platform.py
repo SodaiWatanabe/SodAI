@@ -302,11 +302,14 @@ class EntryTextContentModel(Base):
 class ResponseRequestModel(Base):
     __tablename__ = "response_requests"
     __table_args__ = (
-        CheckConstraint("status IN ('queued', 'running', 'completed', 'failed')", name="status"),
+        CheckConstraint(
+            "status IN ('queued', 'running', 'completed', 'failed', 'cancelled')",
+            name="status",
+        ),
         CheckConstraint(
             "(status = 'queued' AND finished_at IS NULL) OR "
             "(status = 'running' AND started_at IS NOT NULL AND finished_at IS NULL) OR "
-            "(status IN ('completed', 'failed') AND finished_at IS NOT NULL)",
+            "(status IN ('completed', 'failed', 'cancelled') AND finished_at IS NOT NULL)",
             name="state",
         ),
         ForeignKeyConstraint(
@@ -381,7 +384,10 @@ class ResponseRequestModel(Base):
 class ExecutionModel(Base):
     __tablename__ = "executions"
     __table_args__ = (
-        CheckConstraint("status IN ('queued', 'running', 'completed', 'failed')", name="status"),
+        CheckConstraint(
+            "status IN ('queued', 'running', 'completed', 'failed', 'cancelled')",
+            name="status",
+        ),
         CheckConstraint("attempt_no >= 1", name="attempt_no"),
         CheckConstraint(
             "idempotency_key_hash IS NULL OR length(idempotency_key_hash) = 64",
@@ -397,7 +403,9 @@ class ExecutionModel(Base):
             "AND result_entry_id IS NOT NULL AND error_code IS NULL "
             "AND lease_expires_at IS NULL) OR "
             "(status = 'failed' AND finished_at IS NOT NULL AND result_entry_id IS NULL "
-            "AND error_code IS NOT NULL AND lease_expires_at IS NULL)",
+            "AND error_code IS NOT NULL AND lease_expires_at IS NULL) OR "
+            "(status = 'cancelled' AND finished_at IS NOT NULL AND error_code IS NULL "
+            "AND lease_expires_at IS NULL)",
             name="state",
         ),
         ForeignKeyConstraint(

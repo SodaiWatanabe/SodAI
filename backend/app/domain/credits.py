@@ -53,12 +53,14 @@ class CreditConsumptionKind(str, Enum):
 class BillingOutcome(str, Enum):
     COMPLETED = "completed"
     FAILED = "failed"
+    CANCELLED = "cancelled"
 
 
 class BillingReason(str, Enum):
     FREE = "free"
     COMPLETED = "completed"
     FAILED = "failed"
+    CANCELLED = "cancelled"
     UNMETERED = "unmetered"
 
 

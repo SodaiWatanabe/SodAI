@@ -78,16 +78,16 @@ DATABASE_URL="$database_url" \
 SODAI_HUMAN_STANDARD_MIGRATION_TEST=verify \
 backend/.venv/bin/pytest -q backend/tests/test_human_standard_migration.py
 
-DATABASE_URL="$database_url" \
-SODAI_INTEGRATION_TESTS=1 \
-backend/.venv/bin/pytest -q \
-  backend/tests/test_platform_integration.py \
-  backend/tests/test_human_integration.py \
-  backend/tests/test_credit_integration.py
-
 (cd backend && DATABASE_URL="$database_url" .venv/bin/alembic downgrade 20260713_0002)
 (cd backend && DATABASE_URL="$database_url" .venv/bin/alembic upgrade head)
 (cd backend && DATABASE_URL="$database_url" .venv/bin/alembic check)
 DATABASE_URL="$database_url" \
 SODAI_CREDIT_BACKFILL_TEST=1 \
 backend/.venv/bin/pytest -q backend/tests/test_credit_migration_backfill.py
+
+DATABASE_URL="$database_url" \
+SODAI_INTEGRATION_TESTS=1 \
+backend/.venv/bin/pytest -q \
+  backend/tests/test_platform_integration.py \
+  backend/tests/test_human_integration.py \
+  backend/tests/test_credit_integration.py

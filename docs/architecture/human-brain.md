@@ -36,8 +36,15 @@ transaction advisory lock内で、次の順に一組ずつ割り当てる。
 3. 自分のPrompt、rank不足、同じTaskを過去にskip/expireしたHumanを除外する。
 
 古いTaskが現在のHumanと非互換でも、新しい互換Taskを妨げない。DB commit後、Prompt側へ
-`response.started/completed/queued`、Brain側へ`human.assigned`を既存WebSocketで通知する。
+`response.started/completed/queued/cancelled`、Brain側へ`human.assigned`または
+`human.assignment.cancelled`を既存WebSocketで通知する。
 Brainは10秒ごとの冪等な`PUT /human/readiness`と再接続時の`GET /human/state`で状態を復元する。
+
+Prompt作成者が停止した場合、同じadvisory lock内でactive Claimを`cancelled`へ閉じ、
+実回答者を待機列へ戻す。Brainは一致するClaimの取消eventを受けた時点で、入力中の回答と
+表示中の文脈を即座に破棄してから`GET /human/state`で再同期する。取消eventにはClaim IDと
+理由だけを含め、回答本文や実回答者のUser IDはPrompt側へ公開しない。一度表示済みの文脈を
+技術的に回収することはできないため、停止は以後の回答操作を無効化する境界として扱う。
 
 現在のRealtimeHubはprocess-localなので、MVPのAPIは単一workerを前提とする。複数worker化では
 event fan-outとticket storeを共有brokerへ移すが、DB matcherとClaimの一意制約はそのまま保つ。

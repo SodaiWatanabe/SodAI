@@ -28,6 +28,7 @@ from app.domain.credits import (
     InferenceTariff,
     InsufficientCreditsError,
 )
+from app.domain.inference_jobs import GENERATION_CANCELLATION_OUTBOX_TOPIC
 from app.domain.principals import Principal, PrincipalKind
 from app.models.account import UserModel
 from app.models.credits import (
@@ -41,7 +42,7 @@ from app.models.credits import (
     InferenceCreditReservationModel,
     InferenceUsageRecordModel,
 )
-from app.models.platform import ExecutionModel, SpaceModel, ThreadModel
+from app.models.platform import ExecutionModel, OutboxEventModel, SpaceModel, ThreadModel
 from app.repositories.credits import CreditLedgerRepository
 from app.repositories.threads import SqlAlchemyThreadRepository
 from app.services.credit_allowance import FreeCreditAllowanceService
@@ -1736,6 +1737,9 @@ async def test_due_lot_expiration_is_idempotent() -> None:
     factory = get_session_factory()
     now = datetime.now(timezone.utc)
     async with factory() as session:
+        await CreditLedgerRepository(session).expire_due(now, limit=10_000)
+        await session.commit()
+    async with factory() as session:
         await CreditLedgerRepository(session).grant(
             principal.id,
             25,
@@ -2077,6 +2081,224 @@ async def test_inference_billing_records_usage_and_is_terminally_idempotent() ->
                 )
                 .values(charged_amount=23)
             )
+
+
+@pytest.mark.anyio
+async def test_cancelled_inference_preserves_partial_output_and_settles_actual_usage() -> None:
+    principal = await create_user()
+    creation = await create_execution(principal, "cancel billing")
+    execution = creation.response.execution
+    tariff = InferenceTariff(
+        revision="integration-cancelled-v1",
+        fixed_charge=2,
+        input_token_rate=1,
+        output_token_rate=2,
+        maximum_charge=100,
+        unmetered_charge=100,
+    )
+    factory = get_session_factory()
+    async with factory() as session:
+        await CreditLedgerRepository(session).grant(
+            principal.id,
+            200,
+            source_kind=CreditSourceKind.ADMIN,
+            idempotency_key="cancel-billing-funds",
+        )
+        await InferenceBillingService(session, None).register(principal, execution, tariff)
+        await session.commit()
+
+    events = (
+        GenerationEvent.create(
+            GenerationEventType.STARTED,
+            execution_id=execution.id,
+            attempt_id=execution.attempt_id,
+            sequence=0,
+            thread_id=creation.thread.id,
+            resolved_model="asuka-1@pseudo-v1",
+            input_tokens=10,
+        ),
+        GenerationEvent.create(
+            GenerationEventType.DELTA,
+            execution_id=execution.id,
+            attempt_id=execution.attempt_id,
+            sequence=1,
+            thread_id=creation.thread.id,
+            delta="回答の途中",
+            output_tokens=3,
+        ),
+    )
+    for event in events:
+        async with factory() as session:
+            await SqlAlchemyThreadRepository(session).project_generation_event(event)
+            await session.commit()
+
+    async with factory() as session:
+        cancellation = await SqlAlchemyThreadRepository(session).cancel_execution(
+            principal,
+            execution.id,
+        )
+        usage = await InferenceBillingService(session).finalize(execution.id)
+        await session.commit()
+
+        assert cancellation.projection is not None
+        assert cancellation.projection.content == "回答の途中"
+        assert cancellation.thread.latest_response is not None
+        assert cancellation.thread.latest_response.status.value == "cancelled"
+        assert cancellation.thread.entries[-1].content == "回答の途中"
+        assert cancellation.thread.entries[-1].response_status is not None
+        assert cancellation.thread.entries[-1].response_status.value == "cancelled"
+        assert usage.outcome == "cancelled"
+        assert usage.billing_reason == "cancelled"
+        assert usage.charged_amount == 18
+
+    async with factory() as session:
+        reservation = await session.scalar(
+            select(InferenceCreditReservationModel).where(
+                InferenceCreditReservationModel.execution_reference_id == execution.id
+            )
+        )
+        cancellation_outbox = await session.scalar(
+            select(OutboxEventModel).where(
+                OutboxEventModel.aggregate_id == execution.id,
+                OutboxEventModel.topic == GENERATION_CANCELLATION_OUTBOX_TOPIC,
+            )
+        )
+        assert reservation is not None
+        assert reservation.settled_amount == 18
+        assert cancellation_outbox is not None
+        assert cancellation_outbox.payload == str(execution.attempt_id)
+        balance = await CreditLedgerRepository(session).balance(principal.id)
+        assert balance.available == 182
+        assert balance.reserved == 0
+
+    async with factory() as session:
+        user = await session.get(UserModel, principal.id)
+        assert user is not None
+        await session.delete(user)
+        await session.commit()
+
+
+@pytest.mark.anyio
+async def test_model_completion_and_cancellation_finalize_exactly_once() -> None:
+    principal = await create_user()
+    creation = await create_execution(principal, "terminal race")
+    execution = creation.response.execution
+    tariff = InferenceTariff(
+        revision="integration-terminal-race-v1",
+        fixed_charge=2,
+        input_token_rate=1,
+        output_token_rate=2,
+        maximum_charge=100,
+        unmetered_charge=100,
+    )
+    factory = get_session_factory()
+    async with factory() as session:
+        await CreditLedgerRepository(session).grant(
+            principal.id,
+            200,
+            source_kind=CreditSourceKind.ADMIN,
+            idempotency_key="terminal-race-funds",
+        )
+        await InferenceBillingService(session, None).register(principal, execution, tariff)
+        await session.commit()
+
+    for event in (
+        GenerationEvent.create(
+            GenerationEventType.STARTED,
+            execution_id=execution.id,
+            attempt_id=execution.attempt_id,
+            sequence=0,
+            thread_id=creation.thread.id,
+            resolved_model="asuka-1@pseudo-v1",
+            input_tokens=10,
+        ),
+        GenerationEvent.create(
+            GenerationEventType.DELTA,
+            execution_id=execution.id,
+            attempt_id=execution.attempt_id,
+            sequence=1,
+            thread_id=creation.thread.id,
+            delta="競合前の部分回答",
+            output_tokens=3,
+        ),
+    ):
+        async with factory() as session:
+            await SqlAlchemyThreadRepository(session).project_generation_event(event)
+            await session.commit()
+
+    completed = GenerationEvent.create(
+        GenerationEventType.COMPLETED,
+        execution_id=execution.id,
+        attempt_id=execution.attempt_id,
+        sequence=2,
+        thread_id=creation.thread.id,
+        content="競合に勝った完全回答",
+        output_tokens=5,
+        finish_reason=FinishReason.STOP,
+    )
+
+    async def complete_once() -> bool:
+        async with factory() as session:
+            result = await SqlAlchemyThreadRepository(session).project_generation_event(
+                completed
+            )
+            if result.projection is not None:
+                await InferenceBillingService(session).finalize(execution.id)
+            await session.commit()
+            return result.projection is not None
+
+    async def cancel_once() -> bool:
+        async with factory() as session:
+            result = await SqlAlchemyThreadRepository(session).cancel_execution(
+                principal,
+                execution.id,
+            )
+            if result.projection is not None:
+                await InferenceBillingService(session).finalize(execution.id)
+            await session.commit()
+            return result.projection is not None
+
+    completed_won, cancelled_won = await asyncio.wait_for(
+        asyncio.gather(complete_once(), cancel_once()),
+        timeout=5,
+    )
+    assert completed_won is not cancelled_won
+
+    async with factory() as session:
+        thread = await SqlAlchemyThreadRepository(session).get(
+            principal,
+            creation.thread.id,
+        )
+        usage = await session.get(InferenceUsageRecordModel, execution.id)
+        usage_count = await session.scalar(
+            select(func.count())
+            .select_from(InferenceUsageRecordModel)
+            .where(InferenceUsageRecordModel.execution_reference_id == execution.id)
+        )
+        reservation = await session.scalar(
+            select(InferenceCreditReservationModel).where(
+                InferenceCreditReservationModel.execution_reference_id == execution.id
+            )
+        )
+        assert thread.latest_response is not None
+        assert usage is not None
+        assert usage_count == 1
+        assert reservation is not None
+        assert len(thread.entries) == 2
+        assert usage.outcome == thread.latest_response.status.value
+        if completed_won:
+            assert thread.entries[-1].content == "競合に勝った完全回答"
+            assert usage.charged_amount == 22
+        else:
+            assert thread.entries[-1].content == "競合前の部分回答"
+            assert usage.charged_amount == 18
+        assert reservation.settled_amount == usage.charged_amount
+
+    async with factory() as session:
+        user = await session.get(UserModel, principal.id)
+        assert user is not None
+        await session.delete(user)
+        await session.commit()
 
 
 @pytest.mark.anyio

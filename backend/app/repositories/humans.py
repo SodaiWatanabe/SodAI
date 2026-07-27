@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.answerers import AnswererId, get_answerer, get_human_rank_name
 from app.domain.humans import (
+    HUMAN_MATCH_LOCK_KEY,
     BrainState,
     BrainStatus,
     HumanAssignment,
@@ -35,7 +36,6 @@ from app.models.platform import (
 )
 from app.repositories.response_completion import complete_response
 
-HUMAN_MATCH_LOCK_KEY = 0x534F44414903
 WAIT_LEASE = timedelta(seconds=30)
 CLAIM_LEASE = timedelta(seconds=60)
 
@@ -56,6 +56,12 @@ class HumanProjection:
     claim_id: UUID | None
     target_actor_id: UUID
     result_entry_id: UUID | None
+
+
+@dataclass(frozen=True, slots=True)
+class CancelledHumanClaim:
+    performer_user_id: UUID
+    claim_id: UUID
 
 
 @dataclass(frozen=True, slots=True)
@@ -283,6 +289,32 @@ class SqlAlchemyHumanRepository:
         await self._ensure_wait_entry(user_id, now)
         await self._session.flush()
         return self._projection(space, thread, request, execution, claim)
+
+    async def cancel_active_claim(
+        self,
+        execution_id: UUID,
+        now: datetime,
+    ) -> CancelledHumanClaim | None:
+        """Close an assigned claim after the requester has won cancellation."""
+
+        claim = await self._session.scalar(
+            select(HumanClaimModel)
+            .where(
+                HumanClaimModel.execution_id == execution_id,
+                HumanClaimModel.status == "active",
+            )
+            .with_for_update()
+        )
+        if claim is None:
+            return None
+        claim.status = "cancelled"
+        claim.finished_at = now
+        await self._ensure_wait_entry(claim.performer_user_id, now)
+        await self._session.flush()
+        return CancelledHumanClaim(claim.performer_user_id, claim.id)
+
+    async def lock_matching(self) -> None:
+        await self._lock_matching()
 
     async def _active_assignment(self, user_id: UUID) -> HumanAssignment | None:
         row = (

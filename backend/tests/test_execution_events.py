@@ -128,6 +128,25 @@ def test_defers_gaps_and_ignores_events_after_completion() -> None:
     )
 
 
+def test_cancelled_execution_ignores_late_generation_events() -> None:
+    attempt_id = uuid4()
+
+    for candidate in (
+        delta_event(attempt_id=attempt_id, sequence=4),
+        completed_event(attempt_id=attempt_id, sequence=4),
+        failed_event(attempt_id=attempt_id, sequence=4),
+    ):
+        assert (
+            classify(
+                candidate,
+                attempt_id=attempt_id,
+                last_sequence=3,
+                execution_status="cancelled",
+            )
+            is EventDisposition.IGNORE
+        )
+
+
 def test_terminal_execution_replays_only_its_exact_terminal_event() -> None:
     attempt_id = uuid4()
     completed = completed_event(attempt_id=attempt_id, sequence=3)

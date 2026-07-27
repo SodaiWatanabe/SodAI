@@ -119,6 +119,8 @@ queued
   └─ 最大料金を予約
        ├─ completed + token数あり ── 実料金を収益へ、差額を返却
        ├─ completed + token数なし ── 明示したfallback額を確定
+       ├─ cancelled + input計測済み ─ 計測済み実料金を確定、差額を返却
+       ├─ cancelled + input未計測 ─── 全額返却
        ├─ failed / timeout ────────── 全額返却
        └─ free ───────────────────── 使用量だけを記録
 ```
@@ -129,6 +131,8 @@ Executionごとにsnapshotします。有料料金表ではfallback額を必須�
 後でcatalogの価格を変えても、開始済みの推論価格は変わりません。terminal eventの投影、予約確定、
 使用量記録は同じtransactionでcommitされ、イベントの再配送でも二重請求しません。再試行は新しい
 Executionなので、前の失敗予約を解放してから独立した料金snapshotと予約を持ちます。
+停止時は、workerが入力token数を報告済みなら固定額と計測済みtoken分だけを確定し、まだ入力を
+計測していなければ全額を返却します。部分回答の長さそのものを独立した料金指標にはしません。
 
 現在の料金表は次のとおりです。モデル選択UIには価格を表示しませんが、Answerer APIは機械可読な
 料金表を返します。

@@ -30,7 +30,10 @@ from app.domain.execution_events import (
     ProjectionResult,
     classify_generation_event,
 )
-from app.domain.inference_jobs import GENERATION_OUTBOX_TOPIC
+from app.domain.inference_jobs import (
+    GENERATION_CANCELLATION_OUTBOX_TOPIC,
+    GENERATION_OUTBOX_TOPIC,
+)
 from app.domain.principals import Principal, PrincipalKind
 from app.domain.responses import (
     Execution,
@@ -66,7 +69,8 @@ from app.models.platform import (
     ThreadModel,
     ThreadParticipantModel,
 )
-from app.repositories.response_completion import complete_response
+from app.repositories.humans import CancelledHumanClaim, SqlAlchemyHumanRepository
+from app.repositories.response_completion import complete_response, persist_response_entry
 
 EXECUTION_ADMISSION_LOCK_KEY = 0x534F44414902
 
@@ -91,10 +95,22 @@ class GenerationCapacityExceededError(Exception):
     pass
 
 
+class ExecutionNotFoundError(Exception):
+    pass
+
+
 @dataclass(frozen=True, slots=True)
 class PersonalContext:
     actor: ActorModel
     space: SpaceModel
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutionCancellation:
+    thread: Thread
+    is_model: bool
+    projection: ExecutionProjection | None
+    human_claim: CancelledHumanClaim | None = None
 
 
 class SqlAlchemyThreadRepository:
@@ -405,6 +421,125 @@ class SqlAlchemyThreadRepository:
             response=self._to_response(request),
             execution=self._to_execution(execution, answerer),
             replayed=False,
+        )
+
+    async def cancel_execution(
+        self,
+        principal: Principal,
+        execution_id: UUID,
+    ) -> ExecutionCancellation:
+        identity = (
+            await self._session.execute(
+                select(ExecutionModel.thread_id, HumanTaskModel.execution_id)
+                .join(ThreadModel, ThreadModel.id == ExecutionModel.thread_id)
+                .join(SpaceModel, SpaceModel.id == ThreadModel.space_id)
+                .join(
+                    ResponseRequestModel,
+                    ResponseRequestModel.id == ExecutionModel.response_request_id,
+                )
+                .join(
+                    ActorModel,
+                    ActorModel.id == ResponseRequestModel.requester_actor_id,
+                )
+                .outerjoin(
+                    HumanTaskModel,
+                    HumanTaskModel.execution_id == ExecutionModel.id,
+                )
+                .where(
+                    ExecutionModel.id == execution_id,
+                    ThreadModel.status == "active",
+                    self._space_accessible_by(principal),
+                    self._actor_owned_by(principal),
+                )
+            )
+        ).one_or_none()
+        if identity is None:
+            raise ExecutionNotFoundError
+        thread_id, human_task_id = identity
+        is_human = human_task_id is not None
+
+        human_repository = SqlAlchemyHumanRepository(self._session)
+        if is_human:
+            # Human matching, answering, skipping, expiry, and requester
+            # cancellation all serialize through the same lock before row locks.
+            await human_repository.lock_matching()
+
+        thread = await self._locked_thread(principal, thread_id)
+        row = (
+            await self._session.execute(
+                select(
+                    ExecutionModel,
+                    ResponseRequestModel,
+                    SpaceModel,
+                )
+                .join(
+                    ResponseRequestModel,
+                    ResponseRequestModel.id == ExecutionModel.response_request_id,
+                )
+                .join(SpaceModel, SpaceModel.id == thread.space_id)
+                .where(
+                    ExecutionModel.id == execution_id,
+                    ExecutionModel.thread_id == thread.id,
+                )
+                .options(
+                    selectinload(ResponseRequestModel.target_actor),
+                )
+                .with_for_update(of=(ExecutionModel, ResponseRequestModel))
+            )
+        ).one_or_none()
+        if row is None:
+            raise ExecutionNotFoundError
+        execution, request, space = row
+        if execution.status in {
+            ResponseStatus.COMPLETED.value,
+            ResponseStatus.FAILED.value,
+            ResponseStatus.CANCELLED.value,
+        }:
+            return ExecutionCancellation(
+                thread=await self.get(principal, thread.id),
+                is_model=not is_human,
+                projection=None,
+            )
+
+        now = datetime.now(timezone.utc)
+        thread.revision += 1
+        thread.updated_at = now
+        thread.last_activity_at = now
+        if execution.partial_output.strip():
+            await persist_response_entry(
+                self._session,
+                execution,
+                request,
+                thread,
+                execution.partial_output,
+            )
+        execution.status = ResponseStatus.CANCELLED.value
+        execution.error_code = None
+        execution.finish_reason = None
+        execution.finished_at = now
+        execution.lease_expires_at = None
+        request.status = ResponseStatus.CANCELLED.value
+        request.finished_at = now
+
+        human_claim = None
+        if is_human:
+            human_claim = await human_repository.cancel_active_claim(execution.id, now)
+        else:
+            self._session.add(
+                OutboxEventModel(
+                    topic=GENERATION_CANCELLATION_OUTBOX_TOPIC,
+                    aggregate_id=execution.id,
+                    payload=str(execution.attempt_id),
+                )
+            )
+
+        await self._session.flush()
+        projection = await self._projection(execution, request, thread, space)
+        return ExecutionCancellation(
+            thread=await self.get(principal, thread.id),
+            is_model=not is_human,
+            projection=projection,
+            human_claim=human_claim,
         )
 
     async def _create_response_models(
@@ -718,6 +853,28 @@ class SqlAlchemyThreadRepository:
             for row in rows
         ]
 
+    async def pending_cancellation_outbox(
+        self, *, limit: int = 32
+    ) -> list[PendingOutboxEvent]:
+        statement = (
+            select(OutboxEventModel)
+            .join(ExecutionModel, ExecutionModel.id == OutboxEventModel.aggregate_id)
+            .where(
+                OutboxEventModel.topic == GENERATION_CANCELLATION_OUTBOX_TOPIC,
+                OutboxEventModel.published_at.is_(None),
+                OutboxEventModel.discarded_at.is_(None),
+                ExecutionModel.status == ResponseStatus.CANCELLED.value,
+            )
+            .order_by(OutboxEventModel.created_at)
+            .limit(limit)
+            .with_for_update(skip_locked=True)
+        )
+        rows = (await self._session.scalars(statement)).all()
+        return [
+            PendingOutboxEvent(id=row.id, execution_id=row.aggregate_id, payload=row.payload)
+            for row in rows
+        ]
+
     async def discard_terminal_outbox(self, *, limit: int = 32) -> int:
         statement = (
             select(OutboxEventModel)
@@ -726,7 +883,7 @@ class SqlAlchemyThreadRepository:
                 OutboxEventModel.topic == GENERATION_OUTBOX_TOPIC,
                 OutboxEventModel.published_at.is_(None),
                 OutboxEventModel.discarded_at.is_(None),
-                ExecutionModel.status.in_(["completed", "failed"]),
+                ExecutionModel.status.in_(["completed", "failed", "cancelled"]),
             )
             .order_by(OutboxEventModel.created_at)
             .limit(limit)
@@ -1087,14 +1244,16 @@ class SqlAlchemyThreadRepository:
 
     @classmethod
     def _to_thread(cls, model: ThreadModel) -> Thread:
-        entry_ordinals = {entry.id: entry.ordinal for entry in model.entries}
-        entry_answerers: dict[UUID, AnswererId] = {}
+        ordered_entries = sorted(model.entries, key=lambda entry: entry.ordinal)
+        entry_ordinals = {entry.id: entry.ordinal for entry in ordered_entries}
+        entry_responses: dict[UUID, tuple[AnswererId, ResponseStatus]] = {}
         for request in model.response_requests:
             for execution in request.executions:
                 if execution.result_entry_id is None:
                     continue
-                entry_answerers[execution.result_entry_id] = AnswererId(
-                    request.requested_answerer
+                entry_responses[execution.result_entry_id] = (
+                    AnswererId(request.requested_answerer),
+                    ResponseStatus(execution.status),
                 )
         latest = max(
             model.response_requests,
@@ -1108,8 +1267,8 @@ class SqlAlchemyThreadRepository:
             answerer=AnswererId(model.default_answerer),
             revision=model.revision,
             entries=tuple(
-                cls._to_entry(entry, entry_answerers.get(entry.id))
-                for entry in model.entries
+                cls._to_entry(entry, entry_responses.get(entry.id))
+                for entry in ordered_entries
             ),
             latest_response=cls._to_response(latest) if latest is not None else None,
             created_at=model.created_at,
@@ -1120,7 +1279,7 @@ class SqlAlchemyThreadRepository:
     @staticmethod
     def _to_entry(
         model: ThreadEntryModel,
-        answerer: AnswererId | None = None,
+        response: tuple[AnswererId, ResponseStatus] | None = None,
     ) -> Entry:
         return Entry(
             id=model.id,
@@ -1135,7 +1294,8 @@ class SqlAlchemyThreadRepository:
             content=model.text.content,
             ordinal=model.ordinal,
             created_at=model.created_at,
-            answerer=answerer,
+            answerer=response[0] if response else None,
+            response_status=response[1] if response else None,
         )
 
     @classmethod

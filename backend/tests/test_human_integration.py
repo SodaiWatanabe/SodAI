@@ -27,9 +27,14 @@ from app.models.platform import (
     ResponseRequestModel,
     ThreadModel,
 )
+from app.repositories.humans import HumanClaimNotFoundError, SqlAlchemyHumanRepository
 from app.repositories.inference_operations import InferenceOperationsRepository
 from app.repositories.response_completion import complete_response
-from app.repositories.threads import SqlAlchemyThreadRepository, ThreadNotFoundError
+from app.repositories.threads import (
+    ExecutionNotFoundError,
+    SqlAlchemyThreadRepository,
+    ThreadNotFoundError,
+)
 from app.services.human import HumanService
 
 pytestmark = pytest.mark.skipif(
@@ -172,6 +177,158 @@ async def test_claim_performer_must_own_the_wait_entry() -> None:
             claim = await session.get(HumanClaimModel, assigned.assignment.claim_id)
         assert claim is not None
         assert claim.performer_user_id == performer.id
+    finally:
+        await delete_users([item.id for item in users])
+
+
+@pytest.mark.anyio
+async def test_requester_cancellation_closes_human_claim_and_requeues_performer() -> None:
+    owner = principal()
+    performer = principal()
+    users = [owner, performer]
+    factory = get_session_factory()
+    human = HumanService(factory)
+
+    async with factory() as session:
+        session.add_all(
+            UserModel(id=item.id, display_name=f"user-{index}")
+            for index, item in enumerate(users)
+        )
+        await session.commit()
+
+    try:
+        _, execution_id = await create_task(
+            owner,
+            AnswererId.HUMAN_LITE,
+            "取消境界を検証するPrompt",
+        )
+        assigned = await human.ready(performer.id)
+        assert assigned.assignment is not None
+        claim_id = assigned.assignment.claim_id
+
+        async with factory() as session:
+            with pytest.raises(ExecutionNotFoundError):
+                await SqlAlchemyThreadRepository(session).cancel_execution(
+                    performer,
+                    execution_id,
+                )
+
+        async with factory() as session:
+            cancellation = await SqlAlchemyThreadRepository(session).cancel_execution(
+                owner,
+                execution_id,
+            )
+            await session.commit()
+        assert cancellation.projection is not None
+        assert cancellation.human_claim is not None
+        assert cancellation.human_claim.claim_id == claim_id
+        assert cancellation.human_claim.performer_user_id == performer.id
+        assert cancellation.thread.latest_response is not None
+        assert cancellation.thread.latest_response.status.value == "cancelled"
+
+        async with factory() as session:
+            replay = await SqlAlchemyThreadRepository(session).cancel_execution(
+                owner,
+                execution_id,
+            )
+            claim = await session.get(HumanClaimModel, claim_id)
+            execution = await session.get(ExecutionModel, execution_id)
+            waiting = await session.scalar(
+                select(HumanWaitEntryModel).where(
+                    HumanWaitEntryModel.performer_user_id == performer.id,
+                    HumanWaitEntryModel.status == "waiting",
+                )
+            )
+            await session.commit()
+        assert replay.projection is None
+        assert claim is not None and claim.status == "cancelled"
+        assert execution is not None and execution.status == "cancelled"
+        assert waiting is not None
+
+        with pytest.raises(HumanClaimNotFoundError):
+            await human.answer(performer.id, claim_id, "取消後の回答")
+        state = await human.state(performer.id)
+        assert state.status.value == "waiting"
+        assert state.assignment is None
+    finally:
+        await delete_users([item.id for item in users])
+
+
+@pytest.mark.anyio
+async def test_human_answer_and_requester_cancellation_have_one_winner() -> None:
+    owner = principal()
+    performer = principal()
+    users = [owner, performer]
+    factory = get_session_factory()
+    human = HumanService(factory)
+
+    async with factory() as session:
+        session.add_all(
+            UserModel(id=item.id, display_name=f"user-{index}")
+            for index, item in enumerate(users)
+        )
+        await session.commit()
+
+    try:
+        thread_id, execution_id = await create_task(
+            owner,
+            AnswererId.HUMAN_LITE,
+            "回答と取消の競合を検証するPrompt",
+        )
+        assigned = await human.ready(performer.id)
+        assert assigned.assignment is not None
+        claim_id = assigned.assignment.claim_id
+
+        async def answer_once() -> bool:
+            async with factory() as session:
+                try:
+                    await SqlAlchemyHumanRepository(session).answer(
+                        performer.id,
+                        claim_id,
+                        "競合に勝ったHuman回答",
+                    )
+                except HumanClaimNotFoundError:
+                    return False
+                await session.commit()
+                return True
+
+        async def cancel_once() -> bool:
+            async with factory() as session:
+                result = await SqlAlchemyThreadRepository(session).cancel_execution(
+                    owner,
+                    execution_id,
+                )
+                await session.commit()
+                return result.projection is not None
+
+        answered, cancelled = await asyncio.wait_for(
+            asyncio.gather(answer_once(), cancel_once()),
+            timeout=5,
+        )
+        assert answered is not cancelled
+
+        async with factory() as session:
+            thread = await SqlAlchemyThreadRepository(session).get(owner, thread_id)
+            claim = await session.get(HumanClaimModel, claim_id)
+            waiting_count = await session.scalar(
+                select(func.count())
+                .select_from(HumanWaitEntryModel)
+                .where(
+                    HumanWaitEntryModel.performer_user_id == performer.id,
+                    HumanWaitEntryModel.status == "waiting",
+                )
+            )
+        assert thread.latest_response is not None
+        assert claim is not None
+        assert waiting_count == 1
+        if answered:
+            assert thread.latest_response.status.value == "completed"
+            assert claim.status == "answered"
+            assert [entry.content for entry in thread.entries][-1] == "競合に勝ったHuman回答"
+        else:
+            assert thread.latest_response.status.value == "cancelled"
+            assert claim.status == "cancelled"
+            assert len(thread.entries) == 1
     finally:
         await delete_users([item.id for item in users])
 

@@ -6,7 +6,10 @@ from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.answerers import AnswererId
-from app.domain.inference_jobs import GENERATION_OUTBOX_TOPIC
+from app.domain.inference_jobs import (
+    GENERATION_CANCELLATION_OUTBOX_TOPIC,
+    GENERATION_OUTBOX_TOPIC,
+)
 from app.domain.inference_operations import DatabaseInferenceSnapshot
 from app.models.platform import ExecutionModel, ModelExecutionModel, OutboxEventModel
 
@@ -67,14 +70,18 @@ class InferenceOperationsRepository:
             .where(
                 OutboxEventModel.published_at.is_(None),
                 OutboxEventModel.discarded_at.is_(None),
-                OutboxEventModel.topic == GENERATION_OUTBOX_TOPIC,
+                OutboxEventModel.topic.in_(
+                    [GENERATION_OUTBOX_TOPIC, GENERATION_CANCELLATION_OUTBOX_TOPIC]
+                ),
             )
         )
         oldest_pending_outbox_at = await self._session.scalar(
             select(func.min(OutboxEventModel.created_at)).where(
                 OutboxEventModel.published_at.is_(None),
                 OutboxEventModel.discarded_at.is_(None),
-                OutboxEventModel.topic == GENERATION_OUTBOX_TOPIC,
+                OutboxEventModel.topic.in_(
+                    [GENERATION_OUTBOX_TOPIC, GENERATION_CANCELLATION_OUTBOX_TOPIC]
+                ),
             )
         )
         oldest_queued_at = await self._session.scalar(

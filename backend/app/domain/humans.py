@@ -6,6 +6,8 @@ from uuid import UUID
 
 from app.domain.threads import ActorKind
 
+HUMAN_MATCH_LOCK_KEY = 0x534F44414903
+
 
 class BrainStatus(str, Enum):
     IDLE = "idle"

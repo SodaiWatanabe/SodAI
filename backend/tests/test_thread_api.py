@@ -22,7 +22,7 @@ from app.domain.threads import (
     ThreadSummary,
 )
 from app.main import app
-from app.repositories.threads import ThreadBusyError
+from app.repositories.threads import ExecutionNotFoundError, ThreadBusyError
 from app.services.thread import ThreadService, get_thread_service
 
 PRINCIPAL = Principal(
@@ -125,12 +125,43 @@ def completed_thread_fixture() -> Thread:
     )
 
 
+def cancelled_thread_fixture() -> Thread:
+    completed = completed_thread_fixture()
+    result_entry = replace(
+        completed.entries[-1],
+        content="回答の途中",
+        response_status=ResponseStatus.CANCELLED,
+    )
+    response = replace(
+        completed.latest_response,
+        status=ResponseStatus.CANCELLED,
+        execution=replace(
+            completed.latest_response.execution,
+            status=ResponseStatus.CANCELLED,
+            partial_output="回答の途中",
+        ),
+    )
+    return replace(
+        completed,
+        entries=(*completed.entries[:-1], result_entry),
+        latest_response=response,
+    )
+
+
 class StubThreadService:
-    def __init__(self, *, busy: bool = False, insufficient: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        busy: bool = False,
+        insufficient: bool = False,
+        missing_execution: bool = False,
+    ) -> None:
         self.busy = busy
         self.insufficient = insufficient
+        self.missing_execution = missing_execution
         self.received: tuple[Principal, str, AnswererId | None] | None = None
         self.search_received: tuple[Principal, str, int] | None = None
+        self.cancel_received: tuple[Principal, UUID] | None = None
 
     async def create(
         self, principal: Principal, content: str, answerer: AnswererId | None
@@ -163,6 +194,12 @@ class StubThreadService:
         assert response_request_id == REQUEST_ID
         assert idempotency_key == "retry-once"
         return creation_fixture().response.execution
+
+    async def cancel(self, principal: Principal, execution_id: UUID) -> Thread:
+        if self.missing_execution:
+            raise ExecutionNotFoundError
+        self.cancel_received = (principal, execution_id)
+        return cancelled_thread_fixture()
 
     async def list(self, principal: Principal) -> list[ThreadSummary]:
         assert principal == PRINCIPAL
@@ -393,6 +430,36 @@ async def test_response_execution_retry_requires_an_idempotency_key() -> None:
     assert retried.status_code == 202
     assert retried.json()["id"] == str(EXECUTION_ID)
     assert retried.json()["attempt_no"] == 1
+
+
+@pytest.mark.anyio
+async def test_response_execution_can_be_cancelled_idempotently() -> None:
+    service = StubThreadService()
+    app.dependency_overrides[get_principal] = lambda: PRINCIPAL
+    app.dependency_overrides[get_thread_service] = lambda: service
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post(f"/api/v1/executions/{EXECUTION_ID}/cancel")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["latest_response"]["status"] == "cancelled"
+    assert payload["entries"][-1]["content"] == "回答の途中"
+    assert payload["entries"][-1]["response_status"] == "cancelled"
+    assert service.cancel_received == (PRINCIPAL, EXECUTION_ID)
+
+
+@pytest.mark.anyio
+async def test_response_execution_cancellation_hides_inaccessible_executions() -> None:
+    app.dependency_overrides[get_principal] = lambda: PRINCIPAL
+    app.dependency_overrides[get_thread_service] = lambda: StubThreadService(
+        missing_execution=True
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post(f"/api/v1/executions/{EXECUTION_ID}/cancel")
+
+    assert response.status_code == 404
 
 
 @pytest.mark.anyio

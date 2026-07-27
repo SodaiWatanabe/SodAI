@@ -308,9 +308,9 @@ class InferenceBillingIntentModel(Base):
 class InferenceUsageRecordModel(Base):
     __tablename__ = "inference_usage_records"
     __table_args__ = (
-        CheckConstraint("outcome IN ('completed', 'failed')", name="outcome"),
+        CheckConstraint("outcome IN ('completed', 'failed', 'cancelled')", name="outcome"),
         CheckConstraint(
-            "billing_reason IN ('free', 'completed', 'failed', 'unmetered')",
+            "billing_reason IN ('free', 'completed', 'failed', 'cancelled', 'unmetered')",
             name="billing_reason",
         ),
         CheckConstraint("input_tokens IS NULL OR input_tokens >= 0", name="input_tokens"),

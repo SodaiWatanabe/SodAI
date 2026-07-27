@@ -21,6 +21,9 @@ class PendingOutboxEvent:
     payload: str
 
 
+TERMINAL_EXECUTION_STATUSES = frozenset({"completed", "failed", "cancelled"})
+
+
 @dataclass(frozen=True, slots=True)
 class ExecutionProjection:
     principals: tuple[Principal, ...]
@@ -58,13 +61,13 @@ def classify_generation_event(
     if event.sequence == last_sequence:
         if event.id != last_event_id or event.type.value != last_event_type:
             return EventDisposition.IGNORE
-        if execution_status in {"completed", "failed"} and event.type not in {
+        if execution_status in TERMINAL_EXECUTION_STATUSES and event.type not in {
             GenerationEventType.COMPLETED,
             GenerationEventType.FAILED,
         }:
             return EventDisposition.IGNORE
         return EventDisposition.REPLAY
-    if execution_status in {"completed", "failed"}:
+    if execution_status in TERMINAL_EXECUTION_STATUSES:
         return EventDisposition.IGNORE
     if event.sequence == last_sequence + 1:
         allowed_events = {

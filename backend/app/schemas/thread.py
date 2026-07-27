@@ -62,6 +62,7 @@ class EntryResponse(BaseModel):
     ordinal: int
     created_at: datetime
     answerer: AnswererId | None = None
+    response_status: Literal["completed", "cancelled"] | None = None
 
 
 class ExecutionResponse(BaseModel):
@@ -73,7 +74,7 @@ class ExecutionResponse(BaseModel):
     result_entry_id: UUID | None
     answerer: AnswererId
     target: str
-    status: Literal["queued", "running", "completed", "failed"]
+    status: Literal["queued", "running", "completed", "failed", "cancelled"]
     attempt_no: int
     attempt_id: UUID
     partial_output: str
@@ -90,7 +91,7 @@ class ResponseRequestResponse(BaseModel):
     input_entry_id: UUID
     requested_answerer: AnswererId
     target_actor: ActorResponse
-    status: Literal["queued", "running", "completed", "failed"]
+    status: Literal["queued", "running", "completed", "failed", "cancelled"]
     execution: ExecutionResponse
     created_at: datetime
 

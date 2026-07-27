@@ -107,6 +107,7 @@ class InferenceBillingService:
         if execution.status not in {
             ResponseStatus.COMPLETED.value,
             ResponseStatus.FAILED.value,
+            ResponseStatus.CANCELLED.value,
         }:
             raise RuntimeError("inference usage cannot be finalized before execution")
 
@@ -122,6 +123,15 @@ class InferenceBillingService:
         if outcome is BillingOutcome.FAILED:
             charge = 0
             reason = BillingReason.FAILED
+        elif outcome is BillingOutcome.CANCELLED:
+            if execution.input_tokens is None:
+                charge = 0
+            else:
+                charge = tariff.charge(
+                    execution.input_tokens,
+                    execution.output_tokens or 0,
+                )
+            reason = BillingReason.CANCELLED
         elif tariff.is_free:
             charge = 0
             reason = BillingReason.FREE

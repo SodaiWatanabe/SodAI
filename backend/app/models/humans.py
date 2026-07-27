@@ -103,7 +103,10 @@ class HumanWaitEntryModel(Base):
 class HumanClaimModel(Base):
     __tablename__ = "human_claims"
     __table_args__ = (
-        CheckConstraint("status IN ('active', 'answered', 'skipped', 'expired')", name="status"),
+        CheckConstraint(
+            "status IN ('active', 'answered', 'skipped', 'expired', 'cancelled')",
+            name="status",
+        ),
         CheckConstraint(
             "(status = 'active' AND finished_at IS NULL) OR "
             "(status != 'active' AND finished_at IS NOT NULL)",

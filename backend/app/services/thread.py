@@ -20,13 +20,11 @@ from app.domain.answerers import (
     get_default_answerer,
     list_available_answerers,
 )
+from app.domain.execution_events import ExecutionProjection
 from app.domain.principals import Principal, PrincipalKind
 from app.domain.responses import Execution, ResponseCreation, ResponseRequest
 from app.domain.threads import SpaceSummary, Thread, ThreadSearchPage, ThreadSummary
-from app.repositories.threads import (
-    GenerationCapacityExceededError,
-    SqlAlchemyThreadRepository,
-)
+from app.repositories.threads import GenerationCapacityExceededError, SqlAlchemyThreadRepository
 from app.services.human import get_human_service
 from app.services.inference.asuka import ASUKA_PSEUDO_ARTIFACT_ID
 from app.services.inference.billing import InferenceBillingService
@@ -235,6 +233,42 @@ class ThreadService:
         )
         return retry.execution
 
+    async def cancel(
+        self,
+        principal: Principal,
+        execution_id: UUID,
+    ) -> Thread:
+        async with self._session_factory() as session:
+            cancellation = await SqlAlchemyThreadRepository(session).cancel_execution(
+                principal,
+                execution_id,
+            )
+            projection = cancellation.projection
+            if projection is not None and cancellation.is_model:
+                await InferenceBillingService(session).finalize(execution_id)
+            await session.commit()
+
+        if projection is None:
+            return cancellation.thread
+        await self._publish_cancellation(projection)
+        if cancellation.human_claim is not None:
+            human_claim = cancellation.human_claim
+            await realtime_hub.publish(
+                Principal(PrincipalKind.USER, human_claim.performer_user_id),
+                event_type="human.assignment.cancelled",
+                space_id=projection.space_id,
+                thread_id=projection.thread_id,
+                thread_revision=projection.thread_revision,
+                response_request_id=projection.response_request_id,
+                execution_id=projection.execution_id,
+                data={
+                    "claim_id": str(human_claim.claim_id),
+                    "reason": "requester_cancelled",
+                },
+            )
+            await get_human_service().match_available_best_effort()
+        return cancellation.thread
+
     async def list_spaces(self, principal: Principal) -> list[SpaceSummary]:
         async with self._session_factory() as session:
             repository = SqlAlchemyThreadRepository(session)
@@ -329,6 +363,27 @@ class ThreadService:
             deadline=deadline,
         )
         await repository.add_generation_outbox(execution.id, job.to_json())
+
+    @staticmethod
+    async def _publish_cancellation(projection: ExecutionProjection) -> None:
+        data = {
+            "target_actor_id": str(projection.target_actor_id),
+            "result_entry_id": (
+                str(projection.result_entry_id) if projection.result_entry_id else None
+            ),
+            "content": projection.content,
+        }
+        for principal in projection.principals:
+            await realtime_hub.publish(
+                principal,
+                event_type="response.cancelled",
+                space_id=projection.space_id,
+                thread_id=projection.thread_id,
+                thread_revision=projection.thread_revision,
+                response_request_id=projection.response_request_id,
+                execution_id=projection.execution_id,
+                data=data,
+            )
 
     def _validate_retry_artifact(self, answerer: AnswererDefinition, artifact_id: str) -> None:
         if answerer.runtime_kind is RuntimeKind.PSEUDO_MODEL:

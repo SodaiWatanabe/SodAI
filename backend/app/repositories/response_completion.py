@@ -15,15 +15,14 @@ from app.models.platform import (
 )
 
 
-async def complete_response(
+async def persist_response_entry(
     session: AsyncSession,
     execution: ExecutionModel,
     request: ResponseRequestModel,
     thread: ThreadModel,
     content: str,
-    now: datetime,
 ) -> ThreadEntryModel:
-    """Persist one answer through the shared model/Human completion path."""
+    """Persist answer text without deciding how the execution terminated."""
 
     last_ordinal = await session.scalar(
         select(func.max(ThreadEntryModel.ordinal)).where(ThreadEntryModel.thread_id == thread.id)
@@ -38,8 +37,22 @@ async def complete_response(
     result.text = EntryTextContentModel(content=content)
     session.add(result)
     execution.partial_output = content
-    execution.status = ResponseStatus.COMPLETED.value
     execution.result_entry_id = result.id
+    return result
+
+
+async def complete_response(
+    session: AsyncSession,
+    execution: ExecutionModel,
+    request: ResponseRequestModel,
+    thread: ThreadModel,
+    content: str,
+    now: datetime,
+) -> ThreadEntryModel:
+    """Persist one answer through the shared model/Human completion path."""
+
+    result = await persist_response_entry(session, execution, request, thread, content)
+    execution.status = ResponseStatus.COMPLETED.value
     execution.finished_at = now
     execution.lease_expires_at = None
     request.status = ResponseStatus.COMPLETED.value

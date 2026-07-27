@@ -7,6 +7,7 @@ from app.auth.principal import get_principal
 from app.domain.credits import InsufficientCreditsError
 from app.domain.principals import Principal
 from app.repositories.threads import (
+    ExecutionNotFoundError,
     ResponseNotRetryableError,
     ResponseRequestNotFoundError,
     ThreadBusyError,
@@ -98,6 +99,22 @@ async def retry_response_execution(
     except InsufficientCreditsError as exc:
         raise HTTPException(status_code=402, detail="Insufficient credits") from exc
     return ExecutionResponse.model_validate(execution, from_attributes=True)
+
+
+@router.post(
+    "/executions/{execution_id}/cancel",
+    response_model=ThreadResponse,
+)
+async def cancel_execution(
+    execution_id: UUID,
+    principal: Principal = Depends(get_principal),
+    service: ThreadService = Depends(get_thread_service),
+) -> ThreadResponse:
+    try:
+        thread = await service.cancel(principal, execution_id)
+    except ExecutionNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Execution not found") from exc
+    return ThreadResponse.model_validate(thread, from_attributes=True)
 
 
 @router.get("/threads", response_model=ThreadListResponse)
