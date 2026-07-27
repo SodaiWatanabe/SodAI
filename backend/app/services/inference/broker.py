@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
+from uuid import UUID
 
 from redis.asyncio import Redis
 from redis.exceptions import ResponseError
@@ -50,6 +51,18 @@ class RedisInferenceBroker:
             {"payload": job.to_json()},
             maxlen=100_000,
             approximate=True,
+        )
+
+    async def publish_cancellation(
+        self,
+        attempt_id: UUID,
+        *,
+        ttl_seconds: int,
+    ) -> None:
+        await self._redis.set(
+            self.namespace.attempt_cancellation(attempt_id),
+            "1",
+            ex=ttl_seconds,
         )
 
     async def ensure_event_group(self) -> None:

@@ -638,6 +638,7 @@ async def test_asuka_completes_through_the_shared_generation_pipeline() -> None:
             event_consumer="integration-projector",
             event_claim_idle_ms=500,
         ),
+        cancellation_ttl_seconds=settings.inference_job_timeout_seconds + 60,
         reconciliation_interval_seconds=0.1,
     )
     worker = PseudoGenerationWorker(

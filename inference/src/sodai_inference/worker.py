@@ -204,7 +204,7 @@ class InferenceWorker:
                 stream_id=message_id,
             )
             progress = await self._read_progress(progress_key)
-            if not progress.terminal:
+            if not progress.terminal and not await self._cancel_requested(job):
                 await self._generate(job, resume_after_sequence=progress.sequence)
             marked_done = await self._redis.eval(
                 COMPARE_AND_SET_SCRIPT,
@@ -256,6 +256,9 @@ class InferenceWorker:
             await emit(self._failed_event(job, sequence))
             return
 
+        if await self._cancel_requested(job):
+            return
+
         try:
             prompt_ids = self._hina.build_prompt(job)
         except Exception as error:
@@ -285,6 +288,16 @@ class InferenceWorker:
         buffered_tokens = 0
         steps = iter(self._hina.generate(prompt_ids, job))
         while True:
+            if await self._cancel_requested(job):
+                steps.close()
+                log_inference_event(
+                    logger,
+                    logging.INFO,
+                    "generation_cancelled",
+                    correlation,
+                    sequence=sequence,
+                )
+                return
             try:
                 step = next(steps)
             except StopIteration:
@@ -355,6 +368,13 @@ class InferenceWorker:
                 )
             )
             return
+
+    async def _cancel_requested(self, job: GenerationJob) -> bool:
+        return bool(
+            await self._redis.exists(
+                self._namespace.attempt_cancellation(job.attempt_id)
+            )
+        )
 
     @staticmethod
     def _failed_event(job: GenerationJob, sequence: int) -> GenerationEvent:

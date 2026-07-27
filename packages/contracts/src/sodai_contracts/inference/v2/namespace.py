@@ -46,6 +46,9 @@ class InferenceNamespace:
     def attempt_progress(self, attempt_id: UUID) -> str:
         return f"{self.attempt_lock(attempt_id)}:progress"
 
+    def attempt_cancellation(self, attempt_id: UUID) -> str:
+        return f"{self.attempt_lock(attempt_id)}:cancelled"
+
     def worker_readiness(self, model: str, artifact_id: str) -> str:
         self._validate_segment(model, "model")
         self._validate_segment(artifact_id, "artifact_id")

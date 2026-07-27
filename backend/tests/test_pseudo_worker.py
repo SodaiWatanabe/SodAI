@@ -16,9 +16,10 @@ from app.services.inference.pseudo_worker import PUBLISH_EVENT_SCRIPT, PseudoGen
 
 
 class RecordingRedis:
-    def __init__(self) -> None:
+    def __init__(self, *, cancelled: bool = False) -> None:
         self.payloads: list[str] = []
         self.progress: list[str] = []
+        self.cancelled = cancelled
 
     async def eval(self, script, key_count, *values):
         assert script == PUBLISH_EVENT_SCRIPT
@@ -28,6 +29,9 @@ class RecordingRedis:
         self.payloads.append(values[4])
         self.progress.append(values[5])
         return "1-0"
+
+    async def exists(self, key):
+        return int(self.cancelled)
 
 
 @pytest.fixture
@@ -67,3 +71,31 @@ async def test_asuka_emits_the_shared_generation_event_contract() -> None:
     assert all(event.execution_id == job.execution_id for event in events)
     assert events[-1].content and len(events[-1].content) > 80
     assert '"terminal":true' in redis.progress[-1]
+
+
+@pytest.mark.anyio
+async def test_asuka_does_not_start_an_already_cancelled_execution() -> None:
+    redis = RecordingRedis(cancelled=True)
+    generator = AsukaPseudoGenerator()
+    generator.chunk_interval_seconds = 0
+    worker = PseudoGenerationWorker(
+        redis,  # type: ignore[arg-type]
+        generator,
+        namespace=InferenceNamespace("test:inference"),
+        consumer_name="test",
+    )
+    cancelled_job = GenerationJob.create(
+        execution_id=uuid4(),
+        response_request_id=uuid4(),
+        attempt_id=uuid4(),
+        thread_id=uuid4(),
+        answerer_actor_id=uuid4(),
+        model="asuka-1",
+        artifact_id=ASUKA_PSEUDO_ARTIFACT_ID,
+        turns=(GenerationTurn(InferenceSpeaker.PARTNER, "こんにちは"),),
+        deadline=datetime.now(timezone.utc) + timedelta(minutes=1),
+    )
+
+    await worker._generate(cancelled_job)
+
+    assert redis.payloads == []

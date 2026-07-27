@@ -36,7 +36,12 @@ class StubHina:
 
 
 class RecordingWorker(InferenceWorker):
-    def __init__(self, *, fail_at: int | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        cancel_after_checks: int | None = None,
+        fail_at: int | None = None,
+    ) -> None:
         settings = Settings(
             model_root=Path("."),
             redis_url="redis://localhost",
@@ -47,6 +52,8 @@ class RecordingWorker(InferenceWorker):
         super().__init__(settings, None, StubHina())  # type: ignore[arg-type]
         self.events: list[GenerationEvent] = []
         self.fail_at = fail_at
+        self.cancel_after_checks = cancel_after_checks
+        self.cancel_checks = 0
 
     async def _publish(
         self,
@@ -57,6 +64,13 @@ class RecordingWorker(InferenceWorker):
         self.events.append(event)
         if event.sequence == self.fail_at:
             raise ConnectionError("Redis is unavailable")
+
+    async def _cancel_requested(self, job: GenerationJob) -> bool:
+        self.cancel_checks += 1
+        return (
+            self.cancel_after_checks is not None
+            and self.cancel_checks > self.cancel_after_checks
+        )
 
 
 class FakeRedis:
@@ -75,6 +89,9 @@ class FakeRedis:
     async def eval(self, *args):
         self.eval_args = args
         return 1
+
+    async def exists(self, key):
+        return 0
 
 
 def job() -> GenerationJob:
@@ -128,6 +145,18 @@ async def test_retry_resumes_after_the_atomically_recorded_sequence() -> None:
         GenerationEventType.COMPLETED,
     ]
     assert [event.sequence for event in worker.events] == [1, 2]
+
+
+@pytest.mark.asyncio
+async def test_cancellation_stops_before_a_terminal_generation_event() -> None:
+    worker = RecordingWorker(cancel_after_checks=3)
+
+    await worker._generate(job())
+
+    assert [event.type for event in worker.events] == [
+        GenerationEventType.STARTED,
+        GenerationEventType.DELTA,
+    ]
 
 
 @pytest.mark.asyncio

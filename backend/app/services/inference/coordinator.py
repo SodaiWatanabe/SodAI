@@ -5,6 +5,7 @@ import logging
 import os
 import socket
 from datetime import datetime, timedelta, timezone
+from uuid import UUID
 
 from redis.asyncio import Redis
 from sodai_contracts.inference import (
@@ -35,10 +36,12 @@ class GenerationCoordinator:
         session_factory: async_sessionmaker[AsyncSession],
         broker: RedisInferenceBroker,
         *,
+        cancellation_ttl_seconds: int,
         reconciliation_interval_seconds: float = 5,
     ) -> None:
         self._session_factory = session_factory
         self._broker = broker
+        self._cancellation_ttl_seconds = cancellation_ttl_seconds
         self._reconciliation_interval_seconds = reconciliation_interval_seconds
         self._deferred_messages: set[str] = set()
         self._recovery_complete = False
@@ -76,6 +79,30 @@ class GenerationCoordinator:
         async with self._session_factory() as session:
             repository = SqlAlchemyThreadRepository(session)
             await repository.discard_terminal_outbox()
+            cancellations = await repository.pending_cancellation_outbox()
+            for message in cancellations:
+                try:
+                    attempt_id = UUID(message.payload)
+                    await self._broker.publish_cancellation(
+                        attempt_id,
+                        ttl_seconds=self._cancellation_ttl_seconds,
+                    )
+                except Exception as error:
+                    await repository.mark_outbox_failed(message.id, str(error))
+                    await session.commit()
+                    logger.exception(
+                        "Generation cancellation dispatch failed",
+                        extra={"execution_id": str(message.execution_id)},
+                    )
+                    raise
+                await repository.mark_outbox_published(message.id)
+                logger.info(
+                    "Generation cancellation dispatched",
+                    extra={
+                        "execution_id": str(message.execution_id),
+                        "attempt_id": str(attempt_id),
+                    },
+                )
             pending = await repository.pending_outbox()
             for message in pending:
                 job = None
@@ -104,7 +131,7 @@ class GenerationCoordinator:
                     stream_id=stream_id,
                 )
             await session.commit()
-            return len(pending)
+            return len(cancellations) + len(pending)
 
     async def _project_loop(self) -> None:
         while True:
@@ -295,5 +322,6 @@ def create_generation_coordinator(settings: Settings | None = None) -> Generatio
     return GenerationCoordinator(
         get_session_factory(),
         broker,
+        cancellation_ttl_seconds=settings.inference_job_timeout_seconds + 60,
         reconciliation_interval_seconds=settings.inference_reconciliation_interval_seconds,
     )

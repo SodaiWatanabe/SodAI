@@ -29,6 +29,7 @@ def test_inference_namespace_preserves_production_keys_and_isolates_test_runs() 
     assert production.worker_group == "sodai-inference-workers-v2"
     assert isolated.job_stream != production.job_stream
     assert isolated.attempt_lock(uuid4()).startswith(isolated.prefix)
+    assert isolated.attempt_cancellation(uuid4()).endswith(":cancelled")
     assert isolated.worker_readiness("hina", "artifact").startswith(isolated.prefix)
 
 

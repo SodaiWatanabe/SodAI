@@ -233,7 +233,7 @@ class PseudoGenerationWorker:
                 stream_id=message_id,
             )
             progress = await self._read_progress(progress_key)
-            if not progress.terminal:
+            if not progress.terminal and not await self._cancel_requested(job):
                 await self._generate(job, resume_after_sequence=progress.sequence)
             marked_done = await self._redis.eval(
                 COMPARE_AND_SET_SCRIPT,
@@ -274,6 +274,8 @@ class PseudoGenerationWorker:
         if resume_after_sequence < 0 and datetime.now(timezone.utc) >= job.deadline:
             await emit(self._failed(job, sequence, "generation_timeout"))
             return
+        if await self._cancel_requested(job):
+            return
         await emit(
             GenerationEvent.create(
                 GenerationEventType.STARTED,
@@ -287,6 +289,15 @@ class PseudoGenerationWorker:
         generated = ""
         try:
             async for delta in self._generator.stream(job.turns[-1].content):
+                if await self._cancel_requested(job):
+                    log_inference_event(
+                        logger,
+                        logging.INFO,
+                        "generation_cancelled",
+                        correlation,
+                        sequence=sequence,
+                    )
+                    return
                 generated += delta
                 sequence += 1
                 await emit(
@@ -310,6 +321,15 @@ class PseudoGenerationWorker:
             )
             await emit(self._failed(job, sequence + 1, "asuka_generation_failed"))
             return
+        if await self._cancel_requested(job):
+            log_inference_event(
+                logger,
+                logging.INFO,
+                "generation_cancelled",
+                correlation,
+                sequence=sequence,
+            )
+            return
         sequence += 1
         await emit(
             GenerationEvent.create(
@@ -320,6 +340,13 @@ class PseudoGenerationWorker:
                 thread_id=job.thread_id,
                 content=generated,
                 finish_reason=FinishReason.STOP,
+            )
+        )
+
+    async def _cancel_requested(self, job: GenerationJob) -> bool:
+        return bool(
+            await self._redis.exists(
+                self._namespace.attempt_cancellation(job.attempt_id)
             )
         )
 

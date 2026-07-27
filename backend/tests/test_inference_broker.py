@@ -1,4 +1,5 @@
 import asyncio
+from uuid import uuid4
 
 import pytest
 from sodai_contracts.inference import InferenceNamespace
@@ -11,6 +12,7 @@ class FakeRedis:
     def __init__(self):
         self.claim_cursors = []
         self.eval_args = None
+        self.set_args = None
 
     async def xreadgroup(self, **kwargs):
         return [["events", [("20-0", {"payload": "new"})]]]
@@ -23,6 +25,10 @@ class FakeRedis:
     async def eval(self, *args):
         self.eval_args = args
         return 1
+
+    async def set(self, *args, **kwargs):
+        self.set_args = (args, kwargs)
+        return True
 
 
 def test_reads_new_and_claimable_events_fairly() -> None:
@@ -62,6 +68,25 @@ def test_acknowledging_an_event_also_removes_its_payload() -> None:
         "test:inference:events:v2",
         "test-inference-projector-v2",
         "20-0",
+    )
+
+
+def test_publishing_cancellation_sets_an_expiring_attempt_key() -> None:
+    redis = FakeRedis()
+    namespace = InferenceNamespace("test:inference")
+    broker = RedisInferenceBroker(
+        redis,  # type: ignore[arg-type]
+        namespace=namespace,
+        event_consumer="consumer",
+        event_claim_idle_ms=2_000,
+    )
+    attempt_id = uuid4()
+
+    asyncio.run(broker.publish_cancellation(attempt_id, ttl_seconds=360))
+
+    assert redis.set_args == (
+        (namespace.attempt_cancellation(attempt_id), "1"),
+        {"ex": 360},
     )
 
 

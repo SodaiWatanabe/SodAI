@@ -83,6 +83,7 @@ async def test_hina_completes_through_api_stream_and_projection() -> None:
             event_consumer=f"e2e-projector-{uuid4().hex}",
             event_claim_idle_ms=500,
         ),
+        cancellation_ttl_seconds=settings.inference_job_timeout_seconds + 60,
         reconciliation_interval_seconds=0.1,
     )
     service = ThreadService(factory, ModelDeploymentRegistry(settings.model_root), settings)
