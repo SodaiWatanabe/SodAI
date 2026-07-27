@@ -18,7 +18,7 @@ import {
   createHumanResponseDeliveryPlan,
   isLiveHumanResponseCompletion,
 } from "@/components/chat/human-response-delivery";
-import { HUMAN_PRIVACY_NOTICE } from "@/components/chat/human-privacy-card";
+import { HUMAN_PRIVACY_NOTICE } from "@/components/chat/human-privacy-notice";
 import { MessageComposer } from "@/components/chat/message-composer";
 import { reduceThreadRealtime } from "@/components/chat/thread-realtime";
 import { ThreadViewport } from "@/components/chat/thread-viewport";
