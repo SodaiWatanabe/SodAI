@@ -7,6 +7,7 @@ from app.domain.answerers import (
     AnswererPricingKind,
     RuntimeKind,
     get_answerer,
+    get_human_credit_terms,
 )
 from app.domain.principals import Principal, PrincipalKind
 from app.domain.reasoning import ReasoningEffort
@@ -70,9 +71,9 @@ def test_answerer_catalog_is_the_single_ui_source() -> None:
     assert by_id[AnswererId.HUMAN_LITE].is_legacy is False
     assert by_id[AnswererId.HUMAN_STANDARD].is_legacy is False
     assert by_id[AnswererId.HUMAN_PRO].is_legacy is False
-    assert by_id[AnswererId.HUMAN_LITE].pricing.kind is AnswererPricingKind.FREE
-    assert by_id[AnswererId.HUMAN_STANDARD].pricing.kind is AnswererPricingKind.FREE
-    assert by_id[AnswererId.HUMAN_PRO].pricing.kind is AnswererPricingKind.FREE
+    assert by_id[AnswererId.HUMAN_LITE].pricing.kind is AnswererPricingKind.METERED
+    assert by_id[AnswererId.HUMAN_STANDARD].pricing.kind is AnswererPricingKind.METERED
+    assert by_id[AnswererId.HUMAN_PRO].pricing.kind is AnswererPricingKind.METERED
     assert [option.id for option in by_id[AnswererId.ASUKA_1].reasoning_efforts] == [
         ReasoningEffort.NONE
     ]
@@ -120,6 +121,65 @@ def test_answerer_catalog_is_the_single_ui_source() -> None:
     assert pro is not None and pro.required_human_rank == 3
     guest_answerers = ThreadService.available_answerers(principal(PrincipalKind.GUEST))
     assert all(item.pricing.kind is AnswererPricingKind.FREE for item in guest_answerers)
+
+
+@pytest.mark.parametrize(
+    ("answerer_id", "effort", "charge", "reward", "revenue"),
+    [
+        (AnswererId.HUMAN_LITE, ReasoningEffort.LOW, 500_000, 450_000, 50_000),
+        (AnswererId.HUMAN_STANDARD, ReasoningEffort.LOW, 750_000, 675_000, 75_000),
+        (
+            AnswererId.HUMAN_STANDARD,
+            ReasoningEffort.MEDIUM,
+            1_500_000,
+            1_350_000,
+            150_000,
+        ),
+        (
+            AnswererId.HUMAN_STANDARD,
+            ReasoningEffort.HIGH,
+            3_000_000,
+            2_700_000,
+            300_000,
+        ),
+        (AnswererId.HUMAN_PRO, ReasoningEffort.LOW, 1_000_000, 900_000, 100_000),
+        (
+            AnswererId.HUMAN_PRO,
+            ReasoningEffort.MEDIUM,
+            2_000_000,
+            1_800_000,
+            200_000,
+        ),
+        (
+            AnswererId.HUMAN_PRO,
+            ReasoningEffort.HIGH,
+            4_000_000,
+            3_600_000,
+            400_000,
+        ),
+        (
+            AnswererId.HUMAN_PRO,
+            ReasoningEffort.XHIGH,
+            12_000_000,
+            10_800_000,
+            1_200_000,
+        ),
+    ],
+)
+def test_human_credit_terms_split_ten_percent_platform_share(
+    answerer_id: AnswererId,
+    effort: ReasoningEffort,
+    charge: int,
+    reward: int,
+    revenue: int,
+) -> None:
+    terms = get_human_credit_terms(answerer_id, effort)
+
+    assert (
+        terms.customer_charge,
+        terms.performer_reward,
+        terms.platform_revenue,
+    ) == (charge, reward, revenue)
 
 
 def test_human_reasoning_effort_rejects_none() -> None:

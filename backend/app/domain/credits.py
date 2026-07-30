@@ -7,6 +7,8 @@ from uuid import UUID
 
 CREDIT_ASSET_CODE = "sodai-credit"
 CREDIT_SCALE = 1_000_000
+CREDIT_BASIS_POINTS = 10_000
+HUMAN_PLATFORM_SHARE_BASIS_POINTS = 1_000
 FREE_CREDIT_ALLOWANCE_DURATION = timedelta(hours=168)
 
 ISSUANCE_ACCOUNT_ID = UUID("00000000-0000-4000-9000-000000000001")
@@ -164,6 +166,38 @@ class CreditGrant:
     lot_id: UUID
     amount: int
     replayed: bool
+
+
+@dataclass(frozen=True, slots=True)
+class HumanCreditTerms:
+    customer_charge: int
+    performer_reward: int
+    platform_revenue: int
+
+    @classmethod
+    def from_customer_charge(cls, customer_charge: int) -> HumanCreditTerms:
+        if customer_charge <= 0:
+            raise ValueError("Human customer charge must be positive")
+        revenue_numerator = customer_charge * HUMAN_PLATFORM_SHARE_BASIS_POINTS
+        if revenue_numerator % CREDIT_BASIS_POINTS:
+            raise ValueError("Human customer charge must split exactly at 10 percent")
+        platform_revenue = revenue_numerator // CREDIT_BASIS_POINTS
+        return cls(
+            customer_charge=customer_charge,
+            performer_reward=customer_charge - platform_revenue,
+            platform_revenue=platform_revenue,
+        )
+
+    def __post_init__(self) -> None:
+        if self.performer_reward <= 0 or self.platform_revenue <= 0:
+            raise ValueError("Human reward and platform revenue must be positive")
+        if self.performer_reward + self.platform_revenue != self.customer_charge:
+            raise ValueError("Human credit terms must balance")
+        if (
+            self.platform_revenue * CREDIT_BASIS_POINTS
+            != self.customer_charge * HUMAN_PLATFORM_SHARE_BASIS_POINTS
+        ):
+            raise ValueError("Human platform share must be exactly 10 percent")
 
 
 @dataclass(frozen=True, slots=True)

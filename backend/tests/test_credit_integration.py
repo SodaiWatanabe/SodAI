@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.db.session import dispose_engine, get_session_factory
-from app.domain.answerers import AnswererId, get_answerer
+from app.domain.answerers import AnswererId, get_answerer, get_human_credit_terms
 from app.domain.credits import (
     CREDIT_ASSET_CODE,
     CREDIT_SCALE,
@@ -24,12 +24,14 @@ from app.domain.credits import (
     CreditIdempotencyConflictError,
     CreditReservationStatus,
     CreditSourceKind,
+    CreditTransactionKind,
     FreeCreditAllowancePolicy,
     InferenceTariff,
     InsufficientCreditsError,
 )
 from app.domain.inference_jobs import GENERATION_CANCELLATION_OUTBOX_TOPIC
 from app.domain.principals import Principal, PrincipalKind
+from app.domain.reasoning import ReasoningEffort
 from app.models.account import UserModel
 from app.models.credits import (
     CreditAccountModel,
@@ -46,7 +48,9 @@ from app.models.platform import ExecutionModel, OutboxEventModel, SpaceModel, Th
 from app.repositories.credits import CreditLedgerRepository
 from app.repositories.threads import SqlAlchemyThreadRepository
 from app.services.credit_allowance import FreeCreditAllowanceService
+from app.services.credit_audit import CreditAuditService
 from app.services.credits import CreditService
+from app.services.human import HumanService
 from app.services.inference.billing import InferenceBillingService
 from app.services.inference.deployment import ModelDeploymentRegistry
 from app.services.thread import ThreadService
@@ -839,7 +843,7 @@ async def test_database_rejects_a_lot_created_from_a_non_grant_transaction() -> 
                 issued_at=reservation.created_at,
             )
         )
-        with pytest.raises(DBAPIError, match="require a grant transaction"):
+        with pytest.raises(DBAPIError, match="require a grant"):
             await session.commit()
 
 
@@ -2518,6 +2522,165 @@ async def test_unmetered_paid_completion_uses_the_explicit_fallback() -> None:
         balance = await CreditLedgerRepository(session).balance(principal.id)
         assert balance.available == 60
         assert balance.reserved == 0
+
+
+@pytest.mark.anyio
+async def test_human_answer_splits_charge_between_performer_and_platform() -> None:
+    requester = await create_user()
+    performer = await create_user()
+    settings = get_settings()
+    factory = get_session_factory()
+    threads = ThreadService(
+        factory,
+        ModelDeploymentRegistry(settings.model_root),
+        settings,
+    )
+    human = HumanService(factory)
+    terms = get_human_credit_terms(
+        AnswererId.HUMAN_STANDARD,
+        ReasoningEffort.MEDIUM,
+    )
+
+    creation = await threads.create(
+        requester,
+        "Human報酬を分割してください",
+        AnswererId.HUMAN_STANDARD,
+        ReasoningEffort.MEDIUM,
+    )
+    execution_id = creation.response.execution.id
+    async with factory() as session:
+        requester_balance = await CreditLedgerRepository(session).balance(requester.id)
+        assert requester_balance.available == (
+            FREE_CREDIT_ALLOWANCE_POLICY.amount - terms.customer_charge
+        )
+        assert requester_balance.reserved == terms.customer_charge
+        assert (
+            await session.get(InferenceBillingIntentModel, execution_id)
+        ) is None
+
+    await human.set_rank(performer.id, 2)
+    assignment = await human.ready(performer.id)
+    assert assignment.assignment is not None
+    assert assignment.assignment.execution_id == execution_id
+    await human.answer(
+        performer.id,
+        assignment.assignment.claim_id,
+        "90%を回答者へ、10%を運営へ分配します。",
+    )
+
+    async with factory() as session:
+        ledger = CreditLedgerRepository(session)
+        requester_balance = await ledger.balance(requester.id)
+        performer_balance = await ledger.balance(performer.id)
+        reservation = await session.scalar(
+            select(InferenceCreditReservationModel).where(
+                InferenceCreditReservationModel.execution_reference_id
+                == execution_id
+            )
+        )
+        assert reservation is not None
+        assert reservation.status == CreditReservationStatus.SETTLED.value
+        assert reservation.settled_amount == terms.customer_charge
+        assert reservation.final_transaction_id is not None
+        performer_account = await session.scalar(
+            select(CreditAccountModel).where(
+                CreditAccountModel.owner_user_id == performer.id
+            )
+        )
+        assert performer_account is not None
+        postings = {
+            posting.account_id: posting.amount
+            for posting in (
+                await session.scalars(
+                    select(CreditPostingModel).where(
+                        CreditPostingModel.transaction_id
+                        == reservation.final_transaction_id
+                    )
+                )
+            ).all()
+        }
+        reward_lot = await session.scalar(
+            select(CreditLotModel).where(
+                CreditLotModel.issuance_transaction_id
+                == reservation.final_transaction_id
+            )
+        )
+        requester_page = await ledger.transaction_page(requester.id, limit=20)
+        performer_page = await ledger.transaction_page(performer.id, limit=20)
+
+        assert requester_balance.available == (
+            FREE_CREDIT_ALLOWANCE_POLICY.amount - terms.customer_charge
+        )
+        assert requester_balance.reserved == 0
+        assert performer_balance.available == terms.performer_reward
+        assert performer_balance.reserved == 0
+        assert postings == {
+            RESERVE_ACCOUNT_ID: -terms.customer_charge,
+            REVENUE_ACCOUNT_ID: terms.platform_revenue,
+            performer_account.id: terms.performer_reward,
+        }
+        assert reward_lot is not None
+        assert reward_lot.owner_account_id == performer_account.id
+        assert reward_lot.source_kind == CreditSourceKind.EARNED.value
+        assert reward_lot.original_amount == terms.performer_reward
+        assert reward_lot.expires_at is None
+        requester_settlement = next(
+            item
+            for item in requester_page.items
+            if item.kind is CreditTransactionKind.SETTLE
+        )
+        performer_settlement = next(
+            item
+            for item in performer_page.items
+            if item.kind is CreditTransactionKind.SETTLE
+        )
+        assert requester_settlement.source_kind is None
+        assert performer_settlement.source_kind is CreditSourceKind.EARNED
+        assert performer_settlement.available_delta == terms.performer_reward
+
+    audit = await CreditAuditService(factory).audit_human_credits()
+    assert audit.scanned_human_reservations >= 1
+    assert audit.issues == ()
+
+
+@pytest.mark.anyio
+async def test_cancelled_human_request_releases_the_full_reservation() -> None:
+    requester = await create_user()
+    settings = get_settings()
+    factory = get_session_factory()
+    threads = ThreadService(
+        factory,
+        ModelDeploymentRegistry(settings.model_root),
+        settings,
+    )
+    terms = get_human_credit_terms(
+        AnswererId.HUMAN_LITE,
+        ReasoningEffort.LOW,
+    )
+
+    creation = await threads.create(
+        requester,
+        "キャンセルするHuman依頼",
+        AnswererId.HUMAN_LITE,
+        ReasoningEffort.LOW,
+    )
+    await threads.cancel(requester, creation.response.execution.id)
+
+    async with factory() as session:
+        ledger = CreditLedgerRepository(session)
+        balance = await ledger.balance(requester.id)
+        reservation = await session.scalar(
+            select(InferenceCreditReservationModel).where(
+                InferenceCreditReservationModel.execution_reference_id
+                == creation.response.execution.id
+            )
+        )
+        assert balance.available == FREE_CREDIT_ALLOWANCE_POLICY.amount
+        assert balance.reserved == 0
+        assert reservation is not None
+        assert reservation.status == CreditReservationStatus.RELEASED.value
+        assert reservation.reserved_amount == terms.customer_charge
+        assert reservation.settled_amount == 0
 
 
 @pytest.mark.anyio

@@ -174,6 +174,8 @@ class AvailableReasoningEffortResponse(BaseModel):
     id: ReasoningEffort
     name: str
     execution_time_limit_seconds: int | None
+    customer_charge: int
+    performer_reward: int
 
 
 class AnswererResponse(BaseModel):

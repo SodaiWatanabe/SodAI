@@ -6,6 +6,7 @@ from app.domain.credits import (
     CREDIT_ASSET_CODE,
     CREDIT_SCALE,
     FREE_INFERENCE_TARIFF,
+    HumanCreditTerms,
     InferenceTariff,
 )
 from app.domain.reasoning import (
@@ -80,6 +81,8 @@ class AvailableReasoningEffort:
     id: ReasoningEffort
     name: str
     execution_time_limit_seconds: int | None
+    customer_charge: int
+    performer_reward: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,6 +111,49 @@ HUMAN_STANDARD_REASONING_EFFORTS = HUMAN_LITE_REASONING_EFFORTS | {
 }
 HUMAN_PRO_REASONING_EFFORTS = HUMAN_STANDARD_REASONING_EFFORTS | {
     ReasoningEffort.XHIGH
+}
+
+
+def _fixed_tariff(revision: str, charge: int) -> InferenceTariff:
+    return InferenceTariff(
+        revision=revision,
+        fixed_charge=charge,
+        maximum_charge=charge,
+        unmetered_charge=charge,
+    )
+
+
+HUMAN_CREDIT_TERMS = {
+    (AnswererId.HUMAN_LITE, ReasoningEffort.LOW): HumanCreditTerms.from_customer_charge(
+        CREDIT_SCALE // 2
+    ),
+    (
+        AnswererId.HUMAN_STANDARD,
+        ReasoningEffort.LOW,
+    ): HumanCreditTerms.from_customer_charge(3 * CREDIT_SCALE // 4),
+    (
+        AnswererId.HUMAN_STANDARD,
+        ReasoningEffort.MEDIUM,
+    ): HumanCreditTerms.from_customer_charge(3 * CREDIT_SCALE // 2),
+    (
+        AnswererId.HUMAN_STANDARD,
+        ReasoningEffort.HIGH,
+    ): HumanCreditTerms.from_customer_charge(3 * CREDIT_SCALE),
+    (AnswererId.HUMAN_PRO, ReasoningEffort.LOW): HumanCreditTerms.from_customer_charge(
+        CREDIT_SCALE
+    ),
+    (
+        AnswererId.HUMAN_PRO,
+        ReasoningEffort.MEDIUM,
+    ): HumanCreditTerms.from_customer_charge(2 * CREDIT_SCALE),
+    (
+        AnswererId.HUMAN_PRO,
+        ReasoningEffort.HIGH,
+    ): HumanCreditTerms.from_customer_charge(4 * CREDIT_SCALE),
+    (
+        AnswererId.HUMAN_PRO,
+        ReasoningEffort.XHIGH,
+    ): HumanCreditTerms.from_customer_charge(12 * CREDIT_SCALE),
 }
 
 ASUKA_1_TARIFF = InferenceTariff(
@@ -148,7 +194,7 @@ ANSWERER_CATALOG = (
         description="日常のやりとりに最適。",
         runtime_kind=RuntimeKind.HUMAN,
         runtime_name="human-lite",
-        tariff=FREE_INFERENCE_TARIFF,
+        tariff=_fixed_tariff("human-lite-low-v1", CREDIT_SCALE // 2),
         audiences=frozenset({AnswererAudience.AUTHENTICATED}),
         supported_reasoning_efforts=HUMAN_LITE_REASONING_EFFORTS,
         default_reasoning_effort=ReasoningEffort.LOW,
@@ -161,7 +207,7 @@ ANSWERER_CATALOG = (
         description="幅広い相談に対応。",
         runtime_kind=RuntimeKind.HUMAN,
         runtime_name="human-standard",
-        tariff=FREE_INFERENCE_TARIFF,
+        tariff=_fixed_tariff("human-standard-medium-v1", 3 * CREDIT_SCALE // 2),
         audiences=frozenset({AnswererAudience.AUTHENTICATED}),
         supported_reasoning_efforts=HUMAN_STANDARD_REASONING_EFFORTS,
         default_reasoning_effort=ReasoningEffort.MEDIUM,
@@ -174,7 +220,7 @@ ANSWERER_CATALOG = (
         description="より高度な応答。",
         runtime_kind=RuntimeKind.HUMAN,
         runtime_name="human-pro",
-        tariff=FREE_INFERENCE_TARIFF,
+        tariff=_fixed_tariff("human-pro-medium-v1", 2 * CREDIT_SCALE),
         audiences=frozenset({AnswererAudience.AUTHENTICATED}),
         supported_reasoning_efforts=HUMAN_PRO_REASONING_EFFORTS,
         default_reasoning_effort=ReasoningEffort.MEDIUM,
@@ -206,6 +252,13 @@ if any(
     for answerer in ANSWERER_CATALOG
 ):
     raise RuntimeError("Human answerers cannot support none reasoning effort")
+if {
+    (answerer.id, effort)
+    for answerer in ANSWERER_CATALOG
+    if answerer.runtime_kind is RuntimeKind.HUMAN
+    for effort in answerer.supported_reasoning_efforts
+} != set(HUMAN_CREDIT_TERMS):
+    raise RuntimeError("Human credit terms must cover every supported reasoning effort")
 
 _DEFAULTS: dict[AnswererAudience, AnswererDefinition] = {}
 for audience in AnswererAudience:
@@ -221,6 +274,16 @@ def get_answerer(answerer_id: AnswererId) -> AnswererDefinition | None:
 
 def get_default_answerer(audience: AnswererAudience) -> AnswererDefinition:
     return _DEFAULTS[audience]
+
+
+def get_human_credit_terms(
+    answerer_id: AnswererId,
+    reasoning_effort: ReasoningEffort,
+) -> HumanCreditTerms:
+    try:
+        return HUMAN_CREDIT_TERMS[(answerer_id, reasoning_effort)]
+    except KeyError as error:
+        raise ValueError("unsupported Human credit terms") from error
 
 
 def list_available_answerers(audience: AnswererAudience) -> list[AvailableAnswerer]:
@@ -253,6 +316,16 @@ def list_available_answerers(audience: AnswererAudience) -> list[AvailableAnswer
                     id=definition.id,
                     name=definition.name,
                     execution_time_limit_seconds=definition.execution_time_limit_seconds,
+                    customer_charge=(
+                        get_human_credit_terms(item.id, definition.id).customer_charge
+                        if item.runtime_kind is RuntimeKind.HUMAN
+                        else item.tariff.maximum_charge
+                    ),
+                    performer_reward=(
+                        get_human_credit_terms(item.id, definition.id).performer_reward
+                        if item.runtime_kind is RuntimeKind.HUMAN
+                        else 0
+                    ),
                 )
                 for definition in REASONING_EFFORT_CATALOG
                 if definition.id in item.supported_reasoning_efforts

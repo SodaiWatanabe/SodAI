@@ -374,8 +374,51 @@ class CreditLedgerRepository:
         *,
         now: datetime | None = None,
     ) -> InferenceCreditReservationModel | None:
+        return await self._finalize_reservation(
+            execution_id,
+            charge,
+            reward_user_id=None,
+            reward_amount=0,
+            now=now,
+        )
+
+    async def finalize_human(
+        self,
+        execution_id: UUID,
+        charge: int,
+        *,
+        reward_user_id: UUID,
+        reward_amount: int,
+        now: datetime | None = None,
+    ) -> InferenceCreditReservationModel:
+        if reward_amount <= 0 or reward_amount >= charge:
+            raise ValueError("Human reward must be positive and less than the charge")
+        reservation = await self._finalize_reservation(
+            execution_id,
+            charge,
+            reward_user_id=reward_user_id,
+            reward_amount=reward_amount,
+            now=now,
+        )
+        if reservation is None:
+            raise CreditIdempotencyConflictError
+        return reservation
+
+    async def _finalize_reservation(
+        self,
+        execution_id: UUID,
+        charge: int,
+        *,
+        reward_user_id: UUID | None,
+        reward_amount: int,
+        now: datetime | None,
+    ) -> InferenceCreditReservationModel | None:
         if charge < 0:
             raise ValueError("inference charge cannot be negative")
+        if reward_amount < 0 or reward_amount > charge:
+            raise ValueError("credit reward must be within the settled charge")
+        if (reward_user_id is None) != (reward_amount == 0):
+            raise ValueError("credit reward requires both a recipient and an amount")
         if now is not None and now.tzinfo is None:
             raise ValueError("inference finalization time must be timezone-aware")
         reservation = await self._session.scalar(
@@ -392,17 +435,43 @@ class CreditLedgerRepository:
         if reservation.status != CreditReservationStatus.HELD.value:
             if reservation.settled_amount != charge:
                 raise CreditIdempotencyConflictError
+            await self._validate_final_reward(
+                reservation,
+                reward_user_id=reward_user_id,
+                reward_amount=reward_amount,
+            )
             return reservation
         if charge > reservation.reserved_amount:
             raise ValueError("inference charge cannot exceed the reservation")
 
-        account = await self._session.scalar(
-            select(CreditAccountModel)
-            .where(CreditAccountModel.id == reservation.owner_account_id)
-            .with_for_update()
+        reward_account = (
+            await self._ensure_user_account(reward_user_id)
+            if reward_user_id is not None
+            else None
         )
+        account_ids = {reservation.owner_account_id}
+        if reward_account is not None:
+            account_ids.add(reward_account.id)
+        locked_accounts = list(
+            (
+                await self._session.scalars(
+                    select(CreditAccountModel)
+                    .where(CreditAccountModel.id.in_(account_ids))
+                    .order_by(CreditAccountModel.id)
+                    .with_for_update()
+                )
+            ).all()
+        )
+        accounts = {account.id: account for account in locked_accounts}
+        account = accounts.get(reservation.owner_account_id)
         if account is None:
             raise RuntimeError("credit reservation owner account is missing")
+        if reward_account is not None:
+            reward_account = accounts.get(reward_account.id)
+            if reward_account is None:
+                raise RuntimeError("Human reward account is missing")
+            if reward_account.id == account.id:
+                raise ValueError("Human requester cannot receive their own reward")
         now = now or datetime.now(timezone.utc)
         rows = (
             await self._session.execute(
@@ -445,7 +514,9 @@ class CreditLedgerRepository:
 
         postings = {RESERVE_ACCOUNT_ID: -reservation.reserved_amount}
         if charge:
-            postings[REVENUE_ACCOUNT_ID] = charge
+            postings[REVENUE_ACCOUNT_ID] = charge - reward_amount
+        if reward_account is not None:
+            postings[reward_account.id] = reward_amount
         if returned:
             postings[account.id] = returned
         if expired:
@@ -471,6 +542,17 @@ class CreditLedgerRepository:
                     amount=consumed,
                 )
             )
+        if reward_account is not None:
+            self._session.add(
+                CreditLotModel(
+                    owner_account_id=reward_account.id,
+                    issuance_transaction_id=transaction.id,
+                    source_kind=CreditSourceKind.EARNED.value,
+                    original_amount=reward_amount,
+                    issued_at=now,
+                    expires_at=None,
+                )
+            )
         reservation.status = (
             CreditReservationStatus.SETTLED.value
             if charge
@@ -481,6 +563,43 @@ class CreditLedgerRepository:
         reservation.finalized_at = now
         await self._session.flush()
         return reservation
+
+    async def _validate_final_reward(
+        self,
+        reservation: InferenceCreditReservationModel,
+        *,
+        reward_user_id: UUID | None,
+        reward_amount: int,
+    ) -> None:
+        if reservation.final_transaction_id is None:
+            raise CreditIdempotencyConflictError
+        row = (
+            await self._session.execute(
+                select(CreditLotModel, CreditAccountModel)
+                .join(
+                    CreditAccountModel,
+                    CreditAccountModel.id == CreditLotModel.owner_account_id,
+                )
+                .where(
+                    CreditLotModel.issuance_transaction_id
+                    == reservation.final_transaction_id
+                )
+            )
+        ).one_or_none()
+        if reward_user_id is None:
+            if row is not None:
+                raise CreditIdempotencyConflictError
+            return
+        if row is None:
+            raise CreditIdempotencyConflictError
+        lot, account = row
+        if (
+            account.owner_user_id != reward_user_id
+            or lot.source_kind != CreditSourceKind.EARNED.value
+            or lot.original_amount != reward_amount
+            or lot.expires_at is not None
+        ):
+            raise CreditIdempotencyConflictError
 
     async def expire_due(self, now: datetime, *, limit: int = 100) -> int:
         if now.tzinfo is None:
@@ -652,7 +771,8 @@ class CreditLedgerRepository:
             for lot in (
                 await self._session.scalars(
                     select(CreditLotModel).where(
-                        CreditLotModel.issuance_transaction_id.in_(ids)
+                        CreditLotModel.issuance_transaction_id.in_(ids),
+                        CreditLotModel.owner_account_id == account.id,
                     )
                 )
             ).all()
@@ -843,6 +963,13 @@ class CreditLedgerRepository:
         return int(consumed or 0), int(held or 0)
 
     async def _ensure_locked_user_account(self, user_id: UUID) -> CreditAccountModel:
+        await self._ensure_user_account(user_id)
+        account = await self._locked_user_account(user_id)
+        if account is None:
+            raise RuntimeError("failed to lock credit account")
+        return account
+
+    async def _ensure_user_account(self, user_id: UUID) -> CreditAccountModel:
         await self._session.execute(
             pg_insert(CreditAccountModel)
             .values(
@@ -859,7 +986,7 @@ class CreditLedgerRepository:
                 index_where=CreditAccountModel.owner_user_id.is_not(None),
             )
         )
-        account = await self._locked_user_account(user_id)
+        account = await self._user_account(user_id)
         if account is None:
             raise RuntimeError("failed to create credit account")
         return account

@@ -27,6 +27,7 @@ from app.domain.responses import Execution, ResponseCreation, ResponseRequest
 from app.domain.threads import SpaceSummary, Thread, ThreadSearchPage, ThreadSummary
 from app.repositories.threads import GenerationCapacityExceededError, SqlAlchemyThreadRepository
 from app.services.human import get_human_service
+from app.services.human_credits import HumanCreditService
 from app.services.inference.asuka import ASUKA_PSEUDO_ARTIFACT_ID
 from app.services.inference.billing import InferenceBillingService
 from app.services.inference.deployment import ModelDeploymentError, ModelDeploymentRegistry
@@ -88,7 +89,14 @@ class ThreadService:
                 deadline_at=deadline,
                 reasoning_effort=reasoning_effort,
             )
-            if answerer.runtime_kind is not RuntimeKind.HUMAN:
+            if answerer.runtime_kind is RuntimeKind.HUMAN:
+                await HumanCreditService(session).reserve(
+                    principal.id,
+                    creation.response.execution,
+                    answerer.id,
+                    reasoning_effort,
+                )
+            else:
                 await InferenceBillingService(session).register(
                     principal,
                     creation.response.execution,
@@ -157,7 +165,14 @@ class ThreadService:
                 )
             except GenerationCapacityExceededError as error:
                 raise GenerationCapacityError from error
-            if answerer.runtime_kind is not RuntimeKind.HUMAN:
+            if answerer.runtime_kind is RuntimeKind.HUMAN:
+                await HumanCreditService(session).reserve(
+                    principal.id,
+                    creation.response.execution,
+                    answerer.id,
+                    reasoning_effort,
+                )
+            else:
                 await InferenceBillingService(session).register(
                     principal,
                     creation.response.execution,
@@ -261,8 +276,11 @@ class ThreadService:
                 execution_id,
             )
             projection = cancellation.projection
-            if projection is not None and cancellation.is_model:
-                await InferenceBillingService(session).finalize(execution_id)
+            if projection is not None:
+                if cancellation.is_model:
+                    await InferenceBillingService(session).finalize(execution_id)
+                else:
+                    await HumanCreditService(session).release(execution_id)
             await session.commit()
 
         if projection is None:

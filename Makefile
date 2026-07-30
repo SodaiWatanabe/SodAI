@@ -16,7 +16,7 @@ DEV_BACKEND_PORT ?= 13202
 
 .PHONY: install install-contracts install-auth install-backend install-frontend install-inference \
 	dev-auth dev-backend dev-frontend dev-inference import-hina deploy-hina \
-	inference-status credits-grant credits-expire human-rank test-inference-e2e \
+	inference-status credits-grant credits-expire credits-audit human-rank test-inference-e2e \
 	infra-check-env infra-config infra-up infra-up-internal infra-down infra-logs infra-ps \
 	tunnel-up tunnel-down db-shell redis-cli db-backup db-restore \
 	migrate migrate-auth migrate-app reinitialize-app-schema \
@@ -90,6 +90,9 @@ credits-grant:
 
 credits-expire:
 	cd backend && .venv/bin/python -m app.cli.credits_expire
+
+credits-audit:
+	cd backend && .venv/bin/python -m app.cli.credits_audit
 
 human-rank:
 	@test -n "$(USER_ID)" || { echo 'USER_ID=<uuid> を指定してください。' >&2; exit 1; }

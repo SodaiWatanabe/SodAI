@@ -10,6 +10,7 @@ from app.db.session import get_session_factory
 from app.domain.humans import BrainState
 from app.domain.principals import Principal, PrincipalKind
 from app.repositories.humans import HumanProjection, SqlAlchemyHumanRepository
+from app.services.human_credits import HumanCreditService
 from app.services.realtime import realtime_hub
 
 logger = logging.getLogger(__name__)
@@ -56,6 +57,10 @@ class HumanService:
         async with self._session_factory() as session:
             repository = SqlAlchemyHumanRepository(session)
             projection = await repository.answer(user_id, claim_id, content.strip())
+            await HumanCreditService(session).settle_answer(
+                projection.execution_id,
+                user_id,
+            )
             await session.commit()
         await self._publish_owner(
             projection,

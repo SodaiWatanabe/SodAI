@@ -14,14 +14,22 @@
                     ├─ 由来
                     └─ 任意の有効期限
 
-Execution ── BillingIntent ── CreditReservation ── UsageRecord
-                    │                 │
-                    └─ 料金表snapshot └─ LotへのFEFO配賦
+AI Execution ── BillingIntent ── CreditReservation ── UsageRecord
+                         │                 │
+                         └─ 料金表snapshot └─ LotへのFEFO配賦
+
+Human Execution ───────────────── CreditReservation
+                                          │
+                                          └─ 回答者90% + 運営10%
 ```
 
 Hinaはゲストを含む全ユーザーが無料で利用できます。Asuka 1は認証済みユーザー向けの有料モデルで、
 成功した応答1回につき0.1 creditを消費します。どちらも同じExecution、料金表snapshot、使用量記録を
 通るため、無料・有料で会話や推論の基盤を分岐させません。
+
+HumanもAIと同じExecution、ResponseRequest、`reasoning_effort`を使います。料金はAnswerer catalogの
+モデルと思考の深さから決まり、既存の予約・Posting・Lotで精算します。Human専用の料金テーブル、
+予約テーブル、報酬残高は作りません。
 
 ## 金額表現
 
@@ -47,6 +55,8 @@ Hinaはゲストを含む全ユーザーが無料で利用できます。Asuka 1
 - Transactionの記録作成時刻と会計上の`effective_at`を分け、期限判定は後者を正本にする
 - クレジット付与は必ず1つのLotを作り、由来と任意の有効期限を保持する
 - 推論予約はユーザー勘定から予約勘定へ移し、確定時に収益・返却・失効へ一度だけ振り分ける
+- Human回答の確定は予約額を回答者90%と運営10%へ同じTransactionで分割する
+- Human回答者へのPostingは、同じTransactionを発行元とする無期限の`earned` Lotと一致する
 - Grant仕訳とLot、予約仕訳と配賦元Lot、確定仕訳とLot消費は勘定・金額・参照先まで一致する
 - 料金表snapshotと使用量記録はExecution削除後も残り、ユーザー帰属の匿名化以外は変更しない
 
@@ -89,12 +99,12 @@ activeな無料枠がない状態で、クレジットを使うモデルへ有�
 ```text
 activeな無料枠なし + 有料推論
   └─ リクエスト時刻から168時間の20-credit Lotを発行
-       ├─ Asuka 1の予約・確定へFEFO配賦
+       ├─ Asuka 1・Humanの予約と確定へFEFO配賦
        ├─ 期限後は次の有料推論まで休止
        └─ earned / adminなど他のLotには影響しない
 ```
 
-`GET /credits`、Hina、guestのリクエストはLotを発行せず、時計も開始しません。有料推論ではユーザーの
+`GET /credits`、Hina、guestのリクエストはLotを発行せず、時計も開始しません。有料リクエストではユーザーの
 wallet行をロックし、DB時刻を取得してからactive Lotの確認、必要な発行、最大料金予約を行います。
 Execution、Outboxを含む同じDB transactionでcommitするため、予約できずrollbackしたリクエストは
 周期を開始しません。別Executionの並行リクエストもwallet lockで直列化され、二重発行しません。
@@ -134,8 +144,7 @@ Executionなので、前の失敗予約を解放してから独立した料金sn
 停止時は、workerが入力token数を報告済みなら固定額と計測済みtoken分だけを確定し、まだ入力を
 計測していなければ全額を返却します。部分回答の長さそのものを独立した料金指標にはしません。
 
-現在の料金表は次のとおりです。モデル選択UIには価格を表示しませんが、Answerer APIは機械可読な
-料金表を返します。
+現在のAI料金表は次のとおりです。Answerer APIは機械可読な料金表を返します。
 
 | Answerer | 対象 | 料金 |
 | --- | --- | --- |
@@ -145,6 +154,44 @@ Executionなので、前の失敗予約を解放してから独立した料金sn
 Asuka 1の現在の疑似workerはtoken数を報告しないため、料金表`asuka-1-flat-v2`は固定額、最大予約額、
 計測不能時fallback額をすべて0.1 creditとし、入力・出力token単価を0にしています。実モデルが計測値を
 返すようになるまでは、見せかけのtoken従量課金を行いません。
+
+## Humanの消費と報酬
+
+Humanの料金表はDBではなくAnswerer catalogがモデルと思考の深さごとに所有します。待機中の価格変更を
+扱うsnapshotは作らず、リクエスト時と回答時に同じアプリケーション設定を参照します。予約額そのものは
+価値移転の事実として既存の`inference_credit_reservations`へ記録します。
+
+| Humanモデル | 思考の深さ | 依頼者の消費 | 回答者報酬 | 運営取り分 |
+| --- | --- | ---: | ---: | ---: |
+| Human Lite | 軽い | 0.5 | 0.45 | 0.05 |
+| Human Standard | 軽い | 0.75 | 0.675 | 0.075 |
+| Human Standard | 中程度 | 1.5 | 1.35 | 0.15 |
+| Human Standard | 深い | 3 | 2.7 | 0.3 |
+| Human Pro | 軽い | 1 | 0.9 | 0.1 |
+| Human Pro | 中程度 | 2 | 1.8 | 0.2 |
+| Human Pro | 深い | 4 | 3.6 | 0.4 |
+| Human Pro | 非常に深い | 12 | 10.8 | 1.2 |
+
+金額はすべてsubunit整数で定義し、全組み合わせで10%を端数なく分割できることをアプリ起動時に検証
+します。評価は基礎報酬へ影響しません。将来評価ボーナスを加える場合も、この確定取引を書き換えず、
+独立した追加取引にします。
+
+```text
+Humanリクエスト作成
+  requester -料金 ──> reserve
+
+回答完了（回答保存と同じDB transaction）
+  reserve -料金 ─────┬─> performer +90% ──> 無期限earned Lot
+                     └─> revenue   +10%
+
+依頼者取消
+  reserve -料金 ───────> requester +料金
+```
+
+スキップ、接続lease切れ、回答制限時間切れでは同じExecutionを再キューし、予約は保持します。依頼者が
+取り消した場合は全額を返却します。回答本文の保存、Execution完了、回答者報酬、運営収益、
+予約確定は1つのtransactionでcommitするため、回答だけ存在して報酬がない状態や二重報酬を作りません。
+デプロイ前から待機中で予約を持たないHuman依頼だけは、遡及請求せず従来どおり無料で完了します。
 
 ## APIと運用
 
@@ -157,7 +204,8 @@ Asuka 1の現在の疑似workerはtoken数を報告しないため、料金表`a
 
 Answerer APIの`pricing`は`kind`、`asset_code`、`scale`に加え、料金表revision、固定額、token単価、
 最大額、計測不能時のfallback額を返します。Frontendと外部API clientはモデル名と同様に、価格情報も
-APIを唯一の正本として扱います。
+APIを唯一の正本として扱います。各`reasoning_efforts`はHuman向けに`customer_charge`と
+`performer_reward`も返します。表示の有無にかかわらず、価格と報酬の機械可読な契約として扱います。
 
 `GET /credits`は読み取り専用で、無料枠を開始しません。応答は`private, no-store`です。active時は総残高
 とは別に`free_allowance`として`limit`、`used`、`reserved`、`remaining`、`starts_at`、`expires_at`を
@@ -183,11 +231,19 @@ make credits-grant \
   EXPIRES_AT=2026-08-01T00:00:00+09:00
 
 make credits-expire
+
+make credits-audit
 ```
 
 付与コマンドの再実行は同じ結果を返します。同じキーを別ユーザー、別金額、別期限へ使い回すと
 拒否します。`credits-expire`は1回につき最大100 Lotを処理するため、`expired_lots=0`になるまで安全に
 繰り返せます。
+
+`credits-audit`は台帳を書き込まず、現在もExecutionが存在するHuman予約について、依頼者、モデル、
+思考の深さ、回答者Claim、`earned` Lot、10%の運営Postingをアプリケーション設定と突合します。
+複式の釣り合い、Lot保存則、予約の一度きりの状態遷移はDB制約が中核として常時保証し、会話ドメインとの
+意味的な整合性はこの読み取り専用監査へ分離します。不一致があれば`ERROR`を出力して終了コード1を
+返します。
 
 ## データ寿命と将来拡張
 
@@ -201,7 +257,7 @@ make credits-expire
 
 - クレジット購入: 決済providerの確定eventを冪等な`purchased` Lotへ変換する
 - サブスクリプション: entitlement期間ごとに`subscription` Lotを発行する
-- 貢献報酬・Human推論: 成果確定を`earned` Lotとして付与する
+- 評価ボーナス: 確定済みの基礎報酬とは別の追加取引として`earned` Lotを付与する
 - Human Answerer: 現在の`Human Lite`、`Human Standard`、`Human Pro`に加え、将来のtierも独立した安定IDで追加する
 - Asuka Thinking: Lite／Highなどを独立したAnswerer IDと料金表revisionで追加し、Asukaの主体IDは共有する
 - 返金・取消: 元取引を参照する`reversal`取引を追加する
