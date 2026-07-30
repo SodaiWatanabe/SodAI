@@ -244,7 +244,7 @@ export function BrainLobbyBackground() {
             quality={86}
             sizes="100vw"
             src="/images/brain-prismatic-bloom.webp"
-            className="object-contain object-center opacity-75"
+            className="object-cover object-center opacity-75"
           />
         </div>
       ) : null}
