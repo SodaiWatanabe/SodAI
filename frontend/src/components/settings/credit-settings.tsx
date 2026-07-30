@@ -7,6 +7,7 @@ import { FreeCreditAllowanceMeter } from "@/components/credits/free-credit-allow
 import { IOSSpinner } from "@/components/ui/ios-spinner";
 import {
   formatCreditAmount,
+  formatCreditExpirationDate,
   formatCreditTransactionDate,
   presentCreditTransaction,
 } from "@/lib/credits/presentation";
@@ -48,6 +49,9 @@ function CreditHistoryItem({
         </p>
         <p className="mt-0.5 text-xs tabular-nums text-[var(--muted)]">
           {formatCreditTransactionDate(transaction.created_at)}
+          {transaction.expires_at
+            ? ` ・ 有効期限 ${formatCreditExpirationDate(transaction.expires_at)}`
+            : ""}
         </p>
       </div>
       <span

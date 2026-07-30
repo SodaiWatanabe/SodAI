@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   creditAllowanceRemainingRatio,
   formatCreditAmount,
+  formatCreditExpirationDate,
   formatCreditResetDate,
   presentFreeCreditAllowance,
   presentCreditTransaction,
@@ -70,6 +71,16 @@ test("リセット期日は月日だけを日本語で表示する", () => {
   assert.equal(display, "7月20日");
 });
 
+test("クレジットの有効期限は日時を日本語で表示する", () => {
+  assert.equal(
+    formatCreditExpirationDate(
+      "2026-10-29T03:34:00Z",
+      "Asia/Tokyo",
+    ),
+    "10/29 12:34",
+  );
+});
+
 test("クレジット金額はscaleに従って表示する", () => {
   assert.equal(formatCreditAmount(20_000_000, 1_000_000), "20");
   assert.equal(formatCreditAmount(100_000, 1_000_000), "0.1");
@@ -99,7 +110,7 @@ test("earnedの確定取引は報酬獲得として表示する", () => {
       available_delta: 1_350_000,
       reserved_delta: 0,
       source_kind: "earned",
-      expires_at: null,
+      expires_at: "2026-10-12T06:30:00Z",
       created_at: "2026-07-14T06:30:00Z",
     }),
     { amount: 1_350_000, label: "報酬獲得", tone: "increase" },

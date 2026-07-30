@@ -75,6 +75,19 @@ export function formatCreditTransactionDate(createdAt: string): string {
   }).format(new Date(createdAt));
 }
 
+export function formatCreditExpirationDate(
+  expiresAt: string,
+  timeZone?: string,
+): string {
+  return new Intl.DateTimeFormat("ja-JP", {
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    ...(timeZone ? { timeZone } : {}),
+  }).format(new Date(expiresAt));
+}
+
 function grantLabel(sourceKind: CreditSourceKind | null) {
   switch (sourceKind) {
     case "earned":
