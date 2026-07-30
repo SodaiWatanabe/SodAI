@@ -35,6 +35,7 @@ from app.domain.inference_jobs import (
     GENERATION_OUTBOX_TOPIC,
 )
 from app.domain.principals import Principal, PrincipalKind
+from app.domain.reasoning import ReasoningEffort
 from app.domain.responses import (
     Execution,
     ExecutionRetry,
@@ -180,6 +181,7 @@ class SqlAlchemyThreadRepository:
         execution_target: str,
         artifact_id: str | None,
         deadline_at: datetime | None,
+        reasoning_effort: ReasoningEffort | None = None,
     ) -> ResponseCreation:
         now = datetime.now(timezone.utc)
         thread = ThreadModel(
@@ -213,6 +215,7 @@ class SqlAlchemyThreadRepository:
             execution_target=execution_target,
             artifact_id=artifact_id,
             deadline_at=deadline_at,
+            reasoning_effort=reasoning_effort or answerer.default_reasoning_effort,
             ordinal=0,
         )
         await self._session.flush()
@@ -234,6 +237,7 @@ class SqlAlchemyThreadRepository:
         deadline_at: datetime | None,
         model_limit: int,
         guest_model_limit: int,
+        reasoning_effort: ReasoningEffort | None = None,
     ) -> ResponseCreation:
         thread = await self._locked_thread(principal, thread_id)
         active = await self._session.scalar(
@@ -276,6 +280,7 @@ class SqlAlchemyThreadRepository:
             execution_target=execution_target,
             artifact_id=artifact_id,
             deadline_at=deadline_at,
+            reasoning_effort=reasoning_effort or answerer.default_reasoning_effort,
             ordinal=(last_ordinal if last_ordinal is not None else -1) + 1,
         )
         await self._session.flush()
@@ -552,6 +557,7 @@ class SqlAlchemyThreadRepository:
         execution_target: str,
         artifact_id: str | None,
         deadline_at: datetime | None,
+        reasoning_effort: ReasoningEffort,
         ordinal: int,
     ) -> None:
         input_entry = ThreadEntryModel(
@@ -571,6 +577,7 @@ class SqlAlchemyThreadRepository:
             target_actor_id=answerer.actor_id,
             input_entry_id=input_entry.id,
             requested_answerer=answerer.id.value,
+            reasoning_effort=reasoning_effort.value,
             status=ResponseStatus.QUEUED.value,
         )
         execution = ExecutionModel(
@@ -1306,6 +1313,7 @@ class SqlAlchemyThreadRepository:
             thread_id=model.thread_id,
             input_entry_id=model.input_entry_id,
             requested_answerer=AnswererId(model.requested_answerer),
+            reasoning_effort=ReasoningEffort(model.reasoning_effort),
             target_actor=Actor(
                 id=model.target_actor.id,
                 kind=ActorKind(model.target_actor.kind),

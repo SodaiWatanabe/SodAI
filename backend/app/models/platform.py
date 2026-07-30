@@ -307,6 +307,10 @@ class ResponseRequestModel(Base):
             name="status",
         ),
         CheckConstraint(
+            "reasoning_effort IN ('none', 'low', 'medium', 'high', 'xhigh')",
+            name="reasoning_effort",
+        ),
+        CheckConstraint(
             "(status = 'queued' AND finished_at IS NULL) OR "
             "(status = 'running' AND started_at IS NOT NULL AND finished_at IS NULL) OR "
             "(status IN ('completed', 'failed', 'cancelled') AND finished_at IS NOT NULL)",
@@ -361,6 +365,9 @@ class ResponseRequestModel(Base):
     )
     input_entry_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     requested_answerer: Mapped[str] = mapped_column(String(64), nullable=False)
+    reasoning_effort: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="none", server_default="none"
+    )
     status: Mapped[str] = mapped_column(
         String(32), nullable=False, default="queued", server_default="queued"
     )

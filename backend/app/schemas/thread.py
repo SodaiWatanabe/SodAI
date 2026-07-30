@@ -5,6 +5,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from app.domain.answerers import AnswererId, AnswererKind, AnswererPricingKind
+from app.domain.reasoning import ReasoningEffort
 
 ANSWERER_SELECTION_DESCRIPTION = (
     "Answerer ID. Omit to use Hina for guests or Asuka 1 for authenticated accounts."
@@ -26,12 +27,14 @@ ThreadSearchQuery = Annotated[
 class CreateThreadRequest(BaseModel):
     input: InputText
     answerer: AnswererId | None = Field(default=None, description=ANSWERER_SELECTION_DESCRIPTION)
+    reasoning_effort: ReasoningEffort | None = None
 
 
 class CreateResponseRequest(BaseModel):
     thread_id: UUID
     input: InputText
     answerer: AnswererId | None = Field(default=None, description=ANSWERER_SELECTION_DESCRIPTION)
+    reasoning_effort: ReasoningEffort | None = None
 
 
 class UpdateThreadRequest(BaseModel):
@@ -90,6 +93,7 @@ class ResponseRequestResponse(BaseModel):
     thread_id: UUID
     input_entry_id: UUID
     requested_answerer: AnswererId
+    reasoning_effort: ReasoningEffort
     target_actor: ActorResponse
     status: Literal["queued", "running", "completed", "failed", "cancelled"]
     execution: ExecutionResponse
@@ -164,6 +168,14 @@ class AnswererPricingResponse(BaseModel):
     unmetered_charge: int
 
 
+class AvailableReasoningEffortResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: ReasoningEffort
+    name: str
+    execution_time_limit_seconds: int | None
+
+
 class AnswererResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -174,6 +186,8 @@ class AnswererResponse(BaseModel):
     is_default: bool
     is_legacy: bool
     pricing: AnswererPricingResponse
+    reasoning_efforts: list[AvailableReasoningEffortResponse]
+    default_reasoning_effort: ReasoningEffort
 
 
 class AnswererListResponse(BaseModel):

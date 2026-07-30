@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from uuid import UUID, uuid4
 
-from sqlalchemy import and_, exists, func, select, update
+from sqlalchemy import and_, exists, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,6 +16,7 @@ from app.domain.humans import (
     HumanAssignment,
     HumanContextEntry,
 )
+from app.domain.reasoning import ReasoningEffort, reasoning_effort_deadline
 from app.domain.responses import ResponseStatus
 from app.domain.threads import ActorKind
 from app.models.humans import (
@@ -56,6 +57,7 @@ class HumanProjection:
     claim_id: UUID | None
     target_actor_id: UUID
     result_entry_id: UUID | None
+    cancellation_reason: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -240,6 +242,10 @@ class SqlAlchemyHumanRepository:
         waiter.ended_at = now
         execution.status = ResponseStatus.RUNNING.value
         execution.started_at = now
+        execution.deadline_at = reasoning_effort_deadline(
+            ReasoningEffort(request.reasoning_effort),
+            started_at=now,
+        )
         execution.lease_expires_at = now + CLAIM_LEASE
         request.status = ResponseStatus.RUNNING.value
         request.started_at = now
@@ -260,6 +266,7 @@ class SqlAlchemyHumanRepository:
         claim.finished_at = now
         execution.status = ResponseStatus.QUEUED.value
         execution.started_at = None
+        execution.deadline_at = None
         execution.lease_expires_at = None
         request.status = ResponseStatus.QUEUED.value
         request.started_at = None
@@ -335,6 +342,7 @@ class SqlAlchemyHumanRepository:
                 .where(
                     HumanClaimModel.performer_user_id == user_id,
                     HumanClaimModel.status == "active",
+                    ExecutionModel.deadline_at > func.now(),
                 )
             )
         ).one_or_none()
@@ -345,6 +353,8 @@ class SqlAlchemyHumanRepository:
         answerer = get_answerer(answerer_id)
         if answerer is None:
             raise RuntimeError("Human assignment references an unknown answerer")
+        if execution.deadline_at is None:
+            raise RuntimeError("Active Human execution is missing its deadline")
         context_rows = (
             await self._session.execute(
                 select(
@@ -372,6 +382,8 @@ class SqlAlchemyHumanRepository:
             claim_id=claim.id,
             execution_id=execution.id,
             answerer_name=answerer.name,
+            reasoning_effort=ReasoningEffort(request.reasoning_effort),
+            deadline_at=execution.deadline_at,
             context=tuple(
                 HumanContextEntry(
                     author_kind=ActorKind(kind),
@@ -409,6 +421,7 @@ class SqlAlchemyHumanRepository:
                 HumanClaimModel.id == claim_id,
                 HumanClaimModel.performer_user_id == user_id,
                 HumanClaimModel.status == "active",
+                ExecutionModel.deadline_at > func.now(),
             )
             .with_for_update(
                 of=(
@@ -442,7 +455,10 @@ class SqlAlchemyHumanRepository:
             .join(SpaceModel, SpaceModel.id == ThreadModel.space_id)
             .where(
                 HumanClaimModel.status == "active",
-                HumanClaimModel.lease_expires_at <= now,
+                or_(
+                    HumanClaimModel.lease_expires_at <= now,
+                    ExecutionModel.deadline_at <= now,
+                ),
             )
             .with_for_update(
                 of=(HumanClaimModel, ExecutionModel, ResponseRequestModel, ThreadModel),
@@ -453,16 +469,33 @@ class SqlAlchemyHumanRepository:
         for claim, execution, request, thread, space in (
             await self._session.execute(statement)
         ).all():
+            answer_deadline_expired = (
+                execution.deadline_at is not None and execution.deadline_at <= now
+            )
             claim.status = "expired"
             claim.finished_at = now
             execution.status = ResponseStatus.QUEUED.value
             execution.started_at = None
+            execution.deadline_at = None
             execution.lease_expires_at = None
             request.status = ResponseStatus.QUEUED.value
             request.started_at = None
             thread.revision += 1
             thread.updated_at = now
-            projections.append(self._projection(space, thread, request, execution, claim))
+            projections.append(
+                self._projection(
+                    space,
+                    thread,
+                    request,
+                    execution,
+                    claim,
+                    cancellation_reason=(
+                        "answer_deadline_exceeded"
+                        if answer_deadline_expired
+                        else "assignment_expired"
+                    ),
+                )
+            )
         return projections
 
     async def _lock_matching(self) -> None:
@@ -526,6 +559,8 @@ class SqlAlchemyHumanRepository:
         request: ResponseRequestModel,
         execution: ExecutionModel,
         claim: HumanClaimModel,
+        *,
+        cancellation_reason: str | None = None,
     ) -> HumanProjection:
         if space.owner_user_id is None:
             raise RuntimeError("Human tasks require an authenticated thread owner")
@@ -540,4 +575,5 @@ class SqlAlchemyHumanRepository:
             claim_id=claim.id,
             target_actor_id=request.target_actor_id,
             result_entry_id=execution.result_entry_id,
+            cancellation_reason=cancellation_reason,
         )

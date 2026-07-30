@@ -22,6 +22,7 @@ from app.domain.answerers import (
 )
 from app.domain.execution_events import ExecutionProjection
 from app.domain.principals import Principal, PrincipalKind
+from app.domain.reasoning import ReasoningEffort
 from app.domain.responses import Execution, ResponseCreation, ResponseRequest
 from app.domain.threads import SpaceSummary, Thread, ThreadSearchPage, ThreadSummary
 from app.repositories.threads import GenerationCapacityExceededError, SqlAlchemyThreadRepository
@@ -44,6 +45,10 @@ class GenerationCapacityError(Exception):
     pass
 
 
+class ReasoningEffortAccessError(Exception):
+    pass
+
+
 class ThreadService:
     def __init__(
         self,
@@ -60,10 +65,15 @@ class ThreadService:
         principal: Principal,
         content: str,
         requested_answerer: AnswererId | None,
+        requested_reasoning_effort: ReasoningEffort | None = None,
     ) -> ResponseCreation:
         answerer = self.select_answerer(principal, requested_answerer)
+        reasoning_effort = self.select_reasoning_effort(
+            answerer,
+            requested_reasoning_effort,
+        )
         execution_target, artifact_id = self._resolve_runtime(answerer)
-        deadline = self._execution_deadline(answerer)
+        deadline = self._execution_deadline(answerer, reasoning_effort)
         async with self._session_factory() as session:
             repository = SqlAlchemyThreadRepository(session)
             context = await repository.ensure_personal_context(principal)
@@ -76,6 +86,7 @@ class ThreadService:
                 execution_target=execution_target,
                 artifact_id=artifact_id,
                 deadline_at=deadline,
+                reasoning_effort=reasoning_effort,
             )
             if answerer.runtime_kind is not RuntimeKind.HUMAN:
                 await InferenceBillingService(session).register(
@@ -118,10 +129,15 @@ class ThreadService:
         thread_id: UUID,
         content: str,
         requested_answerer: AnswererId | None,
+        requested_reasoning_effort: ReasoningEffort | None = None,
     ) -> ResponseCreation:
         answerer = self.select_answerer(principal, requested_answerer)
+        reasoning_effort = self.select_reasoning_effort(
+            answerer,
+            requested_reasoning_effort,
+        )
         execution_target, artifact_id = self._resolve_runtime(answerer)
-        deadline = self._execution_deadline(answerer)
+        deadline = self._execution_deadline(answerer, reasoning_effort)
         async with self._session_factory() as session:
             repository = SqlAlchemyThreadRepository(session)
             context = await repository.ensure_personal_context(principal)
@@ -135,6 +151,7 @@ class ThreadService:
                     execution_target=execution_target,
                     artifact_id=artifact_id,
                     deadline_at=deadline,
+                    reasoning_effort=reasoning_effort,
                     model_limit=self._settings.inference_model_active_limit,
                     guest_model_limit=self._settings.inference_guest_model_active_limit,
                 )
@@ -438,6 +455,16 @@ class ThreadService:
         return answerer
 
     @staticmethod
+    def select_reasoning_effort(
+        answerer: AnswererDefinition,
+        requested: ReasoningEffort | None,
+    ) -> ReasoningEffort:
+        effort = requested or answerer.default_reasoning_effort
+        if effort not in answerer.supported_reasoning_efforts:
+            raise ReasoningEffortAccessError
+        return effort
+
+    @staticmethod
     def _audience(principal: Principal) -> AnswererAudience:
         return (
             AnswererAudience.AUTHENTICATED
@@ -450,7 +477,13 @@ class ThreadService:
             seconds=self._settings.inference_job_timeout_seconds
         )
 
-    def _execution_deadline(self, answerer: AnswererDefinition) -> datetime | None:
+    def _execution_deadline(
+        self,
+        answerer: AnswererDefinition,
+        reasoning_effort: ReasoningEffort,
+    ) -> datetime | None:
+        if reasoning_effort not in answerer.supported_reasoning_efforts:
+            raise ReasoningEffortAccessError
         if answerer.runtime_kind is RuntimeKind.HUMAN:
             return None
         return self._generation_deadline()

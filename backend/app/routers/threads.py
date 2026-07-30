@@ -31,6 +31,7 @@ from app.services.thread import (
     AnswererAccessError,
     AnswererUnavailableError,
     GenerationCapacityError,
+    ReasoningEffortAccessError,
     ThreadService,
     get_thread_service,
 )
@@ -57,11 +58,21 @@ async def create_thread(
     service: ThreadService = Depends(get_thread_service),
 ) -> ResponseCreationResponse:
     try:
-        creation = await service.create(principal, payload.input, payload.answerer)
+        creation = await service.create(
+            principal,
+            payload.input,
+            payload.answerer,
+            payload.reasoning_effort,
+        )
     except AnswererAccessError as exc:
         raise HTTPException(status_code=403, detail="Answerer is not available") from exc
     except AnswererUnavailableError as exc:
         raise HTTPException(status_code=503, detail="Answerer is temporarily unavailable") from exc
+    except ReasoningEffortAccessError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail="Reasoning effort is not available for this answerer",
+        ) from exc
     except GenerationCapacityError as exc:
         raise HTTPException(status_code=429, detail="Generation capacity is exhausted") from exc
     except InsufficientCreditsError as exc:
@@ -192,7 +203,11 @@ async def create_response_request(
 ) -> ResponseCreationResponse:
     try:
         creation = await service.append(
-            principal, payload.thread_id, payload.input, payload.answerer
+            principal,
+            payload.thread_id,
+            payload.input,
+            payload.answerer,
+            payload.reasoning_effort,
         )
     except ThreadNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Thread not found") from exc
@@ -204,6 +219,11 @@ async def create_response_request(
         raise HTTPException(status_code=403, detail="Answerer is not available") from exc
     except AnswererUnavailableError as exc:
         raise HTTPException(status_code=503, detail="Answerer is temporarily unavailable") from exc
+    except ReasoningEffortAccessError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail="Reasoning effort is not available for this answerer",
+        ) from exc
     except GenerationCapacityError as exc:
         raise HTTPException(status_code=429, detail="Generation capacity is exhausted") from exc
     except InsufficientCreditsError as exc:

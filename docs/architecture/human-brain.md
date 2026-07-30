@@ -26,6 +26,29 @@ rankはLiteを1、Standardを2、Proを3とする。MVPのrank変更は
 Response作成時にHuman TaskはThreadの全Entryを既存`response_context_items`へsnapshotする。
 AI生成用のturn/byte上限は適用しない。Human回答はAI回答と同じ完了関数でThreadEntryへ確定する。
 
+## 思考の深さと実行期限
+
+思考の深さはHuman固有の属性ではなく、AIとHumanが共有するResponseRequestの
+`reasoning_effort`として保存する。公開値は`none`、`low`、`medium`、`high`、`xhigh`で、
+同じResponseRequestを再試行するExecutionにも同じ値を引き継ぐ。各Answererが対応値と既定値を
+catalogで宣言し、未対応値はリクエスト境界で拒否する。現在のAI Answererは`none`だけに対応する。
+Human Answererは`none`を選択できず、モデルのrankに応じて思考の深さが累積で開放される。
+Human Liteの既定値は`low`、Human StandardとHuman Proの既定値は`medium`とする。
+
+Humanの回答可能時間は専用列へ保存せず、マッチ成立時に共通reasoning policyから導出して、
+既存の`executions.deadline_at`へ絶対時刻を保存する。マッチング待機中は回答時間を消費しない。
+
+| reasoning_effort | 表示名 | Human回答時間 | 利用可能モデル |
+| --- | --- | --- | --- |
+| `low` | 軽い | 2分 | Human Lite以上 |
+| `medium` | 中程度 | 5分 | Human Standard以上 |
+| `high` | 深い | 20分 | Human Standard以上 |
+| `xhigh` | 非常に深い | 1時間 | Human Pro |
+
+`human_claims.lease_expires_at`は接続生存確認、`executions.deadline_at`は回答期限であり、相互に
+代用しない。どちらかが切れたClaimは`expired`へ閉じ、Executionをqueuedへ戻して別の適格Humanへ
+再割当する。期限後の回答確定は拒否する。
+
 ## Realtime matching
 
 Task作成、readiness更新、skip、answerの後に同じmatcherを起動する。matcherはPostgreSQLの
@@ -51,6 +74,7 @@ event fan-outとticket storeを共有brokerへ移すが、DB matcherとClaimの�
 
 ## 拡張点
 
-思考可能時間はモデル名やrankと分離し、将来`human_tasks`へ離散的なeffort snapshotとして追加する。
-画像生成などのToolもTask requirementとAssignment payloadを追加し、matcherへ能力条件を一つ足す。
-テキスト回答の正本やThread参加モデルは変えない。価格・報酬・評価・需要表示はMVPの外に置く。
+将来のSodAIモデルも同じ`reasoning_effort`からcompute budget、生成上限、Tool利用枠、料金を
+application policyとして導出する。画像生成などのToolもTask requirementとAssignment payloadを
+追加し、matcherへ能力条件を一つ足す。テキスト回答の正本やThread参加モデルは変えない。
+価格・報酬・評価・需要表示はMVPの外に置く。

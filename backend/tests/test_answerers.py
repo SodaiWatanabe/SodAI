@@ -9,8 +9,13 @@ from app.domain.answerers import (
     get_answerer,
 )
 from app.domain.principals import Principal, PrincipalKind
+from app.domain.reasoning import ReasoningEffort
 from app.services.inference.asuka import AsukaPseudoGenerator
-from app.services.thread import AnswererAccessError, ThreadService
+from app.services.thread import (
+    AnswererAccessError,
+    ReasoningEffortAccessError,
+    ThreadService,
+)
 
 
 def principal(kind: PrincipalKind) -> Principal:
@@ -68,6 +73,45 @@ def test_answerer_catalog_is_the_single_ui_source() -> None:
     assert by_id[AnswererId.HUMAN_LITE].pricing.kind is AnswererPricingKind.FREE
     assert by_id[AnswererId.HUMAN_STANDARD].pricing.kind is AnswererPricingKind.FREE
     assert by_id[AnswererId.HUMAN_PRO].pricing.kind is AnswererPricingKind.FREE
+    assert [option.id for option in by_id[AnswererId.ASUKA_1].reasoning_efforts] == [
+        ReasoningEffort.NONE
+    ]
+    assert {
+        answerer_id: [
+            (option.id, option.execution_time_limit_seconds)
+            for option in by_id[answerer_id].reasoning_efforts
+        ]
+        for answerer_id in (
+            AnswererId.HUMAN_LITE,
+            AnswererId.HUMAN_STANDARD,
+            AnswererId.HUMAN_PRO,
+        )
+    } == {
+        AnswererId.HUMAN_LITE: [(ReasoningEffort.LOW, 120)],
+        AnswererId.HUMAN_STANDARD: [
+            (ReasoningEffort.LOW, 120),
+            (ReasoningEffort.MEDIUM, 300),
+            (ReasoningEffort.HIGH, 1200),
+        ],
+        AnswererId.HUMAN_PRO: [
+            (ReasoningEffort.LOW, 120),
+            (ReasoningEffort.MEDIUM, 300),
+            (ReasoningEffort.HIGH, 1200),
+            (ReasoningEffort.XHIGH, 3600),
+        ],
+    }
+    assert (
+        by_id[AnswererId.HUMAN_LITE].default_reasoning_effort
+        is ReasoningEffort.LOW
+    )
+    assert (
+        by_id[AnswererId.HUMAN_STANDARD].default_reasoning_effort
+        is ReasoningEffort.MEDIUM
+    )
+    assert (
+        by_id[AnswererId.HUMAN_PRO].default_reasoning_effort
+        is ReasoningEffort.MEDIUM
+    )
     lite = get_answerer(AnswererId.HUMAN_LITE)
     standard = get_answerer(AnswererId.HUMAN_STANDARD)
     pro = get_answerer(AnswererId.HUMAN_PRO)
@@ -76,6 +120,40 @@ def test_answerer_catalog_is_the_single_ui_source() -> None:
     assert pro is not None and pro.required_human_rank == 3
     guest_answerers = ThreadService.available_answerers(principal(PrincipalKind.GUEST))
     assert all(item.pricing.kind is AnswererPricingKind.FREE for item in guest_answerers)
+
+
+def test_human_reasoning_effort_rejects_none() -> None:
+    answerer = get_answerer(AnswererId.HUMAN_LITE)
+    assert answerer is not None
+
+    with pytest.raises(ReasoningEffortAccessError):
+        ThreadService.select_reasoning_effort(answerer, ReasoningEffort.NONE)
+
+    assert (
+        ThreadService.select_reasoning_effort(answerer, None)
+        is ReasoningEffort.LOW
+    )
+
+    with pytest.raises(ReasoningEffortAccessError):
+        ThreadService.select_reasoning_effort(answerer, ReasoningEffort.MEDIUM)
+
+
+def test_human_reasoning_effort_unlocks_by_answerer_rank() -> None:
+    standard = get_answerer(AnswererId.HUMAN_STANDARD)
+    pro = get_answerer(AnswererId.HUMAN_PRO)
+    assert standard is not None
+    assert pro is not None
+
+    assert (
+        ThreadService.select_reasoning_effort(standard, ReasoningEffort.HIGH)
+        is ReasoningEffort.HIGH
+    )
+    with pytest.raises(ReasoningEffortAccessError):
+        ThreadService.select_reasoning_effort(standard, ReasoningEffort.XHIGH)
+    assert (
+        ThreadService.select_reasoning_effort(pro, ReasoningEffort.XHIGH)
+        is ReasoningEffort.XHIGH
+    )
 
 
 def test_asuka_pseudo_response_is_long_enough_to_exercise_streaming() -> None:

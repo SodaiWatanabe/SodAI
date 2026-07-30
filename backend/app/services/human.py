@@ -84,6 +84,22 @@ class HumanService:
                 await session.commit()
             for projection in result.expired:
                 await self._publish_owner(projection, "response.queued", {})
+                if projection.performer_user_id is not None and projection.claim_id is not None:
+                    await realtime_hub.publish(
+                        Principal(PrincipalKind.USER, projection.performer_user_id),
+                        event_type="human.assignment.cancelled",
+                        space_id=projection.space_id,
+                        thread_id=projection.thread_id,
+                        thread_revision=projection.thread_revision,
+                        response_request_id=projection.response_request_id,
+                        execution_id=projection.execution_id,
+                        data={
+                            "claim_id": str(projection.claim_id),
+                            "reason": (
+                                projection.cancellation_reason or "assignment_expired"
+                            ),
+                        },
+                    )
             if result.matched is None:
                 return
             projection = result.matched

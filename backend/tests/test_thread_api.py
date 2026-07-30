@@ -9,6 +9,7 @@ from app.auth.principal import get_principal
 from app.domain.answerers import AnswererId
 from app.domain.credits import InsufficientCreditsError
 from app.domain.principals import Principal, PrincipalKind
+from app.domain.reasoning import ReasoningEffort
 from app.domain.responses import Execution, ResponseCreation, ResponseRequest, ResponseStatus
 from app.domain.threads import (
     Actor,
@@ -159,16 +160,22 @@ class StubThreadService:
         self.busy = busy
         self.insufficient = insufficient
         self.missing_execution = missing_execution
-        self.received: tuple[Principal, str, AnswererId | None] | None = None
+        self.received: (
+            tuple[Principal, str, AnswererId | None, ReasoningEffort | None] | None
+        ) = None
         self.search_received: tuple[Principal, str, int] | None = None
         self.cancel_received: tuple[Principal, UUID] | None = None
 
     async def create(
-        self, principal: Principal, content: str, answerer: AnswererId | None
+        self,
+        principal: Principal,
+        content: str,
+        answerer: AnswererId | None,
+        reasoning_effort: ReasoningEffort | None = None,
     ) -> ResponseCreation:
         if self.insufficient:
             raise InsufficientCreditsError
-        self.received = (principal, content, answerer)
+        self.received = (principal, content, answerer, reasoning_effort)
         return creation_fixture()
 
     async def append(
@@ -177,10 +184,11 @@ class StubThreadService:
         thread_id: UUID,
         content: str,
         answerer: AnswererId | None,
+        reasoning_effort: ReasoningEffort | None = None,
     ) -> ResponseCreation:
         if self.busy:
             raise ThreadBusyError
-        self.received = (principal, content, answerer)
+        self.received = (principal, content, answerer, reasoning_effort)
         assert thread_id == THREAD_ID
         return creation_fixture()
 
@@ -288,7 +296,7 @@ async def test_create_thread_exposes_actor_authorship_without_speaker_enum() -> 
     assert "key" not in payload["thread"]["entries"][0]["author"]
     assert "speaker" not in payload["thread"]["entries"][0]
     assert payload["response"]["execution"]["status"] == "queued"
-    assert service.received == (PRINCIPAL, "こんにちは", AnswererId.HINA)
+    assert service.received == (PRINCIPAL, "こんにちは", AnswererId.HINA, None)
 
 
 @pytest.mark.anyio
@@ -320,6 +328,32 @@ async def test_response_request_is_a_first_class_endpoint() -> None:
 
     assert response.status_code == 202
     assert response.json()["response"]["requested_answerer"] == "hina"
+
+
+@pytest.mark.anyio
+async def test_response_request_accepts_shared_reasoning_effort() -> None:
+    service = StubThreadService()
+    app.dependency_overrides[get_principal] = lambda: PRINCIPAL
+    app.dependency_overrides[get_thread_service] = lambda: service
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post(
+            "/api/v1/response-requests",
+            json={
+                "thread_id": str(THREAD_ID),
+                "input": "深く考えて",
+                "answerer": "hina",
+                "reasoning_effort": "xhigh",
+            },
+        )
+
+    assert response.status_code == 202
+    assert service.received == (
+        PRINCIPAL,
+        "深く考えて",
+        AnswererId.HINA,
+        ReasoningEffort.XHIGH,
+    )
 
 
 @pytest.mark.anyio

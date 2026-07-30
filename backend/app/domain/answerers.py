@@ -8,6 +8,10 @@ from app.domain.credits import (
     FREE_INFERENCE_TARIFF,
     InferenceTariff,
 )
+from app.domain.reasoning import (
+    REASONING_EFFORT_CATALOG,
+    ReasoningEffort,
+)
 
 
 class AnswererId(str, Enum):
@@ -63,8 +67,19 @@ class AnswererDefinition:
     tariff: InferenceTariff
     audiences: frozenset[AnswererAudience]
     default_for: frozenset[AnswererAudience] = frozenset()
+    supported_reasoning_efforts: frozenset[ReasoningEffort] = frozenset(
+        {ReasoningEffort.NONE}
+    )
+    default_reasoning_effort: ReasoningEffort = ReasoningEffort.NONE
     required_human_rank: int | None = None
     is_legacy: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class AvailableReasoningEffort:
+    id: ReasoningEffort
+    name: str
+    execution_time_limit_seconds: int | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,6 +91,8 @@ class AvailableAnswerer:
     is_default: bool
     is_legacy: bool
     pricing: AnswererPricing
+    reasoning_efforts: tuple[AvailableReasoningEffort, ...]
+    default_reasoning_effort: ReasoningEffort
 
 
 HINA_ACTOR_ID = UUID("00000000-0000-4000-8000-000000000001")
@@ -84,6 +101,14 @@ HUMAN_LITE_ACTOR_ID = UUID("00000000-0000-4000-8000-000000000003")
 HUMAN_PRO_ACTOR_ID = UUID("00000000-0000-4000-8000-000000000004")
 HUMAN_STANDARD_ACTOR_ID = UUID("00000000-0000-4000-8000-000000000005")
 ASUKA_1_FIXED_CHARGE = CREDIT_SCALE // 10
+HUMAN_LITE_REASONING_EFFORTS = frozenset({ReasoningEffort.LOW})
+HUMAN_STANDARD_REASONING_EFFORTS = HUMAN_LITE_REASONING_EFFORTS | {
+    ReasoningEffort.MEDIUM,
+    ReasoningEffort.HIGH,
+}
+HUMAN_PRO_REASONING_EFFORTS = HUMAN_STANDARD_REASONING_EFFORTS | {
+    ReasoningEffort.XHIGH
+}
 
 ASUKA_1_TARIFF = InferenceTariff(
     revision="asuka-1-flat-v2",
@@ -125,6 +150,8 @@ ANSWERER_CATALOG = (
         runtime_name="human-lite",
         tariff=FREE_INFERENCE_TARIFF,
         audiences=frozenset({AnswererAudience.AUTHENTICATED}),
+        supported_reasoning_efforts=HUMAN_LITE_REASONING_EFFORTS,
+        default_reasoning_effort=ReasoningEffort.LOW,
         required_human_rank=1,
     ),
     AnswererDefinition(
@@ -136,6 +163,8 @@ ANSWERER_CATALOG = (
         runtime_name="human-standard",
         tariff=FREE_INFERENCE_TARIFF,
         audiences=frozenset({AnswererAudience.AUTHENTICATED}),
+        supported_reasoning_efforts=HUMAN_STANDARD_REASONING_EFFORTS,
+        default_reasoning_effort=ReasoningEffort.MEDIUM,
         required_human_rank=2,
     ),
     AnswererDefinition(
@@ -147,6 +176,8 @@ ANSWERER_CATALOG = (
         runtime_name="human-pro",
         tariff=FREE_INFERENCE_TARIFF,
         audiences=frozenset({AnswererAudience.AUTHENTICATED}),
+        supported_reasoning_efforts=HUMAN_PRO_REASONING_EFFORTS,
+        default_reasoning_effort=ReasoningEffort.MEDIUM,
         required_human_rank=3,
     ),
 )
@@ -164,6 +195,17 @@ if any(
     for answerer in ANSWERER_CATALOG
 ):
     raise RuntimeError("Only Human answerers must define a required Human rank")
+if any(
+    answerer.default_reasoning_effort not in answerer.supported_reasoning_efforts
+    for answerer in ANSWERER_CATALOG
+):
+    raise RuntimeError("Answerer default reasoning effort must be supported")
+if any(
+    answerer.runtime_kind is RuntimeKind.HUMAN
+    and ReasoningEffort.NONE in answerer.supported_reasoning_efforts
+    for answerer in ANSWERER_CATALOG
+):
+    raise RuntimeError("Human answerers cannot support none reasoning effort")
 
 _DEFAULTS: dict[AnswererAudience, AnswererDefinition] = {}
 for audience in AnswererAudience:
@@ -206,6 +248,16 @@ def list_available_answerers(audience: AnswererAudience) -> list[AvailableAnswer
                 maximum_charge=item.tariff.maximum_charge,
                 unmetered_charge=item.tariff.unmetered_charge,
             ),
+            reasoning_efforts=tuple(
+                AvailableReasoningEffort(
+                    id=definition.id,
+                    name=definition.name,
+                    execution_time_limit_seconds=definition.execution_time_limit_seconds,
+                )
+                for definition in REASONING_EFFORT_CATALOG
+                if definition.id in item.supported_reasoning_efforts
+            ),
+            default_reasoning_effort=item.default_reasoning_effort,
         )
         for item in ANSWERER_CATALOG
         if audience in item.audiences

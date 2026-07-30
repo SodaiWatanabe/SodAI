@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from enum import Enum
 from uuid import UUID
 
+from app.domain.reasoning import ReasoningEffort
 from app.domain.threads import ActorKind
 
 HUMAN_MATCH_LOCK_KEY = 0x534F44414903
@@ -26,6 +28,8 @@ class HumanAssignment:
     claim_id: UUID
     execution_id: UUID
     answerer_name: str
+    reasoning_effort: ReasoningEffort
+    deadline_at: datetime
     context: tuple[HumanContextEntry, ...]
 
 

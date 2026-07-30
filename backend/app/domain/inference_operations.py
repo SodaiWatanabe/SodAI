@@ -6,7 +6,7 @@ from enum import Enum
 
 from app.domain.answerers import AnswererId
 
-EXPECTED_APPLICATION_SCHEMA_REVISION = "20260716_0007"
+EXPECTED_APPLICATION_SCHEMA_REVISION = "20260730_0008"
 
 
 class OperationalStatus(str, Enum):

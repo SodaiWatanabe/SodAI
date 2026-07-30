@@ -2,7 +2,7 @@ import os
 from uuid import UUID
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from app.db.session import dispose_engine, get_session_factory
 from app.domain.answerers import AnswererId, get_answerer
@@ -44,6 +44,16 @@ async def prepare_preexisting_pro_task() -> None:
     assert answerer is not None
 
     async with get_session_factory()() as session:
+        # This phase deliberately runs the current ORM against the historical
+        # 0005 schema. Add the later shared field only while constructing the
+        # preexisting row, then restore the exact historical schema before the
+        # migration under test runs.
+        await session.execute(
+            text(
+                "ALTER TABLE app.response_requests "
+                "ADD COLUMN reasoning_effort varchar(16) NOT NULL DEFAULT 'none'"
+            )
+        )
         session.add(UserModel(id=SEED_USER_ID, display_name="migration-user"))
         repository = SqlAlchemyThreadRepository(session)
         context = await repository.ensure_personal_context(principal)
@@ -59,6 +69,10 @@ async def prepare_preexisting_pro_task() -> None:
         task = await session.get(HumanTaskModel, creation.response.execution.id)
         assert task is not None
         task.required_rank_level = 2
+        await session.flush()
+        await session.execute(
+            text("ALTER TABLE app.response_requests DROP COLUMN reasoning_effort")
+        )
         await session.commit()
 
 

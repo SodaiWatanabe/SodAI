@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from app.domain.answerers import AnswererId
+from app.domain.reasoning import ReasoningEffort
 
 if TYPE_CHECKING:
     from app.domain.threads import Actor, Thread
@@ -48,6 +49,7 @@ class ResponseRequest:
     status: ResponseStatus
     execution: Execution
     created_at: datetime
+    reasoning_effort: ReasoningEffort = ReasoningEffort.NONE
 
 
 @dataclass(frozen=True, slots=True)

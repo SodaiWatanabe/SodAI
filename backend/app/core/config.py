@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     inference_reconciliation_interval_seconds: float = Field(default=5, gt=0, le=60)
     inference_status_timeout_seconds: float = Field(default=1, gt=0, le=10)
     inference_status_cache_seconds: float = Field(default=2, ge=0, le=30)
+    human_reconciliation_interval_seconds: float = Field(default=5, gt=0, le=60)
 
     auth_issuer: str = "http://localhost:13200"
     auth_audience: str = "http://localhost:13200"

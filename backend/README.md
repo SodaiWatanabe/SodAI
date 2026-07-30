@@ -33,10 +33,11 @@ email addresses are never used as an automatic identity-linking key.
 Public answerer IDs are opaque, immutable API identifiers. The catalog uses
 `hina` as the guest default and `asuka-1` as the authenticated default. Omitting
 `answerer` resolves through the same principal-aware policy. Response requests
-store the public answerer ID, while model executions separately record the
-requested model, immutable artifact, and resolved runtime such as
+store the public answerer ID and shared `reasoning_effort`, while model executions
+separately record the requested model, immutable artifact, and resolved runtime such as
 `hina@<artifact-id>`. Additions start in `app.domain.answerers` so identity,
-metadata, audience rules, defaults, and runtime routing cannot drift.
+metadata, audience rules, reasoning capabilities, defaults, and runtime routing
+cannot drift.
 
 The browser never starts an execution directly. Thread writes create an immutable
 input Entry, ResponseRequest, first Execution, context snapshot, and transactional
@@ -47,7 +48,7 @@ path.
 
 Human Lite, Human Standard, and Human Pro reuse the same ResponseRequest, Execution, context, and
 ThreadEntry records without creating a model outbox job. Their rank-based FIFO
-matching, Brain readiness lease, skip loop, and extension boundary are documented in
+matching, Brain readiness lease, shared reasoning deadline, skip loop, and extension boundary are documented in
 `docs/architecture/human-brain.md`.
 
 Generation jobs carry at most 32 recent turns and 64 KiB of Entry content.

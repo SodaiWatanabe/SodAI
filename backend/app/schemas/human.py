@@ -1,7 +1,10 @@
+from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, StringConstraints
+
+from app.domain.reasoning import ReasoningEffort
 
 HumanAnswerText = Annotated[
     str,
@@ -21,6 +24,8 @@ class HumanAssignmentResponse(BaseModel):
 
     claim_id: UUID
     answerer_name: str
+    reasoning_effort: ReasoningEffort
+    deadline_at: datetime
     context: list[HumanContextEntryResponse]
 
 

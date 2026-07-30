@@ -58,12 +58,15 @@ activeなExecutionも1件だけです。入力Entryと結果Entryが別Threadを
 | `WS` | `/api/v1/realtime` | Thread・Entry・Responseの変更通知 |
 
 応答主体の公開ID、表示名、説明、利用権限、主体別デフォルトはBackendのanswerer catalogだけが
-正本です。現在はゲストの既定値が`hina`、ログインユーザーの既定値が`asuka-1`です。
+正本です。対応する`reasoning_effort`と既定値も同じcatalogから公開します。Thread作成と
+ResponseRequest作成は任意の`reasoning_effort`を受け取り、省略時は選択Answererの既定値を
+ResponseRequestへsnapshotします。現在はゲストの既定値が`hina`、ログインユーザーの既定値が
+`asuka-1`です。
 
 再試行APIは`Idempotency-Key` headerを必須とします。同じResponseRequestとkeyの組み合わせは、
 同時送信や通信後の再送でも同じExecutionを返します。新しい入力Entryやcontext snapshotは作らず、
-最新のfailed ResponseRequestだけに`attempt_no`を増やします。key平文は保存せずSHA-256 hashだけを
-Executionへ記録します。
+最新のfailed ResponseRequestだけに`attempt_no`を増やし、選択済みの`reasoning_effort`を維持します。
+key平文は保存せずSHA-256 hashだけをExecutionへ記録します。
 
 アーカイブは削除ではありません。`status=archived`として通常一覧と追記対象から外し、将来の
 復元と完全削除を別操作として追加できる境界を残します。

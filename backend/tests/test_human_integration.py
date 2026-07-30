@@ -12,6 +12,7 @@ from app.db.session import dispose_engine, get_session_factory
 from app.domain.answerers import AnswererId, get_answerer
 from app.domain.execution_events import EventDisposition
 from app.domain.principals import Principal, PrincipalKind
+from app.domain.reasoning import ReasoningEffort
 from app.domain.threads import ActorKind
 from app.models.account import UserModel
 from app.models.humans import (
@@ -62,6 +63,7 @@ async def create_task(
     owner: Principal,
     answerer_id: AnswererId,
     content: str,
+    reasoning_effort: ReasoningEffort | None = None,
 ) -> tuple[UUID, UUID]:
     factory = get_session_factory()
     async with factory() as session:
@@ -75,9 +77,66 @@ async def create_task(
             execution_target=f"human:{answerer_id.value}",
             artifact_id=None,
             deadline_at=None,
+            reasoning_effort=reasoning_effort,
         )
         await session.commit()
     return creation.thread.id, creation.response.execution.id
+
+
+@pytest.mark.anyio
+async def test_reasoning_effort_sets_human_deadline_when_matching_starts() -> None:
+    owner = principal()
+    performer = principal()
+    users = [owner, performer]
+    factory = get_session_factory()
+    human = HumanService(factory)
+
+    async with factory() as session:
+        session.add_all(
+            UserModel(id=item.id, display_name=f"user-{index}")
+            for index, item in enumerate(users)
+        )
+        await session.commit()
+
+    expected_seconds = {
+        ReasoningEffort.LOW: 120,
+        ReasoningEffort.MEDIUM: 300,
+        ReasoningEffort.HIGH: 1200,
+        ReasoningEffort.XHIGH: 3600,
+    }
+    try:
+        await human.set_rank(performer.id, 3)
+        for effort, seconds in expected_seconds.items():
+            await create_task(
+                owner,
+                AnswererId.HUMAN_PRO,
+                f"{effort.value}の期限を検証するPrompt",
+                effort,
+            )
+            assigned = await human.ready(performer.id)
+            assert assigned.assignment is not None
+            assert assigned.assignment.reasoning_effort is effort
+
+            async with factory() as session:
+                execution = await session.get(
+                    ExecutionModel,
+                    assigned.assignment.execution_id,
+                )
+            assert execution is not None
+            assert execution.started_at is not None
+            assert execution.deadline_at is not None
+            assert (
+                execution.deadline_at - execution.started_at
+            ).total_seconds() == seconds
+            assert assigned.assignment.deadline_at == execution.deadline_at
+
+            await human.answer(
+                performer.id,
+                assigned.assignment.claim_id,
+                f"{effort.value}の回答",
+            )
+    finally:
+        await delete_users([item.id for item in users])
 
 
 async def create_contextual_task(owner: Principal) -> tuple[UUID, UUID]:
@@ -645,6 +704,61 @@ async def test_readiness_renews_an_active_assignment_without_rejoining_wait_queu
         assert claim.lease_expires_at > renewed_at
         assert execution.lease_expires_at > renewed_at
         assert waiting_entries == 0
+    finally:
+        await delete_users([item.id for item in users])
+
+
+@pytest.mark.anyio
+async def test_reasoning_deadline_expires_claim_and_requeues_task() -> None:
+    owner = principal()
+    first = principal()
+    second = principal()
+    users = [owner, first, second]
+    factory = get_session_factory()
+    human = HumanService(factory)
+
+    async with factory() as session:
+        session.add_all(
+            UserModel(id=item.id, display_name=f"user-{index}")
+            for index, item in enumerate(users)
+        )
+        await session.commit()
+
+    try:
+        _, execution_id = await create_task(
+            owner,
+            AnswererId.HUMAN_LITE,
+            "回答期限を検証するPrompt",
+            ReasoningEffort.LOW,
+        )
+        first_assignment = await human.ready(first.id)
+        assert first_assignment.assignment is not None
+
+        async with factory() as session:
+            execution = await session.get(ExecutionModel, execution_id)
+            assert execution is not None
+            execution.deadline_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+            await session.commit()
+
+        second_assignment = await human.ready(second.id)
+        assert second_assignment.assignment is not None
+        assert second_assignment.assignment.execution_id == execution_id
+        assert second_assignment.assignment.claim_id != first_assignment.assignment.claim_id
+
+        with pytest.raises(HumanClaimNotFoundError):
+            await human.answer(
+                first.id,
+                first_assignment.assignment.claim_id,
+                "期限後の回答",
+            )
+
+        async with factory() as session:
+            expired_claim = await session.get(
+                HumanClaimModel,
+                first_assignment.assignment.claim_id,
+            )
+        assert expired_claim is not None
+        assert expired_claim.status == "expired"
     finally:
         await delete_users([item.id for item in users])
 
