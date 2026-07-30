@@ -11,6 +11,7 @@ from app.domain.credits import (
     REVENUE_ACCOUNT_ID,
     CreditReservationStatus,
     CreditSourceKind,
+    earned_credit_expiration,
 )
 from app.domain.reasoning import ReasoningEffort
 from app.domain.responses import ResponseStatus
@@ -31,6 +32,7 @@ from app.models.platform import (
 
 @dataclass(frozen=True, slots=True)
 class CreditAuditReport:
+    scanned_earned_lots: int
     scanned_human_reservations: int
     issues: tuple[str, ...]
 
@@ -41,8 +43,20 @@ class CreditAuditService:
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self._session_factory = session_factory
 
-    async def audit_human_credits(self) -> CreditAuditReport:
+    async def audit(self) -> CreditAuditReport:
         async with self._session_factory() as session:
+            earned_lots = list(
+                (
+                    await session.scalars(
+                        select(CreditLotModel)
+                        .where(
+                            CreditLotModel.source_kind
+                            == CreditSourceKind.EARNED.value
+                        )
+                        .order_by(CreditLotModel.issued_at, CreditLotModel.id)
+                    )
+                ).all()
+            )
             rows = (
                 await session.execute(
                     select(
@@ -78,6 +92,11 @@ class CreditAuditService:
                 )
             ).all()
             issues: list[str] = []
+            for lot in earned_lots:
+                if lot.expires_at != earned_credit_expiration(lot.issued_at):
+                    issues.append(
+                        f"earned_lot={lot.id}: expiration differs from application policy"
+                    )
             for (
                 reservation,
                 reservation_owner_user_id,
@@ -131,7 +150,7 @@ class CreditAuditService:
                     terms.platform_revenue,
                     issues,
                 )
-            return CreditAuditReport(len(rows), tuple(issues))
+            return CreditAuditReport(len(earned_lots), len(rows), tuple(issues))
 
     @staticmethod
     async def _audit_reward(
@@ -174,7 +193,8 @@ class CreditAuditService:
             reward_owner_id != performer_user_id
             or reward_lot.source_kind != CreditSourceKind.EARNED.value
             or reward_lot.original_amount != expected_reward
-            or reward_lot.expires_at is not None
+            or reward_lot.expires_at
+            != earned_credit_expiration(reward_lot.issued_at)
         ):
             issues.append(f"{prefix}: earned reward lot differs from application policy")
         reward_posting = await session.scalar(

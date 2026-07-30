@@ -4,9 +4,11 @@ from uuid import UUID
 import pytest
 
 from app.domain.credits import (
+    EARNED_CREDIT_DURATION,
     FREE_INFERENCE_TARIFF,
     FreeCreditAllowancePolicy,
     InferenceTariff,
+    earned_credit_expiration,
 )
 from app.services.credits import CreditService
 
@@ -66,6 +68,26 @@ def test_free_allowance_requires_an_aware_time_and_positive_policy() -> None:
         FreeCreditAllowancePolicy(amount=1, cycle_duration=timedelta(0))
     with pytest.raises(ValueError, match="168 hours"):
         FreeCreditAllowancePolicy(amount=1, cycle_duration=timedelta(days=6))
+
+
+def test_earned_credit_expires_exactly_90_days_after_issuance() -> None:
+    issued_at = datetime(2026, 7, 31, 12, 34, 56, tzinfo=timezone.utc)
+
+    assert EARNED_CREDIT_DURATION == timedelta(days=90)
+    assert earned_credit_expiration(issued_at) == datetime(
+        2026,
+        10,
+        29,
+        12,
+        34,
+        56,
+        tzinfo=timezone.utc,
+    )
+
+
+def test_earned_credit_expiration_requires_an_aware_time() -> None:
+    with pytest.raises(ValueError, match="timezone-aware"):
+        earned_credit_expiration(datetime(2026, 7, 31, 12, 34, 56))
 
 
 def test_credit_transaction_cursor_is_opaque_and_round_trips() -> None:

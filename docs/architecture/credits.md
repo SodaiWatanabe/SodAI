@@ -56,7 +56,7 @@ HumanもAIと同じExecution、ResponseRequest、`reasoning_effort`を使いま�
 - クレジット付与は必ず1つのLotを作り、由来と任意の有効期限を保持する
 - 推論予約はユーザー勘定から予約勘定へ移し、確定時に収益・返却・失効へ一度だけ振り分ける
 - Human回答の確定は予約額を回答者90%と運営10%へ同じTransactionで分割する
-- Human回答者へのPostingは、同じTransactionを発行元とする無期限の`earned` Lotと一致する
+- Human回答者へのPostingは、同じTransactionを発行元とする90日間有効な`earned` Lotと一致する
 - Grant仕訳とLot、予約仕訳と配賦元Lot、確定仕訳とLot消費は勘定・金額・参照先まで一致する
 - 料金表snapshotと使用量記録はExecution削除後も残り、ユーザー帰属の匿名化以外は変更しない
 
@@ -76,7 +76,10 @@ HumanもAIと同じExecution、ResponseRequest、`reasoning_effort`を使いま�
 | `expired` | 有効期限切れの消費先 |
 
 Lotの`source_kind`は`admin`、`purchased`、`subscription`、`earned`、`promotional`を区別します。
-`expires_at`はnullableなので、無期限クレジットと期限付きクレジットを同じ構造で扱えます。予約時は
+`expires_at`はnullableなので、無期限クレジットと期限付きクレジットを同じ構造で扱えます。ただし
+`earned`は例外なく`issued_at`から2160時間（90日）後を`expires_at`に設定します。期間は
+アプリケーションポリシーを正本とし、Lotへ確定済みの期限を保存するため、期限テーブルは作りません。
+ポリシー導入前の既存`earned`もmigrationで同じ期限へ揃えます。予約時は
 期限が近いLotからFEFOで配賦し、予約時の配賦と確定時の消費順をDB制約でも同じ順序に固定します。
 期限切れLotは新規予約へ使いません。APIの利用可能残高も期限内・未消費・未予約のLotから導出する
 ため、期限切れ処理jobの実行前でも、表示額と実際に予約できる額がずれません。
@@ -114,8 +117,9 @@ Execution、Outboxを含む同じDB transactionでcommitするため、予約で
 推論が失敗した場合は予約だけを解放し、開始済み周期は維持します。無料枠の金額変更はactive Lotへ
 遡及せず、次に開始するLotから適用します。
 
-無料枠の未使用分は持ち越しません。一方、将来のHuman回答報酬で得る`earned` Lotや管理付与は別Lot
-なので、それぞれの有効期限どおり保持されます。期限を跨いだ実行中予約は維持し、完了時に利用分を
+無料枠の未使用分は持ち越しません。一方、Human回答報酬で得る`earned` Lotや管理付与は別Lot
+なので、それぞれの有効期限どおり保持されます。`earned`の90日は無料枠の周期から独立しています。
+期限を跨いだ実行中予約は維持し、完了時に利用分を
 確定して、期限を越えた未使用予約分を`expired`へ移します。
 
 ## 推論の予約と確定
@@ -181,7 +185,7 @@ Humanリクエスト作成
   requester -料金 ──> reserve
 
 回答完了（回答保存と同じDB transaction）
-  reserve -料金 ─────┬─> performer +90% ──> 無期限earned Lot
+  reserve -料金 ─────┬─> performer +90% ──> 90日間有効なearned Lot
                      └─> revenue   +10%
 
 依頼者取消
@@ -207,7 +211,9 @@ Answerer APIの`pricing`は`kind`、`asset_code`、`scale`に加え、料金表r
 APIを唯一の正本として扱います。各`reasoning_efforts`はHuman向けに`customer_charge`と
 `performer_reward`も返します。表示の有無にかかわらず、価格と報酬の機械可読な契約として扱います。
 
-`GET /credits`は読み取り専用で、無料枠を開始しません。応答は`private, no-store`です。active時は総残高
+`GET /credits`は読み取り専用で、無料枠を開始しません。応答は`private, no-store`です。取引履歴の
+期限付きLotには`expires_at`を返し、Frontendは報酬獲得を含む履歴に有効期限の日時を表示します。
+active時は総残高
 とは別に`free_allowance`として`limit`、`used`、`reserved`、`remaining`、`starts_at`、`expires_at`を
 返し、休止中は`free_allowance: null`を返します。Frontendのアカウントメニューは無料枠だけを表示し、
 休止中は100%のバーと表示時点から168時間後のリセット期日、active時は残量に応じて減るバーと
@@ -239,8 +245,9 @@ make credits-audit
 拒否します。`credits-expire`は1回につき最大100 Lotを処理するため、`expired_lots=0`になるまで安全に
 繰り返せます。
 
-`credits-audit`は台帳を書き込まず、現在もExecutionが存在するHuman予約について、依頼者、モデル、
-思考の深さ、回答者Claim、`earned` Lot、10%の運営Postingをアプリケーション設定と突合します。
+`credits-audit`は台帳を書き込まず、全`earned` Lotの期限を90日ポリシーと突合します。また、現在も
+Executionが存在するHuman予約について、依頼者、モデル、思考の深さ、回答者Claim、`earned` Lot、
+10%の運営Postingをアプリケーション設定と突合します。
 複式の釣り合い、Lot保存則、予約の一度きりの状態遷移はDB制約が中核として常時保証し、会話ドメインとの
 意味的な整合性はこの読み取り専用監査へ分離します。不一致があれば`ERROR`を出力して終了コード1を
 返します。
@@ -257,7 +264,7 @@ make credits-audit
 
 - クレジット購入: 決済providerの確定eventを冪等な`purchased` Lotへ変換する
 - サブスクリプション: entitlement期間ごとに`subscription` Lotを発行する
-- 評価ボーナス: 確定済みの基礎報酬とは別の追加取引として`earned` Lotを付与する
+- 評価ボーナス: 確定済みの基礎報酬とは別の追加取引として90日間有効な`earned` Lotを付与する
 - Human Answerer: 現在の`Human Lite`、`Human Standard`、`Human Pro`に加え、将来のtierも独立した安定IDで追加する
 - Asuka Thinking: Lite／Highなどを独立したAnswerer IDと料金表revisionで追加し、Asukaの主体IDは共有する
 - 返金・取消: 元取引を参照する`reversal`取引を追加する
@@ -276,7 +283,7 @@ make test-inference-e2e
 ```
 
 `test-integration`は実PostgreSQLの隔離DBで、複式不変条件、無料枠の休止・並行発行、正確な168時間、
-長期未利用、rollback、永続報酬との分離、並行予約、FEFO、期限切れ、
+長期未利用、rollback、報酬の90日期限、並行予約、FEFO、期限切れ、
 失敗・timeout解放、匿名化、履歴paginationに加え、孤立仕訳や誤ったLot由来を直接書き込む破壊系も
 検証します。さらにmigrationを`head -> 0002 -> head`と往復し、Alembicのschema差分がないことを
 確認します。`test-inference-e2e`は実HinaのGPU生成後に使用量記録と無料確定まで検証します。

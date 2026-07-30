@@ -30,6 +30,7 @@ from app.domain.credits import (
     CreditTransactionKind,
     CreditTransactionPage,
     InsufficientCreditsError,
+    earned_credit_expiration,
 )
 from app.models.credits import (
     CreditAccountModel,
@@ -96,6 +97,8 @@ class CreditLedgerRepository:
         if expires_at is not None:
             if expires_at.tzinfo is None:
                 raise ValueError("credit expiration must be timezone-aware")
+            if source_kind is CreditSourceKind.EARNED:
+                raise ValueError("earned credit expiration is application-managed")
 
         key_hash = self._hash_key(f"grant:{idempotency_key}")
         await self._session.execute(
@@ -134,6 +137,8 @@ class CreditLedgerRepository:
                 source_kind=source_kind,
                 expires_at=expires_at,
             )
+        if source_kind is CreditSourceKind.EARNED:
+            expires_at = earned_credit_expiration(now)
         transaction = self._append_transaction(
             CreditTransactionKind.GRANT,
             key_hash=key_hash,
@@ -550,7 +555,7 @@ class CreditLedgerRepository:
                     source_kind=CreditSourceKind.EARNED.value,
                     original_amount=reward_amount,
                     issued_at=now,
-                    expires_at=None,
+                    expires_at=earned_credit_expiration(now),
                 )
             )
         reservation.status = (
@@ -597,7 +602,7 @@ class CreditLedgerRepository:
             account.owner_user_id != reward_user_id
             or lot.source_kind != CreditSourceKind.EARNED.value
             or lot.original_amount != reward_amount
-            or lot.expires_at is not None
+            or lot.expires_at != earned_credit_expiration(lot.issued_at)
         ):
             raise CreditIdempotencyConflictError
 
@@ -899,13 +904,18 @@ class CreditLedgerRepository:
         if lot is None:
             raise CreditIdempotencyConflictError
         account = await self._session.get(CreditAccountModel, lot.owner_account_id)
+        expected_expiration = (
+            earned_credit_expiration(lot.issued_at)
+            if source_kind is CreditSourceKind.EARNED
+            else expires_at
+        )
         if (
             transaction.kind != CreditTransactionKind.GRANT.value
             or account is None
             or account.owner_user_id != user_id
             or lot.original_amount != amount
             or lot.source_kind != source_kind.value
-            or lot.expires_at != expires_at
+            or lot.expires_at != expected_expiration
         ):
             raise CreditIdempotencyConflictError
         return CreditGrant(transaction.id, lot.id, amount, replayed=True)

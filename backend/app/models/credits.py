@@ -130,6 +130,10 @@ class CreditLotModel(Base):
             name="source_kind",
         ),
         CheckConstraint("expires_at IS NULL OR expires_at > issued_at", name="expiration"),
+        CheckConstraint(
+            "source_kind <> 'earned' OR expires_at IS NOT NULL",
+            name="earned_expiration",
+        ),
         UniqueConstraint(
             "issuance_transaction_id", name="uq_credit_lots_issuance_transaction"
         ),

@@ -10,6 +10,7 @@ CREDIT_SCALE = 1_000_000
 CREDIT_BASIS_POINTS = 10_000
 HUMAN_PLATFORM_SHARE_BASIS_POINTS = 1_000
 FREE_CREDIT_ALLOWANCE_DURATION = timedelta(hours=168)
+EARNED_CREDIT_DURATION = timedelta(days=90)
 
 ISSUANCE_ACCOUNT_ID = UUID("00000000-0000-4000-9000-000000000001")
 RESERVE_ACCOUNT_ID = UUID("00000000-0000-4000-9000-000000000002")
@@ -72,6 +73,12 @@ class InsufficientCreditsError(Exception):
 
 class CreditIdempotencyConflictError(Exception):
     pass
+
+
+def earned_credit_expiration(issued_at: datetime) -> datetime:
+    if issued_at.tzinfo is None:
+        raise ValueError("earned credit issuance time must be timezone-aware")
+    return issued_at + EARNED_CREDIT_DURATION
 
 
 @dataclass(frozen=True, slots=True)

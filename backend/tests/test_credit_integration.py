@@ -16,6 +16,7 @@ from app.domain.answerers import AnswererId, get_answerer, get_human_credit_term
 from app.domain.credits import (
     CREDIT_ASSET_CODE,
     CREDIT_SCALE,
+    EARNED_CREDIT_DURATION,
     FREE_CREDIT_ALLOWANCE_POLICY,
     ISSUANCE_ACCOUNT_ID,
     RESERVE_ACCOUNT_ID,
@@ -28,6 +29,7 @@ from app.domain.credits import (
     FreeCreditAllowancePolicy,
     InferenceTariff,
     InsufficientCreditsError,
+    earned_credit_expiration,
 )
 from app.domain.inference_jobs import GENERATION_CANCELLATION_OUTBOX_TOPIC
 from app.domain.principals import Principal, PrincipalKind
@@ -171,6 +173,52 @@ async def test_credit_grant_is_balanced_idempotent_and_immutable() -> None:
                 update(CreditPostingModel)
                 .where(CreditPostingModel.id == posting.id)
                 .values(amount=1)
+            )
+
+
+@pytest.mark.anyio
+async def test_earned_grant_uses_the_shared_90_day_expiration() -> None:
+    principal = await create_user()
+    issued_at = datetime(2026, 7, 31, 12, 34, tzinfo=timezone.utc)
+    factory = get_session_factory()
+    async with factory() as session:
+        grant = await CreditLedgerRepository(session).grant(
+            principal.id,
+            5,
+            source_kind=CreditSourceKind.EARNED,
+            idempotency_key="earned-expiration",
+            now=issued_at,
+        )
+        await session.commit()
+
+    async with factory() as session:
+        replay = await CreditLedgerRepository(session).grant(
+            principal.id,
+            5,
+            source_kind=CreditSourceKind.EARNED,
+            idempotency_key="earned-expiration",
+        )
+        lot = await session.get(CreditLotModel, grant.lot_id)
+        page = await CreditLedgerRepository(session).transaction_page(
+            principal.id,
+            limit=10,
+        )
+        await session.commit()
+
+        assert replay.replayed
+        assert lot is not None
+        assert lot.expires_at == issued_at + EARNED_CREDIT_DURATION
+        assert page.items[0].expires_at == lot.expires_at
+
+    async with factory() as session:
+        with pytest.raises(ValueError, match="application-managed"):
+            await CreditLedgerRepository(session).grant(
+                principal.id,
+                5,
+                source_kind=CreditSourceKind.EARNED,
+                idempotency_key="earned-custom-expiration",
+                expires_at=issued_at + timedelta(days=30),
+                now=issued_at,
             )
 
 
@@ -2623,7 +2671,9 @@ async def test_human_answer_splits_charge_between_performer_and_platform() -> No
         assert reward_lot.owner_account_id == performer_account.id
         assert reward_lot.source_kind == CreditSourceKind.EARNED.value
         assert reward_lot.original_amount == terms.performer_reward
-        assert reward_lot.expires_at is None
+        assert reward_lot.expires_at == earned_credit_expiration(
+            reward_lot.issued_at
+        )
         requester_settlement = next(
             item
             for item in requester_page.items
@@ -2637,8 +2687,25 @@ async def test_human_answer_splits_charge_between_performer_and_platform() -> No
         assert requester_settlement.source_kind is None
         assert performer_settlement.source_kind is CreditSourceKind.EARNED
         assert performer_settlement.available_delta == terms.performer_reward
+        assert performer_settlement.expires_at == reward_lot.expires_at
+        reward_expires_at = reward_lot.expires_at
 
-    audit = await CreditAuditService(factory).audit_human_credits()
+    assert reward_expires_at is not None
+    async with factory() as session:
+        ledger = CreditLedgerRepository(session)
+        before_expiration = await ledger.balance(
+            performer.id,
+            now=reward_expires_at - timedelta(microseconds=1),
+        )
+        at_expiration = await ledger.balance(
+            performer.id,
+            now=reward_expires_at,
+        )
+        assert before_expiration.available == terms.performer_reward
+        assert at_expiration.available == 0
+
+    audit = await CreditAuditService(factory).audit()
+    assert audit.scanned_earned_lots >= 1
     assert audit.scanned_human_reservations >= 1
     assert audit.issues == ()
 
