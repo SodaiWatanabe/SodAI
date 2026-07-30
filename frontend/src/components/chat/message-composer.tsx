@@ -7,6 +7,7 @@ import type {
   ReactNode,
   RefObject,
 } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 
 import { handleMessageSubmitKeyDown } from "@/components/chat/message-submit-keydown";
 import { useComposerTextareaAutosize } from "@/components/chat/use-composer-textarea-autosize";
@@ -31,7 +32,8 @@ type MessageComposerProps = {
 };
 
 const ACTION_PADDING_RIGHT = 56;
-const ACCESSORY_PADDING_RIGHT = 176;
+const CONTROLS_RIGHT_INSET = 8;
+const TEXT_CONTROLS_GAP = 8;
 
 export type MessageComposerAction =
   | { kind: "send"; disabled: boolean }
@@ -54,10 +56,35 @@ export function MessageComposer({
   textareaRef,
   value,
 }: MessageComposerProps) {
+  const controlsRef = useRef<HTMLDivElement>(null);
+  const hasAccessory = accessory !== undefined;
+  const [controlsWidth, setControlsWidth] = useState<number>();
+  const singleLinePaddingRight =
+    controlsWidth === undefined
+      ? ACTION_PADDING_RIGHT
+      : controlsWidth + CONTROLS_RIGHT_INSET + TEXT_CONTROLS_GAP;
+
+  useLayoutEffect(() => {
+    const controls = controlsRef.current;
+    if (!controls) return;
+
+    const updateWidth = () => {
+      const nextWidth = Math.ceil(controls.getBoundingClientRect().width);
+      setControlsWidth((current) =>
+        current === nextWidth ? current : nextWidth,
+      );
+    };
+    updateWidth();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(updateWidth);
+    observer.observe(controls);
+    return () => observer.disconnect();
+  }, [hasAccessory]);
+
   const { multiline, scrollEdges } = useComposerTextareaAutosize(
     textareaRef,
     value,
-    accessory ? ACCESSORY_PADDING_RIGHT : ACTION_PADDING_RIGHT,
+    singleLinePaddingRight,
   );
   const actionButton = action.kind === "send" ? (
     <button
@@ -104,8 +131,11 @@ export function MessageComposer({
             className={`block max-h-[208px] w-full resize-none overflow-y-hidden border-0 bg-transparent text-[16px] leading-6 text-[var(--text)] outline-none transition-[height] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] placeholder:text-[var(--muted)] motion-reduce:transition-none ${
               multiline
                 ? "px-6 pb-1.5 pt-[15px]"
-                : `py-[15px] pl-6 ${accessory ? "pr-44" : "pr-14"}`
+                : "py-[15px] pl-6"
             }`}
+            style={
+              multiline ? undefined : { paddingRight: singleLinePaddingRight }
+            }
             onBlur={onBlur}
             onChange={(event) => onChange(event.target.value)}
             onFocus={onFocus}
@@ -136,7 +166,10 @@ export function MessageComposer({
             multiline ? "h-12" : "h-0"
           }`}
         />
-        <div className="absolute bottom-2 right-2 flex items-center gap-1">
+        <div
+          ref={controlsRef}
+          className="absolute bottom-2 right-2 flex items-center gap-1"
+        >
           {accessory}
           {actionButton}
         </div>

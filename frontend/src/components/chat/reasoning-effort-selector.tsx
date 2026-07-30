@@ -31,7 +31,7 @@ export function ReasoningEffortSelector({
     <Popover placement="top-end" gutter={8}>
       <PopoverTrigger
         aria-label={`思考の深さ: ${selected?.name ?? value}`}
-        className="group flex h-10 items-center gap-1 rounded-full px-2.5 text-[16px] font-medium text-[var(--muted)] transition-colors hover:bg-[var(--hover)] hover:text-[var(--text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)]"
+        className="group flex h-10 items-center gap-1 rounded-full px-4 text-[16px] font-medium text-[var(--muted)] transition-colors hover:bg-[var(--hover)] hover:text-[var(--text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)]"
       >
         <span>{selected?.name ?? value}</span>
         <ChevronDown
