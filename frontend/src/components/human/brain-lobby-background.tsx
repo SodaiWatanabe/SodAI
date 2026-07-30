@@ -13,6 +13,8 @@ const STARFIELD_SEED = 0x57a2f13d;
 const MAX_DEVICE_PIXEL_RATIO = 1.5;
 const FRAME_INTERVAL = 1000 / 30;
 
+type BrainBackgroundMode = "light" | "dark";
+
 function createGlowSprite() {
   const sprite = document.createElement("canvas");
   const size = 48;
@@ -80,9 +82,10 @@ function drawStarfield(
   context.globalAlpha = 1;
 }
 
-export function BrainSpaceBackground() {
+export function BrainLobbyBackground() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [nebulaVisible, setNebulaVisible] = useState(false);
+  const [backgroundMode, setBackgroundMode] =
+    useState<BrainBackgroundMode>();
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -178,7 +181,7 @@ export function BrainSpaceBackground() {
 
     function applyTheme() {
       darkMode = resolveDarkMode();
-      setNebulaVisible(darkMode);
+      setBackgroundMode(darkMode ? "dark" : "light");
       canvas!.dataset.visible = darkMode ? "true" : "false";
       if (!darkMode) {
         stopAnimation();
@@ -231,7 +234,21 @@ export function BrainSpaceBackground() {
       aria-hidden="true"
       className="pointer-events-none absolute inset-0 z-0 overflow-hidden"
     >
-      {nebulaVisible ? (
+      {backgroundMode === "light" ? (
+        <div className="absolute inset-0">
+          <Image
+            fill
+            priority
+            alt=""
+            draggable={false}
+            quality={86}
+            sizes="100vw"
+            src="/images/brain-prismatic-bloom.webp"
+            className="object-contain object-center opacity-75"
+          />
+        </div>
+      ) : null}
+      {backgroundMode === "dark" ? (
         <Image
           fill
           priority

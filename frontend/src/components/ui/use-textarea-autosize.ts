@@ -31,6 +31,7 @@ export function useTextareaAutosize(
     if (!textarea || typeof ResizeObserver === "undefined") return;
 
     let width = textarea.clientWidth;
+    const viewport = window.visualViewport;
     const observer = new ResizeObserver(() => {
       const nextWidth = textarea.clientWidth;
       if (Math.abs(nextWidth - width) < 1) return;
@@ -38,6 +39,12 @@ export function useTextareaAutosize(
       resize();
     });
     observer.observe(textarea);
-    return () => observer.disconnect();
+    window.addEventListener("resize", resize);
+    viewport?.addEventListener("resize", resize);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", resize);
+      viewport?.removeEventListener("resize", resize);
+    };
   }, [mountKey, ref, resize]);
 }

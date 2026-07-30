@@ -2,6 +2,7 @@
 
 import {
   Equal,
+  Orbit,
   PanelLeftClose,
   PanelLeftOpen,
   Search,
@@ -127,65 +128,87 @@ function Sidebar({
         className="flex min-h-0 flex-1 flex-col overflow-hidden px-1.5 pt-2"
         aria-label={product === "chat" ? "会話" : "Brain"}
       >
-        {product === "chat" ? <><button
-          type="button"
-          title="新しい会話"
-          aria-current={newChatActive ? "page" : undefined}
-          className={`flex h-9 w-full shrink-0 items-center rounded-xl text-left text-sm font-medium text-[var(--text)] transition-colors hover:bg-[var(--hover)] ${
-            newChatActive ? "bg-[var(--hover)]" : ""
-          }`}
-          onClick={() => onSelectThread("")}
-        >
-          <span className="grid shrink-0 place-items-center px-2.5">
-            <SquarePen className="size-5" />
-          </span>
-          <span
-            aria-hidden={!contentVisible}
-            className={`whitespace-nowrap transition-opacity duration-150 ${contentVisibility}`}
-          >
-            新しい会話
-          </span>
-        </button>
+        {product === "chat" ? (
+          <>
+            <button
+              type="button"
+              title="新しい会話"
+              aria-current={newChatActive ? "page" : undefined}
+              className={`flex h-9 w-full shrink-0 items-center rounded-xl text-left text-sm font-medium text-[var(--text)] transition-colors hover:bg-[var(--hover)] ${
+                newChatActive ? "bg-[var(--hover)]" : ""
+              }`}
+              onClick={() => onSelectThread("")}
+            >
+              <span className="grid shrink-0 place-items-center px-2.5">
+                <SquarePen className="size-5" />
+              </span>
+              <span
+                aria-hidden={!contentVisible}
+                className={`whitespace-nowrap transition-opacity duration-150 ${contentVisibility}`}
+              >
+                新しい会話
+              </span>
+            </button>
 
-        <button
-          type="button"
-          title="会話を検索"
-          className="mt-0.5 flex h-9 w-full shrink-0 items-center rounded-xl text-left text-sm font-medium text-[var(--text)] transition-colors hover:bg-[var(--hover)]"
-          onClick={onOpenSearch}
-        >
-          <span className="grid shrink-0 place-items-center px-2.5">
-            <Search aria-hidden="true" className="size-5" />
-          </span>
-          <span
-            aria-hidden={!contentVisible}
-            className={`whitespace-nowrap transition-opacity duration-150 ${contentVisibility}`}
-          >
-            会話を検索
-          </span>
-        </button>
+            <button
+              type="button"
+              title="会話を検索"
+              className="mt-0.5 flex h-9 w-full shrink-0 items-center rounded-xl text-left text-sm font-medium text-[var(--text)] transition-colors hover:bg-[var(--hover)]"
+              onClick={onOpenSearch}
+            >
+              <span className="grid shrink-0 place-items-center px-2.5">
+                <Search aria-hidden="true" className="size-5" />
+              </span>
+              <span
+                aria-hidden={!contentVisible}
+                className={`whitespace-nowrap transition-opacity duration-150 ${contentVisibility}`}
+              >
+                会話を検索
+              </span>
+            </button>
 
-        {threads.length > 0 ? (
-          <div
-            aria-hidden={!contentVisible}
-            inert={!contentVisible}
-            className={`sidebar-thread-scroll mt-6 min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain transition-opacity duration-150 ${contentVisibility}`}
+            {threads.length > 0 ? (
+              <div
+                aria-hidden={!contentVisible}
+                inert={!contentVisible}
+                className={`sidebar-thread-scroll mt-6 min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain transition-opacity duration-150 ${contentVisibility}`}
+              >
+                <p className="mb-2 pl-2.5 pr-2 text-sm font-bold text-[var(--text)]">
+                  会話
+                </p>
+                <div className="space-y-0.5">
+                  {threads.map((thread) => (
+                    <ThreadListItem
+                      key={thread.id}
+                      active={thread.id === activeThreadId}
+                      thread={thread}
+                      onArchive={() => onArchiveThread(thread.id)}
+                      onSelect={() => onSelectThread(thread.id)}
+                    />
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </>
+        ) : (
+          <button
+            type="button"
+            title="思考する"
+            aria-current="page"
+            className="flex h-9 w-full shrink-0 items-center rounded-xl bg-[var(--hover)] text-left text-sm font-medium text-[var(--text)] transition-colors hover:bg-[var(--hover)]"
+            onClick={() => onSelectProduct("brain")}
           >
-            <p className="mb-2 pl-2.5 pr-2 text-sm font-bold text-[var(--text)]">
-              会話
-            </p>
-            <div className="space-y-0.5">
-              {threads.map((thread) => (
-                <ThreadListItem
-                  key={thread.id}
-                  active={thread.id === activeThreadId}
-                  thread={thread}
-                  onArchive={() => onArchiveThread(thread.id)}
-                  onSelect={() => onSelectThread(thread.id)}
-                />
-              ))}
-            </div>
-          </div>
-        ) : null}</> : null}
+            <span className="grid shrink-0 place-items-center px-2.5">
+              <Orbit aria-hidden="true" className="size-5" />
+            </span>
+            <span
+              aria-hidden={!contentVisible}
+              className={`whitespace-nowrap transition-opacity duration-150 ${contentVisibility}`}
+            >
+              思考する
+            </span>
+          </button>
+        )}
       </nav>
 
       <div className="px-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom))] pt-1.5">

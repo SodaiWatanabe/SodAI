@@ -1,4 +1,4 @@
-import { BrainSpaceBackground } from "@/components/human/brain-space-background";
+import { BrainLobbyBackground } from "@/components/human/brain-lobby-background";
 import { BrainWaitingGuide } from "@/components/human/brain-waiting-guide";
 
 type BrainLobbyMode = "signed-out" | "idle" | "waiting";
@@ -39,7 +39,7 @@ function LobbyActionButton({
       disabled={!active || busy}
       className={`h-10 rounded-full px-5 text-sm font-medium transition-colors disabled:cursor-default disabled:opacity-50 ${
         waiting
-          ? "mt-3 border border-[light-dark(var(--border),transparent)] bg-[var(--button-background)] text-[var(--text)] backdrop-blur-md hover:bg-[var(--button-hover)]"
+          ? "mt-3 bg-[var(--button-background)] text-[var(--text)] backdrop-blur-md hover:bg-[var(--button-hover)]"
           : "bg-[var(--primary)] text-[var(--on-primary)] hover:bg-[var(--primary-hover)]"
       } focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)]`}
       onClick={onAction}
@@ -60,7 +60,7 @@ export function BrainLobby({
 
   return (
     <section className="relative isolate grid flex-1 place-items-center overflow-hidden px-6">
-      <BrainSpaceBackground />
+      <BrainLobbyBackground />
 
       <div className="relative z-10 w-full max-w-md text-center">
         {mode === "signed-out" ? (
