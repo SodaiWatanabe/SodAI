@@ -508,6 +508,11 @@ button {
   animation: response-waiting-dot 1.2s ease-in-out infinite;
 }
 
+.brain-deadline-time-breathing {
+  will-change: opacity;
+  animation: brain-deadline-breathe 1.8s ease-in-out infinite;
+}
+
 .human-search-status {
   display: inline-block;
   color: transparent;
@@ -525,6 +530,17 @@ button {
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   animation: human-search-status-color-flow 1.8s linear infinite;
+}
+
+@keyframes brain-deadline-breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.24;
+  }
 }
 
 @keyframes human-search-status-color-flow {
@@ -593,6 +609,11 @@ button {
     background: none;
     -webkit-text-fill-color: currentcolor;
     animation: none;
+  }
+
+  .brain-deadline-time-breathing {
+    animation-duration: 1.8s !important;
+    animation-iteration-count: infinite !important;
   }
 
 }

@@ -205,14 +205,12 @@ export function BrainShell() {
         className="flex min-h-0 flex-1 flex-col overflow-y-auto"
       >
         <header className="sticky top-0 z-10 h-12 shrink-0 border-b border-[var(--separator)] bg-[var(--canvas)]">
-          <div className="mx-auto flex h-full w-full max-w-[760px] items-center justify-between px-12 sm:px-8 lg:mx-0 lg:max-w-none lg:px-1.5">
-            <p className="truncate rounded-xl px-2.5 py-2 text-sm font-semibold text-[var(--text)]">
+          <div className="mx-auto flex h-full w-full max-w-[760px] items-center justify-between pl-12 pr-2 sm:pl-12 sm:pr-5 lg:mx-0 lg:max-w-none lg:px-1.5">
+            <p className="truncate rounded-xl px-2.5 py-2 text-sm font-medium text-[var(--text)]">
+              <span className="text-[var(--muted)]">You are</span>{" "}
               {assignment.answerer_name}
             </p>
-            <BrainAssignmentDeadline
-              deadlineAt={assignment.deadline_at}
-              reasoningEffort={assignment.reasoning_effort}
-            />
+            <BrainAssignmentDeadline deadlineAt={assignment.deadline_at} />
           </div>
         </header>
 

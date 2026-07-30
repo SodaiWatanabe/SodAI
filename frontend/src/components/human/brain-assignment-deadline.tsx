@@ -2,9 +2,6 @@
 
 import { useEffect, useState } from "react";
 
-import { reasoningEffortName } from "@/lib/chat/reasoning-effort";
-import type { ReasoningEffort } from "@/lib/chat/types";
-
 function remainingSeconds(deadlineAt: string, now: number): number {
   return Math.max(0, Math.ceil((Date.parse(deadlineAt) - now) / 1000));
 }
@@ -15,13 +12,7 @@ function formatRemainingTime(seconds: number): string {
   return `${minutes}:${String(remainder).padStart(2, "0")}`;
 }
 
-export function BrainAssignmentDeadline({
-  deadlineAt,
-  reasoningEffort,
-}: {
-  deadlineAt: string;
-  reasoningEffort: ReasoningEffort;
-}) {
+export function BrainAssignmentDeadline({ deadlineAt }: { deadlineAt: string }) {
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
@@ -30,16 +21,22 @@ export function BrainAssignmentDeadline({
   }, [deadlineAt]);
 
   const remaining = remainingSeconds(deadlineAt, now);
+  const breathing = remaining > 0 && remaining <= 60;
 
   return (
     <p
       role="timer"
-      aria-label={`思考の深さ${reasoningEffortName(reasoningEffort)}、残り${formatRemainingTime(remaining)}`}
-      className="shrink-0 px-2.5 text-xs tabular-nums text-[var(--muted)]"
+      aria-label={`残り時間${formatRemainingTime(remaining)}`}
+      className="flex h-full shrink-0 items-center px-2.5"
     >
-      思考 {reasoningEffortName(reasoningEffort)}
-      <span aria-hidden="true"> · </span>
-      残り {formatRemainingTime(remaining)}
+      <span
+        aria-hidden="true"
+        className={`brain-deadline-time block text-sm font-medium leading-none tabular-nums text-[var(--text)] ${
+          breathing ? "brain-deadline-time-breathing" : ""
+        }`}
+      >
+        {formatRemainingTime(remaining)}
+      </span>
     </p>
   );
 }
