@@ -90,6 +90,8 @@ export type AvailableAnswerer = {
     id: ReasoningEffort;
     name: string;
     execution_time_limit_seconds: number | null;
+    customer_charge: number;
+    performer_reward: number;
   }[];
   default_reasoning_effort: ReasoningEffort;
   pricing: {

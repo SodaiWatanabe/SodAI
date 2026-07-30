@@ -113,6 +113,16 @@ export function presentCreditTransaction(
         tone: "neutral",
       };
     case "settle":
+      if (
+        transaction.source_kind === "earned" &&
+        transaction.available_delta > 0
+      ) {
+        return {
+          amount: transaction.available_delta,
+          label: "報酬獲得",
+          tone: "increase",
+        };
+      }
       return {
         amount: transaction.available_delta + transaction.reserved_delta,
         label: "モデルの利用",

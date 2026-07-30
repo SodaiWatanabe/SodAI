@@ -90,3 +90,18 @@ test("確定取引は予約額と返却額から実消費額を表示する", ()
     { amount: -100_000, label: "モデルの利用", tone: "decrease" },
   );
 });
+
+test("earnedの確定取引は報酬獲得として表示する", () => {
+  assert.deepEqual(
+    presentCreditTransaction({
+      id: "reward",
+      kind: "settle",
+      available_delta: 1_350_000,
+      reserved_delta: 0,
+      source_kind: "earned",
+      expires_at: null,
+      created_at: "2026-07-14T06:30:00Z",
+    }),
+    { amount: 1_350_000, label: "報酬獲得", tone: "increase" },
+  );
+});

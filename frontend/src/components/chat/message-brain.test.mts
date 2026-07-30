@@ -30,6 +30,8 @@ const answerer = {
       id: "none",
       name: "なし",
       execution_time_limit_seconds: null,
+      customer_charge: 0,
+      performer_reward: 0,
     },
   ],
   default_reasoning_effort: "none",

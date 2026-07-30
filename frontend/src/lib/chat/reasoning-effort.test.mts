@@ -15,9 +15,27 @@ const human = {
   is_default: false,
   is_legacy: false,
   reasoning_efforts: [
-    { id: "low", name: "軽い", execution_time_limit_seconds: 120 },
-    { id: "medium", name: "中程度", execution_time_limit_seconds: 300 },
-    { id: "high", name: "深い", execution_time_limit_seconds: 600 },
+    {
+      id: "low",
+      name: "軽い",
+      execution_time_limit_seconds: 120,
+      customer_charge: 500_000,
+      performer_reward: 450_000,
+    },
+    {
+      id: "medium",
+      name: "中程度",
+      execution_time_limit_seconds: 300,
+      customer_charge: 1_500_000,
+      performer_reward: 1_350_000,
+    },
+    {
+      id: "high",
+      name: "深い",
+      execution_time_limit_seconds: 600,
+      customer_charge: 3_000_000,
+      performer_reward: 2_700_000,
+    },
   ],
   default_reasoning_effort: "medium",
   pricing: {
