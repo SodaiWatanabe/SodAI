@@ -20,6 +20,7 @@ import {
 import { HumanPrivacyDialog } from "@/components/chat/human-privacy-dialog";
 import { shouldShowHumanPrivacyDialog } from "@/components/chat/human-privacy-transition";
 import { MessageComposer } from "@/components/chat/message-composer";
+import { ReasoningEffortSelector } from "@/components/chat/reasoning-effort-selector";
 import {
   IDLE_RESPONSE_OPERATION,
   requestResponseCancellation,
@@ -41,11 +42,13 @@ import { useKeyboardShortcuts } from "@/components/preferences/keyboard-shortcut
 import { useToast } from "@/components/ui/toast-provider";
 import type {
   AvailableAnswerer,
+  ReasoningEffort,
   RealtimeEvent,
   Thread,
   ThreadEntry,
 } from "@/lib/chat/types";
 import { isApiErrorStatus } from "@/lib/api/api-error";
+import { resolveReasoningEffort } from "@/lib/chat/reasoning-effort";
 import { useChatApi } from "@/lib/chat/use-chat-api";
 import { INSUFFICIENT_CREDITS_MESSAGE } from "@/lib/credits/error";
 
@@ -95,6 +98,8 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
   const [thread, setThreadState] = useState<Thread>();
   const [turnAnchor, setTurnAnchor] = useState<TurnAnchor>();
   const [answerer, setAnswerer] = useState<AvailableAnswerer["id"]>();
+  const [requestedReasoningEffort, setRequestedReasoningEffort] =
+    useState<ReasoningEffort>();
   const [humanPrivacyDialogOpen, setHumanPrivacyDialogOpen] = useState(false);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
@@ -105,6 +110,10 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
   );
   const responding = operation.kind !== "idle" || isResponding(thread);
   const selectedAnswerer = answerers.find((option) => option.id === answerer);
+  const reasoningEffort = resolveReasoningEffort(
+    selectedAnswerer,
+    requestedReasoningEffort,
+  );
   const latestResponse = thread?.latest_response;
   const respondingAnswererId =
     latestResponse?.status === "queued" || latestResponse?.status === "running"
@@ -281,6 +290,9 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
         if (!answererInitializedRef.current) {
           answererInitializedRef.current = true;
           setAnswerer(current.answerer);
+          setRequestedReasoningEffort(
+            current.latest_response?.reasoning_effort,
+          );
         }
         dismissToast("thread-load");
       } catch {
@@ -525,7 +537,7 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
   async function submit(event: FormEvent) {
     event.preventDefault();
     const input = message.trim();
-    if (!input || !answerer || responding) return;
+    if (!input || !answerer || !reasoningEffort || responding) return;
     setTurnAnchor(undefined);
     positionedTurnRef.current = undefined;
     pinToBottom();
@@ -534,7 +546,12 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
     settleComposerFocus(inputRef.current);
     dismissToast("message-send");
     try {
-      const created = await createResponse(threadId, input, answerer);
+      const created = await createResponse(
+        threadId,
+        input,
+        answerer,
+        reasoningEffort,
+      );
       if (!mountedRef.current) return;
       updateThread((current) => {
         const entries = current
@@ -650,8 +667,17 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
                   }
                 : {
                     kind: "send",
-                    disabled: !message.trim() || !answerer,
+                    disabled: !message.trim() || !answerer || !reasoningEffort,
                   }
+            }
+            accessory={
+              selectedAnswerer?.kind === "human" && reasoningEffort ? (
+                <ReasoningEffortSelector
+                  value={reasoningEffort}
+                  options={selectedAnswerer.reasoning_efforts}
+                  onChange={setRequestedReasoningEffort}
+                />
+              ) : undefined
             }
             autoFocus
             className="relative z-10 mx-auto max-w-[760px]"

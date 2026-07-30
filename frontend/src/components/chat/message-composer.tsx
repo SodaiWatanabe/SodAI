@@ -4,6 +4,7 @@ import { ArrowUp, Square } from "lucide-react";
 import type {
   FocusEventHandler,
   FormEventHandler,
+  ReactNode,
   RefObject,
 } from "react";
 
@@ -13,6 +14,7 @@ import type { KeyboardShortcut } from "@/lib/preferences/keyboard-shortcuts";
 
 type MessageComposerProps = {
   action: MessageComposerAction;
+  accessory?: ReactNode;
   ariaLabel?: string;
   autoFocus?: boolean;
   className: string;
@@ -28,12 +30,16 @@ type MessageComposerProps = {
   value: string;
 };
 
+const ACTION_PADDING_RIGHT = 56;
+const ACCESSORY_PADDING_RIGHT = 176;
+
 export type MessageComposerAction =
   | { kind: "send"; disabled: boolean }
   | { kind: "stop"; onStop: () => void; pending: boolean };
 
 export function MessageComposer({
   action,
+  accessory,
   ariaLabel,
   autoFocus = false,
   className,
@@ -51,6 +57,7 @@ export function MessageComposer({
   const { multiline, scrollEdges } = useComposerTextareaAutosize(
     textareaRef,
     value,
+    accessory ? ACCESSORY_PADDING_RIGHT : ACTION_PADDING_RIGHT,
   );
   const actionButton = action.kind === "send" ? (
     <button
@@ -97,7 +104,7 @@ export function MessageComposer({
             className={`block max-h-[208px] w-full resize-none overflow-y-hidden border-0 bg-transparent text-[16px] leading-6 text-[var(--text)] outline-none transition-[height] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] placeholder:text-[var(--muted)] motion-reduce:transition-none ${
               multiline
                 ? "px-6 pb-1.5 pt-[15px]"
-                : "py-[15px] pl-6 pr-14"
+                : `py-[15px] pl-6 ${accessory ? "pr-44" : "pr-14"}`
             }`}
             onBlur={onBlur}
             onChange={(event) => onChange(event.target.value)}
@@ -129,7 +136,10 @@ export function MessageComposer({
             multiline ? "h-12" : "h-0"
           }`}
         />
-        <div className="absolute bottom-2 right-2">{actionButton}</div>
+        <div className="absolute bottom-2 right-2 flex items-center gap-1">
+          {accessory}
+          {actionButton}
+        </div>
       </div>
     </form>
   );

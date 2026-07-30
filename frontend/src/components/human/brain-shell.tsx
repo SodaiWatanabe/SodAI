@@ -12,6 +12,7 @@ import {
 import { useChatAuth } from "@/components/chat/chat-auth-context";
 import { useChatData } from "@/components/chat/chat-data-provider";
 import { removeCancelledAssignment } from "@/components/human/brain-assignment-state";
+import { BrainAssignmentDeadline } from "@/components/human/brain-assignment-deadline";
 import { BrainConversation } from "@/components/human/brain-conversation";
 import { BrainLobby } from "@/components/human/brain-lobby";
 import { IOSSpinner } from "@/components/ui/ios-spinner";
@@ -28,6 +29,7 @@ export function BrainShell() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const [notice, setNotice] = useState<string>();
+  const [deadlineExpired, setDeadlineExpired] = useState(false);
   const assignedViewRef = useRef<HTMLDivElement>(null);
   const answerRef = useRef<HTMLTextAreaElement>(null);
   const busyRef = useRef(false);
@@ -43,6 +45,7 @@ export function BrainShell() {
     if (claimIdRef.current !== nextClaimId) {
       setAnswer("");
       setError(undefined);
+      setDeadlineExpired(false);
       if (nextClaimId) setNotice(undefined);
     }
     claimIdRef.current = nextClaimId;
@@ -90,7 +93,14 @@ export function BrainShell() {
         claimIdRef.current = undefined;
         setAnswer("");
         setError(undefined);
-        setNotice("依頼者がこの依頼を取り消しました。");
+        setDeadlineExpired(false);
+        setNotice(
+          event.data.reason === "answer_deadline_exceeded"
+            ? "回答時間が終了しました。"
+            : event.data.reason === "assignment_expired"
+              ? "接続が途切れたため、この依頼は終了しました。"
+              : "依頼者がこの依頼を取り消しました。",
+        );
         setState((current) =>
           removeCancelledAssignment(current, cancelledClaimId),
         );
@@ -110,6 +120,22 @@ export function BrainShell() {
     }, 10_000);
     return () => window.clearInterval(timer);
   }, [authenticated, brainActive, humanApi, requestState]);
+
+  useEffect(() => {
+    const deadlineAt = state?.assignment?.deadline_at;
+    if (!deadlineAt) return;
+    const remaining = Date.parse(deadlineAt) - Date.now();
+    const timer = window.setTimeout(
+      () => {
+        setDeadlineExpired(true);
+        setAnswer("");
+        setNotice("回答時間が終了しました。");
+        void requestState(humanApi.ready);
+      },
+      Math.max(0, remaining) + 100,
+    );
+    return () => window.clearTimeout(timer);
+  }, [humanApi, requestState, state?.assignment?.deadline_at]);
 
   useLayoutEffect(() => {
     if (!activeClaimId) return;
@@ -136,8 +162,18 @@ export function BrainShell() {
   async function submit(event: FormEvent) {
     event.preventDefault();
     const content = answer.trim();
-    const claimId = state?.assignment?.claim_id;
-    if (!content || !claimId || busy) return;
+    const assignment = state?.assignment;
+    const claimId = assignment?.claim_id;
+    if (
+      !content ||
+      !claimId ||
+      !assignment ||
+      busy ||
+      deadlineExpired ||
+      Date.parse(assignment.deadline_at) <= Date.now()
+    ) {
+      return;
+    }
     await run(() => humanApi.answer(claimId, content));
   }
 
@@ -169,10 +205,14 @@ export function BrainShell() {
         className="flex min-h-0 flex-1 flex-col overflow-y-auto"
       >
         <header className="sticky top-0 z-10 h-12 shrink-0 border-b border-[var(--separator)] bg-[var(--canvas)]">
-          <div className="mx-auto flex h-full w-full max-w-[760px] items-center px-12 sm:px-8 lg:mx-0 lg:max-w-none lg:px-1.5">
+          <div className="mx-auto flex h-full w-full max-w-[760px] items-center justify-between px-12 sm:px-8 lg:mx-0 lg:max-w-none lg:px-1.5">
             <p className="truncate rounded-xl px-2.5 py-2 text-sm font-semibold text-[var(--text)]">
               {assignment.answerer_name}
             </p>
+            <BrainAssignmentDeadline
+              deadlineAt={assignment.deadline_at}
+              reasoningEffort={assignment.reasoning_effort}
+            />
           </div>
         </header>
 
@@ -206,10 +246,10 @@ export function BrainShell() {
                   </button>
                   <button
                     type="submit"
-                    disabled={busy || !answer.trim()}
+                    disabled={busy || deadlineExpired || !answer.trim()}
                     className="h-10 rounded-full bg-[var(--primary)] px-5 text-sm font-medium text-[var(--on-primary)] hover:bg-[var(--primary-hover)] disabled:opacity-40"
                   >
-                    回答する
+                    {deadlineExpired ? "時間切れ" : "回答する"}
                   </button>
                 </div>
                 {error ? (

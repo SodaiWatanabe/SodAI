@@ -10,6 +10,8 @@ const assigned: BrainState = {
   assignment: {
     claim_id: "claim",
     answerer_name: "Human Lite",
+    reasoning_effort: "medium",
+    deadline_at: "2026-07-30T12:05:00Z",
     context: [],
   },
 };

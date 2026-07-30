@@ -19,6 +19,7 @@ type ComposerScrollEdges = {
 export function useComposerTextareaAutosize(
   ref: RefObject<HTMLTextAreaElement | null>,
   value: string,
+  singleLinePaddingRight = 56,
 ) {
   const [multiline, setMultiline] = useState(false);
   const [scrollEdges, setScrollEdges] = useState<ComposerScrollEdges>({
@@ -54,7 +55,7 @@ export function useComposerTextareaAutosize(
     const transition = textarea.style.transition;
     textarea.style.transition = "none";
     const paddingRight = textarea.style.paddingRight;
-    textarea.style.paddingRight = "56px";
+    textarea.style.paddingRight = `${singleLinePaddingRight}px`;
     textarea.style.height = "auto";
     const styles = window.getComputedStyle(textarea);
     const singleLineHeight =
@@ -90,7 +91,7 @@ export function useComposerTextareaAutosize(
       animationFrameRef.current = null;
       updateScrollEdges();
     });
-  }, [ref, updateScrollEdges]);
+  }, [ref, singleLinePaddingRight, updateScrollEdges]);
 
   useLayoutEffect(resize, [multiline, resize, value]);
 

@@ -6,6 +6,7 @@ import { createApiFetch } from "@/lib/api/api-fetch";
 import type {
   AvailableAnswerer,
   Execution,
+  ReasoningEffort,
   ResponseCreation,
   Thread,
   ThreadSearchPage,
@@ -43,10 +44,15 @@ export function createChatApi(accessToken: ApiAccessTokenSource) {
   async function createThread(
     input: string,
     answerer: AvailableAnswerer["id"],
+    reasoningEffort: ReasoningEffort,
   ): Promise<ResponseCreation> {
     const response = await apiFetch("/api/v1/threads", {
       method: "POST",
-      body: JSON.stringify({ input, answerer }),
+      body: JSON.stringify({
+        input,
+        answerer,
+        reasoning_effort: reasoningEffort,
+      }),
     });
     return (await response.json()) as ResponseCreation;
   }
@@ -72,10 +78,16 @@ export function createChatApi(accessToken: ApiAccessTokenSource) {
     threadId: string,
     input: string,
     answerer: AvailableAnswerer["id"],
+    reasoningEffort: ReasoningEffort,
   ): Promise<ResponseCreation> {
     const response = await apiFetch("/api/v1/response-requests", {
       method: "POST",
-      body: JSON.stringify({ thread_id: threadId, input, answerer }),
+      body: JSON.stringify({
+        thread_id: threadId,
+        input,
+        answerer,
+        reasoning_effort: reasoningEffort,
+      }),
     });
     return (await response.json()) as ResponseCreation;
   }

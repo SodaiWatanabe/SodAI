@@ -9,6 +9,7 @@ import { settleComposerFocus } from "@/components/chat/composer-focus";
 import { HumanPrivacyDialog } from "@/components/chat/human-privacy-dialog";
 import { shouldShowHumanPrivacyDialog } from "@/components/chat/human-privacy-transition";
 import { MessageComposer } from "@/components/chat/message-composer";
+import { ReasoningEffortSelector } from "@/components/chat/reasoning-effort-selector";
 import {
   IDLE_RESPONSE_OPERATION,
   requestResponseCancellation,
@@ -19,7 +20,11 @@ import {
 import { useKeyboardShortcuts } from "@/components/preferences/keyboard-shortcuts-provider";
 import { useToast } from "@/components/ui/toast-provider";
 import { isApiErrorStatus } from "@/lib/api/api-error";
-import type { AvailableAnswerer } from "@/lib/chat/types";
+import { resolveReasoningEffort } from "@/lib/chat/reasoning-effort";
+import type {
+  AvailableAnswerer,
+  ReasoningEffort,
+} from "@/lib/chat/types";
 import { useChatApi } from "@/lib/chat/use-chat-api";
 import { INSUFFICIENT_CREDITS_MESSAGE } from "@/lib/credits/error";
 
@@ -38,6 +43,8 @@ export function ChatShell(props: ChatShellProps) {
   const [message, setMessage] = useState("");
   const [requestedAnswerer, setRequestedAnswerer] =
     useState<AvailableAnswerer["id"]>();
+  const [requestedReasoningEffort, setRequestedReasoningEffort] =
+    useState<ReasoningEffort>();
   const [humanPrivacyDialogOpen, setHumanPrivacyDialogOpen] = useState(false);
   const operationRef = useRef<ResponseOperation>(IDLE_RESPONSE_OPERATION);
   const [operation, setOperationState] = useState<ResponseOperation>(
@@ -48,6 +55,10 @@ export function ChatShell(props: ChatShellProps) {
     answerers.find((availableAnswerer) => availableAnswerer.is_default)?.id ??
     answerers[0]?.id;
   const selectedAnswerer = answerers.find((option) => option.id === answerer);
+  const reasoningEffort = resolveReasoningEffort(
+    selectedAnswerer,
+    requestedReasoningEffort,
+  );
 
   function setOperation(next: ResponseOperation) {
     operationRef.current = next;
@@ -79,13 +90,20 @@ export function ChatShell(props: ChatShellProps) {
   async function submit(event: FormEvent) {
     event.preventDefault();
     const input = message.trim();
-    if (!input || !answerer || operationRef.current.kind !== "idle") return;
+    if (
+      !input ||
+      !answerer ||
+      !reasoningEffort ||
+      operationRef.current.kind !== "idle"
+    ) {
+      return;
+    }
     setOperation({ kind: "creating" });
     settleComposerFocus(inputRef.current);
     dismissToast("thread-create");
     let created;
     try {
-      created = await createThread(input, answerer);
+      created = await createThread(input, answerer, reasoningEffort);
     } catch (error) {
       if (!mountedRef.current) return;
       setOperation(IDLE_RESPONSE_OPERATION);
@@ -148,13 +166,22 @@ export function ChatShell(props: ChatShellProps) {
               operation.kind === "idle"
                 ? {
                     kind: "send",
-                    disabled: !message.trim() || !answerer,
+                    disabled: !message.trim() || !answerer || !reasoningEffort,
                   }
                 : {
                     kind: "stop",
                     onStop: stopResponse,
                     pending: responseOperationIsPending(operation),
                   }
+            }
+            accessory={
+              selectedAnswerer?.kind === "human" && reasoningEffort ? (
+                <ReasoningEffortSelector
+                  value={reasoningEffort}
+                  options={selectedAnswerer.reasoning_efforts}
+                  onChange={setRequestedReasoningEffort}
+                />
+              ) : undefined
             }
             ariaLabel="新しい会話"
             autoFocus

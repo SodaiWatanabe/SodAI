@@ -25,6 +25,14 @@ const answerer = {
   kind: "ai",
   is_default: true,
   is_legacy: false,
+  reasoning_efforts: [
+    {
+      id: "none",
+      name: "なし",
+      execution_time_limit_seconds: null,
+    },
+  ],
+  default_reasoning_effort: "none",
   pricing: {
     kind: "free",
     asset_code: "sodai-credit",

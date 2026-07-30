@@ -22,6 +22,7 @@ const thread: Thread = {
     thread_id: "thread",
     input_entry_id: "entry",
     requested_answerer: "human-lite",
+    reasoning_effort: "medium",
     target_actor: { id: "human-lite", kind: "model", name: "Human Lite" },
     status: "running",
     created_at: "2026-07-16T00:00:00Z",

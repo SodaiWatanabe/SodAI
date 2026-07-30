@@ -15,6 +15,8 @@ export type Actor = {
   name: string;
 };
 
+export type ReasoningEffort = "none" | "low" | "medium" | "high" | "xhigh";
+
 export type ThreadEntry = {
   id: string;
   thread_id: string;
@@ -48,6 +50,7 @@ export type ResponseRequest = {
   thread_id: string;
   input_entry_id: string;
   requested_answerer: string;
+  reasoning_effort: ReasoningEffort;
   target_actor: Actor;
   status: "queued" | "running" | "completed" | "failed" | "cancelled";
   execution: Execution;
@@ -83,6 +86,12 @@ export type AvailableAnswerer = {
   kind: "ai" | "human";
   is_default: boolean;
   is_legacy: boolean;
+  reasoning_efforts: {
+    id: ReasoningEffort;
+    name: string;
+    execution_time_limit_seconds: number | null;
+  }[];
+  default_reasoning_effort: ReasoningEffort;
   pricing: {
     kind: "free" | "metered";
     asset_code: string;
