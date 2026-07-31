@@ -5,15 +5,20 @@ import pytest
 from sqlalchemy import select, text
 
 from app.db.session import dispose_engine, get_session_factory
-from app.domain.answerers import AnswererId, get_answerer
-from app.domain.principals import Principal, PrincipalKind
 from app.models.account import UserModel
 from app.models.humans import HumanTaskModel
 from app.models.platform import ActorModel, ExecutionModel, ResponseRequestModel
-from app.repositories.threads import SqlAlchemyThreadRepository
 
 MIGRATION_PHASE = os.getenv("SODAI_HUMAN_STANDARD_MIGRATION_TEST")
 SEED_USER_ID = UUID("00000000-0000-4000-8000-000000000101")
+OWNER_ACTOR_ID = UUID("00000000-0000-4000-8000-000000000102")
+SPACE_ID = UUID("00000000-0000-4000-8000-000000000103")
+THREAD_ID = UUID("00000000-0000-4000-8000-000000000104")
+ENTRY_ID = UUID("00000000-0000-4000-8000-000000000105")
+REQUEST_ID = UUID("00000000-0000-4000-8000-000000000106")
+EXECUTION_ID = UUID("00000000-0000-4000-8000-000000000107")
+ATTEMPT_ID = UUID("00000000-0000-4000-8000-000000000108")
+PRO_ACTOR_ID = UUID("00000000-0000-4000-8000-000000000004")
 STANDARD_ACTOR_ID = UUID("00000000-0000-4000-8000-000000000005")
 
 pytestmark = pytest.mark.skipif(
@@ -39,39 +44,167 @@ async def test_human_standard_upgrade_path() -> None:
 
 
 async def prepare_preexisting_pro_task() -> None:
-    principal = Principal(PrincipalKind.USER, SEED_USER_ID)
-    answerer = get_answerer(AnswererId.HUMAN_PRO)
-    assert answerer is not None
-
     async with get_session_factory()() as session:
-        # This phase deliberately runs the current ORM against the historical
-        # 0005 schema. Add the later shared field only while constructing the
-        # preexisting row, then restore the exact historical schema before the
-        # migration under test runs.
+        # Historical migration fixtures use only columns present at 0005.
+        # This keeps the migration test independent from future ORM tables.
         await session.execute(
             text(
-                "ALTER TABLE app.response_requests "
-                "ADD COLUMN reasoning_effort varchar(16) NOT NULL DEFAULT 'none'"
-            )
+                """
+                INSERT INTO app.users (id, display_name)
+                VALUES (:user_id, 'migration-user')
+                """
+            ),
+            {"user_id": SEED_USER_ID},
         )
-        session.add(UserModel(id=SEED_USER_ID, display_name="migration-user"))
-        repository = SqlAlchemyThreadRepository(session)
-        context = await repository.ensure_personal_context(principal)
-        creation = await repository.create_thread_response(
-            principal,
-            context,
-            "0005で作成済みのHuman Proタスク",
-            answerer,
-            execution_target="human:human-pro",
-            artifact_id=None,
-            deadline_at=None,
-        )
-        task = await session.get(HumanTaskModel, creation.response.execution.id)
-        assert task is not None
-        task.required_rank_level = 2
-        await session.flush()
         await session.execute(
-            text("ALTER TABLE app.response_requests DROP COLUMN reasoning_effort")
+            text(
+                """
+                INSERT INTO app.actors (
+                    id, kind, key, name, owner_user_id
+                )
+                VALUES (
+                    :actor_id, 'human', :actor_key, '対話相手', :user_id
+                )
+                """
+            ),
+            {
+                "actor_id": OWNER_ACTOR_ID,
+                "actor_key": f"human:{OWNER_ACTOR_ID}",
+                "user_id": SEED_USER_ID,
+            },
+        )
+        await session.execute(
+            text(
+                """
+                INSERT INTO app.spaces (id, owner_user_id)
+                VALUES (:space_id, :user_id)
+                """
+            ),
+            {"space_id": SPACE_ID, "user_id": SEED_USER_ID},
+        )
+        await session.execute(
+            text(
+                """
+                INSERT INTO app.space_memberships (
+                    space_id, actor_id, role
+                )
+                VALUES (:space_id, :actor_id, 'owner')
+                """
+            ),
+            {"space_id": SPACE_ID, "actor_id": OWNER_ACTOR_ID},
+        )
+        await session.execute(
+            text(
+                """
+                INSERT INTO app.threads (
+                    id, space_id, created_by_actor_id, title,
+                    default_answerer, revision
+                )
+                VALUES (
+                    :thread_id, :space_id, :actor_id,
+                    '0005で作成済みのHuman Proタスク', 'human-pro', 1
+                )
+                """
+            ),
+            {
+                "thread_id": THREAD_ID,
+                "space_id": SPACE_ID,
+                "actor_id": OWNER_ACTOR_ID,
+            },
+        )
+        await session.execute(
+            text(
+                """
+                INSERT INTO app.thread_participants (
+                    thread_id, actor_id, role
+                )
+                VALUES
+                    (:thread_id, :owner_actor_id, 'participant'),
+                    (:thread_id, :pro_actor_id, 'answerer')
+                """
+            ),
+            {
+                "thread_id": THREAD_ID,
+                "owner_actor_id": OWNER_ACTOR_ID,
+                "pro_actor_id": PRO_ACTOR_ID,
+            },
+        )
+        await session.execute(
+            text(
+                """
+                INSERT INTO app.thread_entries (
+                    id, thread_id, author_actor_id, ordinal
+                )
+                VALUES (:entry_id, :thread_id, :actor_id, 0)
+                """
+            ),
+            {
+                "entry_id": ENTRY_ID,
+                "thread_id": THREAD_ID,
+                "actor_id": OWNER_ACTOR_ID,
+            },
+        )
+        await session.execute(
+            text(
+                """
+                INSERT INTO app.entry_text_contents (entry_id, content)
+                VALUES (:entry_id, '0005で作成済みのHuman Proタスク')
+                """
+            ),
+            {"entry_id": ENTRY_ID},
+        )
+        await session.execute(
+            text(
+                """
+                INSERT INTO app.response_requests (
+                    id, thread_id, requester_actor_id, target_actor_id,
+                    input_entry_id, requested_answerer
+                )
+                VALUES (
+                    :request_id, :thread_id, :owner_actor_id, :pro_actor_id,
+                    :entry_id, 'human-pro'
+                )
+                """
+            ),
+            {
+                "request_id": REQUEST_ID,
+                "thread_id": THREAD_ID,
+                "owner_actor_id": OWNER_ACTOR_ID,
+                "pro_actor_id": PRO_ACTOR_ID,
+                "entry_id": ENTRY_ID,
+            },
+        )
+        await session.execute(
+            text(
+                """
+                INSERT INTO app.executions (
+                    id, response_request_id, thread_id, target_actor_id,
+                    attempt_id, execution_target
+                )
+                VALUES (
+                    :execution_id, :request_id, :thread_id, :pro_actor_id,
+                    :attempt_id, 'human:human-pro'
+                )
+                """
+            ),
+            {
+                "execution_id": EXECUTION_ID,
+                "request_id": REQUEST_ID,
+                "thread_id": THREAD_ID,
+                "pro_actor_id": PRO_ACTOR_ID,
+                "attempt_id": ATTEMPT_ID,
+            },
+        )
+        await session.execute(
+            text(
+                """
+                INSERT INTO app.human_tasks (
+                    execution_id, required_rank_level
+                )
+                VALUES (:execution_id, 2)
+                """
+            ),
+            {"execution_id": EXECUTION_ID},
         )
         await session.commit()
 

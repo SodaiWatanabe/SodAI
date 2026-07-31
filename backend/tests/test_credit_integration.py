@@ -34,6 +34,7 @@ from app.domain.credits import (
 from app.domain.inference_jobs import GENERATION_CANCELLATION_OUTBOX_TOPIC
 from app.domain.principals import Principal, PrincipalKind
 from app.domain.reasoning import ReasoningEffort
+from app.domain.responses import ResponseEvaluationValue
 from app.models.account import UserModel
 from app.models.credits import (
     CreditAccountModel,
@@ -48,10 +49,12 @@ from app.models.credits import (
 )
 from app.models.platform import ExecutionModel, OutboxEventModel, SpaceModel, ThreadModel
 from app.repositories.credits import CreditLedgerRepository
+from app.repositories.evaluations import ResponseEvaluationNotFoundError
 from app.repositories.threads import SqlAlchemyThreadRepository
 from app.services.credit_allowance import FreeCreditAllowanceService
 from app.services.credit_audit import CreditAuditService
 from app.services.credits import CreditService
+from app.services.evaluations import ResponseEvaluationService
 from app.services.human import HumanService
 from app.services.inference.billing import InferenceBillingService
 from app.services.inference.deployment import ModelDeploymentRegistry
@@ -2615,6 +2618,18 @@ async def test_human_answer_splits_charge_between_performer_and_platform() -> No
         assignment.assignment.claim_id,
         "90%を回答者へ、10%を運営へ分配します。",
     )
+    evaluations = ResponseEvaluationService(factory)
+    await evaluations.set(
+        requester,
+        execution_id,
+        ResponseEvaluationValue.POSITIVE,
+    )
+    with pytest.raises(ResponseEvaluationNotFoundError):
+        await evaluations.set(
+            performer,
+            execution_id,
+            ResponseEvaluationValue.NEGATIVE,
+        )
 
     async with factory() as session:
         ledger = CreditLedgerRepository(session)

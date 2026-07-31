@@ -16,6 +16,7 @@ export type Actor = {
 };
 
 export type ReasoningEffort = "none" | "low" | "medium" | "high" | "xhigh";
+export type ResponseEvaluationValue = "positive" | "negative";
 
 export type ThreadEntry = {
   id: string;
@@ -27,6 +28,8 @@ export type ThreadEntry = {
   created_at: string;
   answerer: string | null;
   response_status?: "completed" | "cancelled" | null;
+  execution_id: string | null;
+  evaluation: ResponseEvaluationValue | null;
 };
 
 export type Execution = {
@@ -43,6 +46,14 @@ export type Execution = {
   resolved_model: string | null;
   error_code: string | null;
   created_at: string;
+  evaluation: ResponseEvaluationValue | null;
+};
+
+export type ResponseEvaluation = {
+  execution_id: string;
+  value: ResponseEvaluationValue;
+  created_at: string;
+  updated_at: string;
 };
 
 export type ResponseRequest = {

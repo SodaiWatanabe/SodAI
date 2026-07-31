@@ -56,6 +56,8 @@ export function displayThreadEntries(
     ordinal: latestOrdinal + 1,
     created_at: response.created_at,
     answerer: response.requested_answerer,
+    execution_id: response.execution.id,
+    evaluation: response.execution.evaluation,
     presenting: false,
     renderKey: entryRenderKey(entryId, thread),
     responseStatus:

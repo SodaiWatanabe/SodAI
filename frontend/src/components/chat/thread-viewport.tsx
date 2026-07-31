@@ -19,7 +19,11 @@ import {
 import { getConversationMessageLayout } from "@/components/conversation/conversation-layout";
 import { ConversationMessage } from "@/components/conversation/conversation-message";
 import { IOSSpinner } from "@/components/ui/ios-spinner";
-import type { AvailableAnswerer, Thread } from "@/lib/chat/types";
+import type {
+  AvailableAnswerer,
+  ResponseEvaluationValue,
+  Thread,
+} from "@/lib/chat/types";
 
 type ThreadViewportProps = {
   messageListRef: RefObject<HTMLDivElement | null>;
@@ -34,6 +38,10 @@ type ThreadViewportProps = {
   targetEntryId?: string;
   targetSearchQuery?: string;
   answerers: AvailableAnswerer[];
+  onEvaluationChange: (
+    executionId: string,
+    value: ResponseEvaluationValue | null,
+  ) => Promise<void>;
 };
 
 function StreamedText({
@@ -132,6 +140,7 @@ function ThreadMessage({
   searchQuery,
   searchAnchor,
   turnAnchor,
+  onEvaluationChange,
 }: {
   answerers: AvailableAnswerer[];
   entry: DisplayEntry;
@@ -139,6 +148,10 @@ function ThreadMessage({
   searchQuery?: string;
   searchAnchor: boolean;
   turnAnchor: boolean;
+  onEvaluationChange: (
+    executionId: string,
+    value: ResponseEvaluationValue | null,
+  ) => Promise<void>;
 }) {
   const layout = getConversationMessageLayout(entry.author.kind, "prompter");
   const showActions =
@@ -147,6 +160,8 @@ function ThreadMessage({
       entry.responseStatus === "cancelled") &&
     !entry.presenting &&
     entry.content.length > 0;
+  const evaluationExecutionId =
+    entry.responseStatus === "completed" ? entry.execution_id : null;
   return (
     <ConversationMessage
       articleRef={entryRef}
@@ -185,6 +200,12 @@ function ThreadMessage({
         <MessageActions
           brain={resolveMessageBrain(entry, answerers)}
           content={entry.content}
+          evaluation={entry.evaluation}
+          onEvaluationChange={
+            evaluationExecutionId
+              ? (value) => onEvaluationChange(evaluationExecutionId, value)
+              : undefined
+          }
         />
       ) : null}
     </ConversationMessage>
@@ -204,6 +225,7 @@ export function ThreadViewport({
   turnSpacerRef,
   targetEntryId,
   targetSearchQuery,
+  onEvaluationChange,
 }: ThreadViewportProps) {
   const entries = thread
     ? displayThreadEntries(thread, humanResponsePresentation)
@@ -259,6 +281,7 @@ export function ThreadViewport({
                 searchQuery={targetSearchQuery}
                 searchAnchor={entry.id === targetEntryId}
                 turnAnchor={entry.id === turnAnchorEntryId}
+                onEvaluationChange={onEvaluationChange}
               />
             ))}
             {waitingForFirstToken ? (

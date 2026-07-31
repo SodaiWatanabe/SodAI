@@ -18,6 +18,7 @@ Space ────── 所有権・参加権限・データ寿命の境界
          ├─ Entry ─────────── 確定済みで不変の記録
          └─ ResponseRequest ─ 誰が誰へ応答を求めたか
               └─ Execution ── 実行試行と生成中の状態
+                   └─ ResponseEvaluation ─ 依頼者による回答評価
 ```
 
 `Principal`と`Actor`は別のID空間です。Principalはリクエスト時の本人確認に使い、Actorは
@@ -53,6 +54,8 @@ activeなExecutionも1件だけです。入力Entryと結果Entryが別Threadを
 | `POST` | `/api/v1/threads/{id}/archive` | Threadをアーカイブ |
 | `POST` | `/api/v1/response-requests` | 既存Threadへ入力と応答要求を追加 |
 | `POST` | `/api/v1/response-requests/{id}/executions` | failed応答を新Executionとして再試行 |
+| `PUT` | `/api/v1/executions/{id}/evaluation` | 完了した回答を評価・変更 |
+| `DELETE` | `/api/v1/executions/{id}/evaluation` | 自分の評価を解除 |
 | `GET` | `/api/v1/answerers` | Principalが選択できる応答主体 |
 | `POST` | `/api/v1/realtime/tickets` | 一度限り、短寿命の接続ticket |
 | `WS` | `/api/v1/realtime` | Thread・Entry・Responseの変更通知 |
@@ -70,6 +73,9 @@ key平文は保存せずSHA-256 hashだけをExecutionへ記録します。
 
 アーカイブは削除ではありません。`status=archived`として通常一覧と追記対象から外し、将来の
 復元と完全削除を別操作として追加できる境界を残します。
+
+回答評価はAI/Human共通のExecutionへ紐づけます。詳しい認可、保存、画面投影の契約は
+[`response-evaluations.md`](response-evaluations.md)を参照してください。
 
 ## リアルタイム契約
 

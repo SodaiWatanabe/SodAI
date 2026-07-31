@@ -40,6 +40,7 @@ from app.domain.responses import (
     Execution,
     ExecutionRetry,
     ResponseCreation,
+    ResponseEvaluationValue,
     ResponseRequest,
     ResponseStatus,
 )
@@ -326,6 +327,9 @@ class SqlAlchemyThreadRepository:
                 selectinload(ResponseRequestModel.target_actor),
                 selectinload(ResponseRequestModel.executions).selectinload(
                     ExecutionModel.model_execution
+                ),
+                selectinload(ResponseRequestModel.executions).selectinload(
+                    ExecutionModel.evaluation
                 ),
             )
             .with_for_update(of=ResponseRequestModel)
@@ -775,6 +779,9 @@ class SqlAlchemyThreadRepository:
                 selectinload(ThreadModel.response_requests)
                 .selectinload(ResponseRequestModel.executions)
                 .selectinload(ExecutionModel.model_execution),
+                selectinload(ThreadModel.response_requests)
+                .selectinload(ResponseRequestModel.executions)
+                .selectinload(ExecutionModel.evaluation),
             )
         )
         thread = await self._session.scalar(statement)
@@ -1184,6 +1191,9 @@ class SqlAlchemyThreadRepository:
                 selectinload(ResponseRequestModel.executions).selectinload(
                     ExecutionModel.model_execution
                 ),
+                selectinload(ResponseRequestModel.executions).selectinload(
+                    ExecutionModel.evaluation
+                ),
             )
         )
         model = await self._session.scalar(statement)
@@ -1253,14 +1263,29 @@ class SqlAlchemyThreadRepository:
     def _to_thread(cls, model: ThreadModel) -> Thread:
         ordered_entries = sorted(model.entries, key=lambda entry: entry.ordinal)
         entry_ordinals = {entry.id: entry.ordinal for entry in ordered_entries}
-        entry_responses: dict[UUID, tuple[AnswererId, ResponseStatus]] = {}
+        entry_responses: dict[
+            UUID,
+            tuple[
+                AnswererId,
+                ResponseStatus,
+                UUID,
+                ResponseEvaluationValue | None,
+            ],
+        ] = {}
         for request in model.response_requests:
             for execution in request.executions:
                 if execution.result_entry_id is None:
                     continue
+                evaluation = execution.__dict__.get("evaluation")
                 entry_responses[execution.result_entry_id] = (
                     AnswererId(request.requested_answerer),
                     ResponseStatus(execution.status),
+                    execution.id,
+                    (
+                        ResponseEvaluationValue(evaluation.value)
+                        if evaluation is not None
+                        else None
+                    ),
                 )
         latest = max(
             model.response_requests,
@@ -1286,7 +1311,13 @@ class SqlAlchemyThreadRepository:
     @staticmethod
     def _to_entry(
         model: ThreadEntryModel,
-        response: tuple[AnswererId, ResponseStatus] | None = None,
+        response: tuple[
+            AnswererId,
+            ResponseStatus,
+            UUID,
+            ResponseEvaluationValue | None,
+        ]
+        | None = None,
     ) -> Entry:
         return Entry(
             id=model.id,
@@ -1303,6 +1334,8 @@ class SqlAlchemyThreadRepository:
             created_at=model.created_at,
             answerer=response[0] if response else None,
             response_status=response[1] if response else None,
+            execution_id=response[2] if response else None,
+            evaluation=response[3] if response else None,
         )
 
     @classmethod
@@ -1328,6 +1361,7 @@ class SqlAlchemyThreadRepository:
     @staticmethod
     def _to_execution(model: ExecutionModel, answerer: AnswererId) -> Execution:
         model_execution = model.model_execution
+        evaluation = model.__dict__.get("evaluation")
         return Execution(
             id=model.id,
             response_request_id=model.response_request_id,
@@ -1343,6 +1377,11 @@ class SqlAlchemyThreadRepository:
             artifact_id=(model_execution.artifact_id if model_execution else None),
             error_code=model.error_code,
             created_at=model.created_at,
+            evaluation=(
+                ResponseEvaluationValue(evaluation.value)
+                if evaluation is not None
+                else None
+            ),
         )
 
 

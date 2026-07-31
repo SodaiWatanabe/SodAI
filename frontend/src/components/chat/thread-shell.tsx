@@ -44,11 +44,16 @@ import type {
   AvailableAnswerer,
   ReasoningEffort,
   RealtimeEvent,
+  ResponseEvaluationValue,
   Thread,
   ThreadEntry,
 } from "@/lib/chat/types";
 import { isApiErrorStatus } from "@/lib/api/api-error";
 import { resolveReasoningEffort } from "@/lib/chat/reasoning-effort";
+import {
+  responseEvaluation,
+  withResponseEvaluation,
+} from "@/lib/chat/response-evaluation";
 import { useChatApi } from "@/lib/chat/use-chat-api";
 import { INSUFFICIENT_CREDITS_MESSAGE } from "@/lib/credits/error";
 
@@ -74,7 +79,13 @@ function isResponding(thread?: Thread) {
 }
 
 export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
-  const { cancelExecution, createResponse, getThread } = useChatApi();
+  const {
+    cancelExecution,
+    clearResponseEvaluation,
+    createResponse,
+    getThread,
+    setResponseEvaluation,
+  } = useChatApi();
   const searchNavigationTarget = useThreadSearchNavigationTarget();
   const {
     answerers,
@@ -228,6 +239,59 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
     if (next === operationRef.current) return;
     setOperation(next);
     if (next.kind === "cancelling") void cancelResponse(next.executionId);
+  }
+
+  async function changeResponseEvaluation(
+    executionId: string,
+    value: ResponseEvaluationValue | null,
+  ) {
+    const previous = responseEvaluation(threadRef.current, executionId);
+    const toastId = `response-evaluation:${executionId}`;
+    dismissToast(toastId);
+    updateThread((current) =>
+      current
+        ? withResponseEvaluation(current, executionId, value)
+        : current,
+    );
+    try {
+      if (value === null) {
+        await clearResponseEvaluation(executionId);
+        if (!mountedRef.current) return;
+        updateThread((current) =>
+          current
+            ? withResponseEvaluation(current, executionId, null)
+            : current,
+        );
+      } else {
+        const saved = await setResponseEvaluation(executionId, value);
+        if (!mountedRef.current) return;
+        updateThread((current) =>
+          current
+            ? withResponseEvaluation(
+                current,
+                executionId,
+                saved.value,
+              )
+            : current,
+        );
+      }
+    } catch {
+      if (!mountedRef.current) return;
+      updateThread((current) => {
+        if (
+          !current ||
+          responseEvaluation(current, executionId) !== value
+        ) {
+          return current;
+        }
+        return withResponseEvaluation(current, executionId, previous);
+      });
+      showToast({
+        id: toastId,
+        message: "評価を保存できませんでした。",
+        tone: "error",
+      });
+    }
   }
 
   useEffect(() => {
@@ -637,6 +701,7 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
           turnSpacerRef={turnSpacerRef}
           targetEntryId={targetEntryId}
           targetSearchQuery={targetSearchQuery}
+          onEvaluationChange={changeResponseEvaluation}
         />
 
         <div

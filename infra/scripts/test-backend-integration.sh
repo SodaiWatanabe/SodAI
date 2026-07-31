@@ -96,5 +96,6 @@ DATABASE_URL="$database_url" \
 SODAI_INTEGRATION_TESTS=1 \
 backend/.venv/bin/pytest -q \
   backend/tests/test_platform_integration.py \
+  backend/tests/test_evaluation_integration.py \
   backend/tests/test_human_integration.py \
   backend/tests/test_credit_integration.py

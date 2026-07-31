@@ -1,6 +1,6 @@
 "use client";
 
-import { Brain, Check, Copy } from "lucide-react";
+import { Brain, Check, Copy, ThumbsDown, ThumbsUp } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import type { MessageBrain } from "@/components/chat/message-brain";
@@ -9,12 +9,18 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { nextResponseEvaluation } from "@/lib/chat/response-evaluation";
+import type { ResponseEvaluationValue } from "@/lib/chat/types";
 
 type CopyStatus = "copied" | "failed" | "idle";
 
 type MessageActionsProps = {
   brain: MessageBrain;
   content: string;
+  evaluation?: ResponseEvaluationValue | null;
+  onEvaluationChange?: (
+    value: ResponseEvaluationValue | null,
+  ) => Promise<void>;
 };
 
 const COPY_STATUS_DURATION = 1_600;
@@ -239,10 +245,86 @@ function CopyAction({ content }: { content: string }) {
   );
 }
 
-export function MessageActions({ brain, content }: MessageActionsProps) {
+function EvaluationActions({
+  evaluation,
+  onChange,
+}: {
+  evaluation: ResponseEvaluationValue | null;
+  onChange: (value: ResponseEvaluationValue | null) => Promise<void>;
+}) {
+  const [pending, setPending] = useState(false);
+
+  async function toggle(value: ResponseEvaluationValue) {
+    if (pending) return;
+    setPending(true);
+    try {
+      await onChange(nextResponseEvaluation(evaluation, value));
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        aria-label="良い回答"
+        aria-pressed={evaluation === "positive"}
+        className={`${actionClassName} disabled:pointer-events-none disabled:opacity-50 ${
+          evaluation === "positive"
+            ? "text-[var(--text)]"
+            : ""
+        }`}
+        disabled={pending}
+        title="良い回答"
+        onClick={() => void toggle("positive")}
+      >
+        <ThumbsUp
+          aria-hidden="true"
+          className={`size-4 ${
+            evaluation === "positive" ? "fill-current" : ""
+          }`}
+        />
+      </button>
+      <button
+        type="button"
+        aria-label="良くない回答"
+        aria-pressed={evaluation === "negative"}
+        className={`${actionClassName} disabled:pointer-events-none disabled:opacity-50 ${
+          evaluation === "negative"
+            ? "text-[var(--text)]"
+            : ""
+        }`}
+        disabled={pending}
+        title="良くない回答"
+        onClick={() => void toggle("negative")}
+      >
+        <ThumbsDown
+          aria-hidden="true"
+          className={`size-4 ${
+            evaluation === "negative" ? "fill-current" : ""
+          }`}
+        />
+      </button>
+    </>
+  );
+}
+
+export function MessageActions({
+  brain,
+  content,
+  evaluation,
+  onEvaluationChange,
+}: MessageActionsProps) {
   return (
     <div className="-ml-1.5 mt-1.5 flex h-8 items-center gap-0.5 whitespace-normal leading-none">
       <CopyAction content={content} />
+      {onEvaluationChange ? (
+        <EvaluationActions
+          evaluation={evaluation ?? null}
+          onChange={onEvaluationChange}
+        />
+      ) : null}
       <BrainDisclosure brain={brain} />
     </div>
   );

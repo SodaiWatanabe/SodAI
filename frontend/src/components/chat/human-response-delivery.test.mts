@@ -40,6 +40,7 @@ const thread: Thread = {
       resolved_model: null,
       error_code: null,
       created_at: "2026-07-16T00:00:00Z",
+      evaluation: null,
     },
   },
 };

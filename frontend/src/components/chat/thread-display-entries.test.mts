@@ -12,6 +12,9 @@ const prompt: ThreadEntry = {
   content: "考えてください",
   ordinal: 0,
   created_at: "2026-07-16T00:00:00Z",
+  answerer: null,
+  execution_id: null,
+  evaluation: null,
 };
 
 const streaming: Thread = {
@@ -47,6 +50,7 @@ const streaming: Thread = {
       resolved_model: "hina@artifact",
       error_code: null,
       created_at: "2026-07-16T00:00:01Z",
+      evaluation: null,
     },
   },
 };
@@ -78,6 +82,8 @@ test("実行中から完了Entryの永続化まで同じ描画keyを維持する
         ordinal: 1,
         created_at: "2026-07-16T00:00:02Z",
         answerer: "hina",
+        execution_id: "execution",
+        evaluation: null,
       },
     ],
   };
@@ -170,6 +176,8 @@ test("Humanの演出本文は確定済み状態を変えずに上書きする", 
         created_at: "2026-07-16T00:00:02Z",
         answerer: "human-lite",
         response_status: "completed",
+        execution_id: "execution",
+        evaluation: null,
       },
     ],
     latest_response: {

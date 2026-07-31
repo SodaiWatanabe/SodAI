@@ -40,6 +40,7 @@ const thread: Thread = {
       resolved_model: "hina@artifact",
       error_code: null,
       created_at: "2026-07-13T00:00:00Z",
+      evaluation: null,
     },
   },
 };

@@ -16,6 +16,8 @@ const entry: ThreadEntry = {
   ordinal: 1,
   created_at: "2026-07-16T00:00:00Z",
   answerer: "asuka-1",
+  execution_id: "execution",
+  evaluation: null,
 };
 
 const answerer = {

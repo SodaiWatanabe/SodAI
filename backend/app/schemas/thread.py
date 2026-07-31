@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from app.domain.answerers import AnswererId, AnswererKind, AnswererPricingKind
 from app.domain.reasoning import ReasoningEffort
+from app.domain.responses import ResponseEvaluationValue
 
 ANSWERER_SELECTION_DESCRIPTION = (
     "Answerer ID. Omit to use Hina for guests or Asuka 1 for authenticated accounts."
@@ -66,6 +67,8 @@ class EntryResponse(BaseModel):
     created_at: datetime
     answerer: AnswererId | None = None
     response_status: Literal["completed", "cancelled"] | None = None
+    execution_id: UUID | None = None
+    evaluation: ResponseEvaluationValue | None = None
 
 
 class ExecutionResponse(BaseModel):
@@ -84,6 +87,7 @@ class ExecutionResponse(BaseModel):
     resolved_model: str | None
     error_code: str | None
     created_at: datetime
+    evaluation: ResponseEvaluationValue | None = None
 
 
 class ResponseRequestResponse(BaseModel):

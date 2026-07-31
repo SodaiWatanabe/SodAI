@@ -21,7 +21,8 @@ ChatではHuman Lite、Human Standard、Human ProへPromptを送り、Brainで�
 
 rankはLiteを1、Standardを2、Proを3とする。MVPのrank変更は
 `make human-rank USER_ID=<uuid> RANK=2`で行う。評価による自動昇降は後から
-同じprofile更新境界へ接続する。
+同じprofile更新境界へ接続する。現在の回答評価はAI/Human共通のExecutionへ保存するだけで、
+rank、クレジット消費、回答者報酬には影響しない。
 
 Response作成時にHuman TaskはThreadの全Entryを既存`response_context_items`へsnapshotする。
 AI生成用のturn/byte上限は適用しない。Human回答はAI回答と同じ完了関数でThreadEntryへ確定する。
@@ -77,4 +78,4 @@ event fan-outとticket storeを共有brokerへ移すが、DB matcherとClaimの�
 将来のSodAIモデルも同じ`reasoning_effort`からcompute budget、生成上限、Tool利用枠、料金を
 application policyとして導出する。画像生成などのToolもTask requirementとAssignment payloadを
 追加し、matcherへ能力条件を一つ足す。テキスト回答の正本やThread参加モデルは変えない。
-価格・報酬・評価・需要表示はMVPの外に置く。
+評価をrankへ反映する集計、評価ボーナス、需要表示はMVPの外に置く。

@@ -503,6 +503,37 @@ class ExecutionModel(Base):
     human_task: Mapped["HumanTaskModel | None"] = relationship(
         back_populates="execution", cascade="all, delete-orphan", uselist=False
     )
+    evaluation: Mapped["ResponseEvaluationModel | None"] = relationship(
+        back_populates="execution",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        uselist=False,
+    )
+
+
+class ResponseEvaluationModel(Base):
+    __tablename__ = "response_evaluations"
+    __table_args__ = (
+        CheckConstraint("value IN ('positive', 'negative')", name="value"),
+    )
+
+    execution_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey(f"{APPLICATION_SCHEMA}.executions.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    value: Mapped[str] = mapped_column(String(16), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=sql_func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=sql_func.now(),
+        onupdate=utc_now,
+    )
+
+    execution: Mapped[ExecutionModel] = relationship(back_populates="evaluation")
 
 
 class ModelExecutionModel(Base):

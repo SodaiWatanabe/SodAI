@@ -7,6 +7,8 @@ import type {
   AvailableAnswerer,
   Execution,
   ReasoningEffort,
+  ResponseEvaluation,
+  ResponseEvaluationValue,
   ResponseCreation,
   Thread,
   ThreadSearchPage,
@@ -113,6 +115,26 @@ export function createChatApi(accessToken: ApiAccessTokenSource) {
     return (await response.json()) as Thread;
   }
 
+  async function setResponseEvaluation(
+    executionId: string,
+    value: ResponseEvaluationValue,
+  ): Promise<ResponseEvaluation> {
+    const response = await apiFetch(
+      `/api/v1/executions/${executionId}/evaluation`,
+      {
+        method: "PUT",
+        body: JSON.stringify({ value }),
+      },
+    );
+    return (await response.json()) as ResponseEvaluation;
+  }
+
+  async function clearResponseEvaluation(executionId: string): Promise<void> {
+    await apiFetch(`/api/v1/executions/${executionId}/evaluation`, {
+      method: "DELETE",
+    });
+  }
+
   async function createRealtimeSocket(after?: number): Promise<WebSocket> {
     const response = await apiFetch("/api/v1/realtime/tickets", {
       method: "POST",
@@ -131,6 +153,7 @@ export function createChatApi(accessToken: ApiAccessTokenSource) {
   return {
     archiveThread,
     cancelExecution,
+    clearResponseEvaluation,
     createRealtimeSocket,
     createResponse,
     createThread,
@@ -139,6 +162,7 @@ export function createChatApi(accessToken: ApiAccessTokenSource) {
     listThreads,
     retryResponse,
     searchThreads,
+    setResponseEvaluation,
     updateThread,
   };
 }

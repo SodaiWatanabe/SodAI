@@ -9,7 +9,11 @@ from uuid import UUID
 from app.domain.answerers import AnswererId
 
 if TYPE_CHECKING:
-    from app.domain.responses import ResponseRequest, ResponseStatus
+    from app.domain.responses import (
+        ResponseEvaluationValue,
+        ResponseRequest,
+        ResponseStatus,
+    )
 
 
 class ActorKind(str, Enum):
@@ -82,6 +86,8 @@ class Entry:
     created_at: datetime
     answerer: AnswererId | None = None
     response_status: ResponseStatus | None = None
+    execution_id: UUID | None = None
+    evaluation: ResponseEvaluationValue | None = None
 
 
 @dataclass(frozen=True, slots=True)

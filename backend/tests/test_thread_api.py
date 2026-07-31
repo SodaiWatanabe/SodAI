@@ -10,7 +10,13 @@ from app.domain.answerers import AnswererId
 from app.domain.credits import InsufficientCreditsError
 from app.domain.principals import Principal, PrincipalKind
 from app.domain.reasoning import ReasoningEffort
-from app.domain.responses import Execution, ResponseCreation, ResponseRequest, ResponseStatus
+from app.domain.responses import (
+    Execution,
+    ResponseCreation,
+    ResponseEvaluationValue,
+    ResponseRequest,
+    ResponseStatus,
+)
 from app.domain.threads import (
     Actor,
     ActorKind,
@@ -103,6 +109,7 @@ def completed_thread_fixture() -> Thread:
         status=ResponseStatus.COMPLETED,
         partial_output="回答です。",
         resolved_model="hina@api-test",
+        evaluation=ResponseEvaluationValue.POSITIVE,
     )
     response = replace(
         creation.response,
@@ -118,6 +125,9 @@ def completed_thread_fixture() -> Thread:
         ordinal=1,
         created_at=NOW,
         answerer=AnswererId.HINA,
+        response_status=ResponseStatus.COMPLETED,
+        execution_id=EXECUTION_ID,
+        evaluation=ResponseEvaluationValue.POSITIVE,
     )
     return replace(
         creation.thread,
@@ -132,6 +142,7 @@ def cancelled_thread_fixture() -> Thread:
         completed.entries[-1],
         content="回答の途中",
         response_status=ResponseStatus.CANCELLED,
+        evaluation=None,
     )
     response = replace(
         completed.latest_response,
@@ -140,6 +151,7 @@ def cancelled_thread_fixture() -> Thread:
             completed.latest_response.execution,
             status=ResponseStatus.CANCELLED,
             partial_output="回答の途中",
+            evaluation=None,
         ),
     )
     return replace(
@@ -311,6 +323,9 @@ async def test_read_thread_exposes_result_answerer_without_internal_model() -> N
     assert response.status_code == 200
     result_entry = response.json()["entries"][-1]
     assert result_entry["answerer"] == "hina"
+    assert result_entry["execution_id"] == str(EXECUTION_ID)
+    assert result_entry["evaluation"] == "positive"
+    assert response.json()["latest_response"]["execution"]["evaluation"] == "positive"
     assert "resolved_model" not in result_entry
 
 

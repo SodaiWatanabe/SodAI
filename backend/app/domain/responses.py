@@ -21,6 +21,19 @@ class ResponseStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
+class ResponseEvaluationValue(str, Enum):
+    POSITIVE = "positive"
+    NEGATIVE = "negative"
+
+
+@dataclass(frozen=True, slots=True)
+class ResponseEvaluation:
+    execution_id: UUID
+    value: ResponseEvaluationValue
+    created_at: datetime
+    updated_at: datetime
+
+
 @dataclass(frozen=True, slots=True)
 class Execution:
     id: UUID
@@ -37,6 +50,7 @@ class Execution:
     artifact_id: str | None
     error_code: str | None
     created_at: datetime
+    evaluation: ResponseEvaluationValue | None = None
 
 
 @dataclass(frozen=True, slots=True)
