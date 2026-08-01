@@ -266,47 +266,81 @@ function EvaluationActions({
 
   return (
     <>
-      <button
-        type="button"
-        aria-label="良い回答"
-        aria-pressed={evaluation === "positive"}
-        className={`${actionClassName} disabled:pointer-events-none disabled:opacity-50 ${
-          evaluation === "positive"
-            ? "text-[var(--text)]"
-            : ""
-        }`}
+      <EvaluationAction
+        active={evaluation === "positive"}
         disabled={pending}
-        title="良い回答"
-        onClick={() => void toggle("positive")}
-      >
-        <ThumbsUp
-          aria-hidden="true"
-          className={`size-4 ${
-            evaluation === "positive" ? "fill-current" : ""
-          }`}
-        />
-      </button>
-      <button
-        type="button"
-        aria-label="良くない回答"
-        aria-pressed={evaluation === "negative"}
-        className={`${actionClassName} disabled:pointer-events-none disabled:opacity-50 ${
-          evaluation === "negative"
-            ? "text-[var(--text)]"
-            : ""
-        }`}
+        label="良い回答"
+        value="positive"
+        onSelect={toggle}
+      />
+      <EvaluationAction
+        active={evaluation === "negative"}
         disabled={pending}
-        title="良くない回答"
-        onClick={() => void toggle("negative")}
-      >
-        <ThumbsDown
-          aria-hidden="true"
-          className={`size-4 ${
-            evaluation === "negative" ? "fill-current" : ""
-          }`}
-        />
-      </button>
+        label="良くない回答"
+        value="negative"
+        onSelect={toggle}
+      />
     </>
+  );
+}
+
+function EvaluationAction({
+  active,
+  disabled,
+  label,
+  onSelect,
+  value,
+}: {
+  active: boolean;
+  disabled: boolean;
+  label: string;
+  onSelect: (value: ResponseEvaluationValue) => Promise<void>;
+  value: ResponseEvaluationValue;
+}) {
+  const {
+    clearCloseTimer,
+    closeAfterHover,
+    contentRef,
+    openOnHover,
+  } = useHoverPopover();
+  const Icon = value === "positive" ? ThumbsUp : ThumbsDown;
+
+  return (
+    <Popover collisionPadding={8} gutter={4} placement="top-start">
+      <div
+        className="inline-flex"
+        onPointerEnter={(event) => openOnHover(event.pointerType)}
+        onPointerLeave={(event) => closeAfterHover(event.pointerType)}
+      >
+        <PopoverTrigger
+          aria-label={label}
+          aria-pressed={active}
+          className={`${actionClassName} disabled:pointer-events-none disabled:opacity-50 ${
+            active ? "text-[var(--text)]" : ""
+          }`}
+          disabled={disabled}
+          onClick={(event) => {
+            event.preventDefault();
+            clearCloseTimer();
+            void onSelect(value);
+          }}
+        >
+          <Icon
+            aria-hidden="true"
+            className={`size-4 ${active ? "fill-current" : ""}`}
+          />
+        </PopoverTrigger>
+        <PopoverContent
+          ref={contentRef}
+          role="tooltip"
+          className="w-max px-3 py-2 text-xs font-medium"
+          onPointerEnter={(event) => openOnHover(event.pointerType)}
+          onPointerLeave={(event) => closeAfterHover(event.pointerType)}
+        >
+          {label}
+        </PopoverContent>
+      </div>
+    </Popover>
   );
 }
 
