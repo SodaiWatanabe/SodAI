@@ -1,4 +1,5 @@
 import json
+import stat
 
 import pytest
 
@@ -60,6 +61,24 @@ def test_activation_validates_then_atomically_promotes_artifact(tmp_path) -> Non
 
     assert activated == artifact
     assert resolve_hina_artifact(tmp_path) == artifact
+
+
+def test_activation_grants_the_model_group_read_only_access(tmp_path) -> None:
+    create_artifact(tmp_path)
+    for path in (tmp_path, *tmp_path.rglob("*")):
+        path.chmod(0o700 if path.is_dir() else 0o600)
+
+    activate_hina_artifact(tmp_path, ARTIFACT_ID)
+
+    for path in (tmp_path, *tmp_path.rglob("*")):
+        mode = path.stat().st_mode
+        assert mode & stat.S_IRGRP
+        if path.is_dir():
+            assert mode & stat.S_IXGRP
+        assert mode & stat.S_IWGRP == 0
+        assert mode & stat.S_IROTH == 0
+        assert mode & stat.S_IWOTH == 0
+        assert mode & stat.S_IXOTH == 0
 
 
 def test_activation_rejects_corrupted_artifact(tmp_path) -> None:

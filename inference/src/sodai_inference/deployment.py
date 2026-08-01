@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import json
 import os
+import stat
 from pathlib import Path
 from re import fullmatch
 
@@ -54,6 +55,7 @@ def activate_artifact(model_root: Path, model: str, artifact_id: str) -> Path:
         encoding="utf-8",
     )
     os.replace(temporary, deployment_path)
+    _grant_model_group_read_access(model_root)
     return artifact_path
 
 
@@ -64,6 +66,15 @@ def _artifact_path(runtime_root: Path, artifact_id: str) -> Path:
     if artifact_path.parent != runtime_root.resolve():
         raise ValueError("model artifact must be contained by the model root")
     return artifact_path
+
+
+def _grant_model_group_read_access(model_root: Path) -> None:
+    for path in (model_root, *model_root.rglob("*")):
+        mode = path.stat().st_mode & ~(stat.S_IWGRP | stat.S_IRWXO)
+        mode |= stat.S_IRGRP
+        if path.is_dir():
+            mode |= stat.S_IXGRP
+        path.chmod(mode)
 
 
 def _main(model: str) -> None:

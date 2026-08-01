@@ -104,6 +104,8 @@ services:
       - app
       - data
       - edge
+    group_add:
+      - "1000"
     volumes:
       - ${SODAI_MODEL_HOST_PATH:-./var/models}:/models:ro
     healthcheck:

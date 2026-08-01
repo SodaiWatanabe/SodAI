@@ -96,13 +96,16 @@ import json
 import sys
 
 config = json.load(sys.stdin)
+backend = config["services"]["backend"]
 mounts = [
     mount
-    for mount in config["services"]["backend"].get("volumes", [])
+    for mount in backend.get("volumes", [])
     if mount.get("target") == "/models"
 ]
 if len(mounts) != 1 or mounts[0].get("type") != "bind" or mounts[0].get("read_only") is not True:
     raise SystemExit("backend must mount /models from the host as read-only")
+if "1000" not in backend.get("group_add", []):
+    raise SystemExit("backend must join the model owner group")
 '
 
 sed -i 's#BETTER_AUTH_URL=https://app.sodai.me#BETTER_AUTH_URL=https://sodai.me#' "$auth_env"
