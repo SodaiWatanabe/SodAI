@@ -8,7 +8,6 @@ from app.db.session import dispose_engine
 from app.routers import api_router
 from app.services.human_coordinator import create_human_coordinator
 from app.services.inference.coordinator import create_generation_coordinator
-from app.services.inference.pseudo_worker import create_pseudo_generation_worker
 
 settings = get_settings()
 
@@ -17,14 +16,11 @@ settings = get_settings()
 async def lifespan(_: FastAPI):
     coordinator = create_generation_coordinator(settings)
     human_coordinator = create_human_coordinator(settings)
-    pseudo_worker = create_pseudo_generation_worker(settings)
     coordinator.start()
     human_coordinator.start()
-    pseudo_worker.start()
     try:
         yield
     finally:
-        await pseudo_worker.stop()
         await human_coordinator.stop()
         await coordinator.stop()
         await dispose_engine()

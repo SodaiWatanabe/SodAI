@@ -93,6 +93,7 @@ SODAI_CREDIT_BACKFILL_TEST=1 \
 backend/.venv/bin/pytest -q backend/tests/test_credit_migration_backfill.py
 
 DATABASE_URL="$database_url" \
+SODAI_MODEL_ROOT="$repository_root/backend/tests/fixtures/models" \
 SODAI_INTEGRATION_TESTS=1 \
 backend/.venv/bin/pytest -q \
   backend/tests/test_platform_integration.py \

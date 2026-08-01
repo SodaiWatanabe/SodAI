@@ -5,7 +5,7 @@ from functools import lru_cache
 from hashlib import sha256
 from uuid import UUID
 
-from sodai_contracts.inference import GenerationJob
+from sodai_contracts.inference import GenerationJob, GenerationOptions
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import Settings, get_settings
@@ -28,7 +28,6 @@ from app.domain.threads import SpaceSummary, Thread, ThreadSearchPage, ThreadSum
 from app.repositories.threads import GenerationCapacityExceededError, SqlAlchemyThreadRepository
 from app.services.human import get_human_service
 from app.services.human_credits import HumanCreditService
-from app.services.inference.asuka import ASUKA_PSEUDO_ARTIFACT_ID
 from app.services.inference.billing import InferenceBillingService
 from app.services.inference.deployment import ModelDeploymentError, ModelDeploymentRegistry
 from app.services.realtime import realtime_hub
@@ -395,6 +394,10 @@ class ThreadService:
             model=answerer.runtime_name,
             artifact_id=artifact_id,
             turns=await repository.generation_turns(response.id),
+            options=GenerationOptions(
+                max_output_tokens=answerer.generation_max_output_tokens,
+                temperature=answerer.generation_temperature,
+            ),
             deadline=deadline,
         )
         await repository.add_generation_outbox(execution.id, job.to_json())
@@ -421,10 +424,6 @@ class ThreadService:
             )
 
     def _validate_retry_artifact(self, answerer: AnswererDefinition, artifact_id: str) -> None:
-        if answerer.runtime_kind is RuntimeKind.PSEUDO_MODEL:
-            if artifact_id != ASUKA_PSEUDO_ARTIFACT_ID:
-                raise AnswererUnavailableError
-            return
         try:
             self._deployments.resolve_artifact(answerer.runtime_name, artifact_id)
         except ModelDeploymentError as error:
@@ -450,8 +449,6 @@ class ThreadService:
     def _resolve_runtime(self, answerer: AnswererDefinition) -> tuple[str, str | None]:
         if answerer.runtime_kind is RuntimeKind.HUMAN:
             return f"human:{answerer.runtime_name}", None
-        if answerer.runtime_kind is RuntimeKind.PSEUDO_MODEL:
-            return f"pseudo:{answerer.runtime_name}", ASUKA_PSEUDO_ARTIFACT_ID
         try:
             deployment = self._deployments.resolve(answerer.runtime_name)
         except ModelDeploymentError as error:

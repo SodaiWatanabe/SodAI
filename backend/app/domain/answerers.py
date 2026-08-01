@@ -30,7 +30,6 @@ class AnswererAudience(str, Enum):
 
 class RuntimeKind(str, Enum):
     LOCAL_MODEL = "local_model"
-    PSEUDO_MODEL = "pseudo_model"
     HUMAN = "human"
 
 
@@ -72,6 +71,8 @@ class AnswererDefinition:
         {ReasoningEffort.NONE}
     )
     default_reasoning_effort: ReasoningEffort = ReasoningEffort.NONE
+    generation_temperature: float = 0.85
+    generation_max_output_tokens: int = 128
     required_human_rank: int | None = None
     is_legacy: bool = False
 
@@ -169,11 +170,13 @@ ANSWERER_CATALOG = (
         actor_id=ASUKA_1_ACTOR_ID,
         name="Asuka 1",
         description="会話に最適。",
-        runtime_kind=RuntimeKind.PSEUDO_MODEL,
+        runtime_kind=RuntimeKind.LOCAL_MODEL,
         runtime_name="asuka-1",
         tariff=ASUKA_1_TARIFF,
         audiences=frozenset({AnswererAudience.AUTHENTICATED}),
         default_for=frozenset({AnswererAudience.AUTHENTICATED}),
+        generation_temperature=0.85,
+        generation_max_output_tokens=256,
     ),
     AnswererDefinition(
         id=AnswererId.HINA,

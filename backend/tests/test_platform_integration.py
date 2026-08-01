@@ -4,12 +4,10 @@ from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 import pytest
-from redis.asyncio import Redis
 from sodai_contracts.inference import (
     FinishReason,
     GenerationEvent,
     GenerationEventType,
-    InferenceNamespace,
 )
 from sqlalchemy import delete, func, select
 from sqlalchemy.exc import DBAPIError
@@ -37,12 +35,8 @@ from app.repositories.threads import (
     SqlAlchemyThreadRepository,
     ThreadBusyError,
 )
-from app.services.inference.asuka import AsukaPseudoGenerator
 from app.services.inference.billing import InferenceBillingService
-from app.services.inference.broker import RedisInferenceBroker
-from app.services.inference.coordinator import GenerationCoordinator
 from app.services.inference.deployment import ModelDeploymentRegistry
-from app.services.inference.pseudo_worker import PseudoGenerationWorker
 from app.services.realtime import realtime_hub
 from app.services.thread import ThreadService
 
@@ -50,6 +44,9 @@ pytestmark = pytest.mark.skipif(
     os.getenv("SODAI_INTEGRATION_TESTS") != "1",
     reason="set SODAI_INTEGRATION_TESTS=1 to run PostgreSQL integration tests",
 )
+
+ASUKA1_TEST_ARTIFACT_ID = "1111111111111111"
+ASUKA1_TEST_RESOLVED_MODEL = f"asuka-1@{ASUKA1_TEST_ARTIFACT_ID}"
 
 
 @pytest.fixture
@@ -342,8 +339,8 @@ async def test_failed_response_retry_is_idempotent_and_preserves_context() -> No
                 context,
                 "失敗した応答を再試行して",
                 get_answerer(AnswererId.ASUKA_1),
-                execution_target="pseudo:asuka-1",
-                artifact_id="pseudo-v1",
+                execution_target="local:asuka-1",
+                artifact_id=ASUKA1_TEST_ARTIFACT_ID,
                 deadline_at=datetime.now(timezone.utc) + timedelta(minutes=5),
             )
             await session.commit()
@@ -356,7 +353,7 @@ async def test_failed_response_retry_is_idempotent_and_preserves_context() -> No
                 attempt_id=first.attempt_id,
                 sequence=0,
                 thread_id=creation.thread.id,
-                resolved_model="asuka-1@pseudo-v1",
+                resolved_model=ASUKA1_TEST_RESOLVED_MODEL,
             ),
             GenerationEvent.create(
                 GenerationEventType.FAILED,
@@ -476,7 +473,7 @@ async def test_failed_response_retry_is_idempotent_and_preserves_context() -> No
                 attempt_id=third.attempt_id,
                 sequence=0,
                 thread_id=creation.thread.id,
-                resolved_model="asuka-1@pseudo-v1",
+                resolved_model=ASUKA1_TEST_RESOLVED_MODEL,
             ),
             GenerationEvent.create(
                 GenerationEventType.COMPLETED,
@@ -541,8 +538,8 @@ async def test_append_and_retry_serialize_without_deadlock() -> None:
                 context,
                 "競合を検証して",
                 get_answerer(AnswererId.ASUKA_1),
-                execution_target="pseudo:asuka-1",
-                artifact_id="pseudo-v1",
+                execution_target="local:asuka-1",
+                artifact_id=ASUKA1_TEST_ARTIFACT_ID,
                 deadline_at=datetime.now(timezone.utc) + timedelta(minutes=5),
             )
             await session.commit()
@@ -601,99 +598,6 @@ async def test_append_and_retry_serialize_without_deadlock() -> None:
                 select(ActorModel).where(ActorModel.owner_user_id == principal.id)
             )
             user = await session.get(UserModel, principal.id)
-            if user is not None:
-                await session.delete(user)
-                await session.flush()
-            if actor is not None:
-                await session.delete(actor)
-            await session.commit()
-
-
-@pytest.mark.anyio
-async def test_asuka_completes_through_the_shared_generation_pipeline() -> None:
-    settings = get_settings()
-    factory = get_session_factory()
-    principal = Principal(PrincipalKind.USER, uuid4())
-    namespace = InferenceNamespace(f"sodai:test:{uuid4().hex}:inference")
-    broker_redis = Redis.from_url(
-        settings.redis_url,
-        password=settings.redis_password,
-        decode_responses=True,
-    )
-    worker_redis = Redis.from_url(
-        settings.redis_url,
-        password=settings.redis_password,
-        decode_responses=True,
-    )
-    cleanup_redis = Redis.from_url(
-        settings.redis_url,
-        password=settings.redis_password,
-        decode_responses=True,
-    )
-    coordinator = GenerationCoordinator(
-        factory,
-        RedisInferenceBroker(
-            broker_redis,
-            namespace=namespace,
-            event_consumer="integration-projector",
-            event_claim_idle_ms=500,
-        ),
-        cancellation_ttl_seconds=settings.inference_job_timeout_seconds + 60,
-        reconciliation_interval_seconds=0.1,
-    )
-    worker = PseudoGenerationWorker(
-        worker_redis,
-        AsukaPseudoGenerator(),
-        namespace=namespace,
-        consumer_name="integration-asuka",
-    )
-    service = ThreadService(factory, ModelDeploymentRegistry(settings.model_root), settings)
-    execution_attempt_id = None
-
-    async with factory() as session:
-        session.add(UserModel(id=principal.id, display_name="Asuka integration"))
-        await session.commit()
-
-    coordinator.start()
-    worker.start()
-    try:
-        creation = await service.create(principal, "こんにちは", AnswererId.ASUKA_1)
-        execution_attempt_id = creation.response.execution.attempt_id
-
-        deadline = asyncio.get_running_loop().time() + 12
-        while True:
-            thread = await service.get(principal, creation.thread.id)
-            if thread.latest_response is not None and thread.latest_response.status.value in {
-                "completed",
-                "failed",
-            }:
-                break
-            if asyncio.get_running_loop().time() >= deadline:
-                pytest.fail("Asuka generation did not reach a terminal state")
-            await asyncio.sleep(0.05)
-
-        assert thread.latest_response is not None
-        assert thread.latest_response.status.value == "completed"
-        assert thread.latest_response.execution.result_entry_id == thread.entries[-1].id
-        assert thread.entries[-1].author.key == "model:asuka-1"
-        assert len(thread.entries[-1].content) > 80
-    finally:
-        await worker.stop()
-        await coordinator.stop()
-        keys = [
-            namespace.event_stream,
-            namespace.job_stream_for("asuka-1", worker.artifact_id),
-        ]
-        if execution_attempt_id is not None:
-            keys.append(namespace.attempt_lock(execution_attempt_id))
-            keys.append(namespace.attempt_progress(execution_attempt_id))
-        await cleanup_redis.delete(*keys)
-        await cleanup_redis.aclose()
-        async with factory() as session:
-            user = await session.get(UserModel, principal.id)
-            actor = await session.scalar(
-                select(ActorModel).where(ActorModel.owner_user_id == principal.id)
-            )
             if user is not None:
                 await session.delete(user)
                 await session.flush()

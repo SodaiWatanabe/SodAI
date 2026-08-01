@@ -5,7 +5,12 @@ from datetime import datetime, timedelta, timezone
 from uuid import UUID, uuid4
 
 import pytest
-from sodai_contracts.inference import FinishReason, GenerationEvent, GenerationEventType
+from sodai_contracts.inference import (
+    FinishReason,
+    GenerationEvent,
+    GenerationEventType,
+    GenerationJob,
+)
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -65,6 +70,9 @@ pytestmark = pytest.mark.skipif(
     reason="set SODAI_INTEGRATION_TESTS=1 to run PostgreSQL integration tests",
 )
 
+ASUKA1_TEST_ARTIFACT_ID = "1111111111111111"
+ASUKA1_TEST_RESOLVED_MODEL = f"asuka-1@{ASUKA1_TEST_ARTIFACT_ID}"
+
 
 @pytest.fixture
 def anyio_backend() -> str:
@@ -95,8 +103,8 @@ async def create_execution(principal: Principal, content: str):
             context,
             content,
             get_answerer(AnswererId.ASUKA_1),
-            execution_target="pseudo:asuka-1",
-            artifact_id="pseudo-v1",
+            execution_target="local:asuka-1",
+            artifact_id=ASUKA1_TEST_ARTIFACT_ID,
             deadline_at=datetime.now(timezone.utc) + timedelta(minutes=5),
         )
         await session.commit()
@@ -551,10 +559,15 @@ async def test_asuka_uses_free_allowance_and_settles_one_tenth_credit() -> None:
     async with factory() as session:
         reserved = await CreditLedgerRepository(session).balance(principal.id)
         intent = await session.get(InferenceBillingIntentModel, execution.id)
+        outbox = await session.scalar(
+            select(OutboxEventModel).where(OutboxEventModel.aggregate_id == execution.id)
+        )
         assert reserved.available == FREE_CREDIT_ALLOWANCE_POLICY.amount - charge
         assert reserved.reserved == charge
         assert intent is not None
         assert intent.tariff_revision == "asuka-1-flat-v2"
+        assert outbox is not None
+        assert GenerationJob.from_json(outbox.payload).options.max_output_tokens == 256
 
     events = (
         GenerationEvent.create(
@@ -563,7 +576,7 @@ async def test_asuka_uses_free_allowance_and_settles_one_tenth_credit() -> None:
             attempt_id=execution.attempt_id,
             sequence=0,
             thread_id=creation.thread.id,
-            resolved_model="asuka-1@pseudo-v1",
+            resolved_model=ASUKA1_TEST_RESOLVED_MODEL,
         ),
         GenerationEvent.create(
             GenerationEventType.COMPLETED,
@@ -1938,7 +1951,7 @@ async def test_user_deletion_pseudonymizes_but_preserves_the_ledger() -> None:
         attempt_id=creation.response.execution.attempt_id,
         sequence=0,
         thread_id=creation.thread.id,
-        resolved_model="asuka-1@pseudo-v1",
+        resolved_model=ASUKA1_TEST_RESOLVED_MODEL,
         input_tokens=0,
     )
     completed = GenerationEvent.create(
@@ -2063,7 +2076,7 @@ async def test_inference_billing_records_usage_and_is_terminally_idempotent() ->
         attempt_id=execution.attempt_id,
         sequence=0,
         thread_id=creation.thread.id,
-        resolved_model="asuka-1@pseudo-v1",
+        resolved_model=ASUKA1_TEST_RESOLVED_MODEL,
         input_tokens=10,
     )
     completed = GenerationEvent.create(
@@ -2169,7 +2182,7 @@ async def test_cancelled_inference_preserves_partial_output_and_settles_actual_u
             attempt_id=execution.attempt_id,
             sequence=0,
             thread_id=creation.thread.id,
-            resolved_model="asuka-1@pseudo-v1",
+            resolved_model=ASUKA1_TEST_RESOLVED_MODEL,
             input_tokens=10,
         ),
         GenerationEvent.create(
@@ -2264,7 +2277,7 @@ async def test_model_completion_and_cancellation_finalize_exactly_once() -> None
             attempt_id=execution.attempt_id,
             sequence=0,
             thread_id=creation.thread.id,
-            resolved_model="asuka-1@pseudo-v1",
+            resolved_model=ASUKA1_TEST_RESOLVED_MODEL,
             input_tokens=10,
         ),
         GenerationEvent.create(
@@ -2546,7 +2559,7 @@ async def test_unmetered_paid_completion_uses_the_explicit_fallback() -> None:
             attempt_id=execution.attempt_id,
             sequence=0,
             thread_id=creation.thread.id,
-            resolved_model="asuka-1@pseudo-v1",
+            resolved_model=ASUKA1_TEST_RESOLVED_MODEL,
         ),
         GenerationEvent.create(
             GenerationEventType.COMPLETED,
@@ -2881,6 +2894,7 @@ async def test_exhausted_free_allowance_rejects_the_next_asuka_thread() -> None:
     principal = await create_user()
     settings = get_settings()
     factory = get_session_factory()
+    settings = settings.model_copy(update={"inference_model_active_limit": 10_000})
     service = ThreadService(
         factory,
         ModelDeploymentRegistry(settings.model_root),

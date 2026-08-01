@@ -24,7 +24,6 @@ from app.repositories.inference_operations import (
     InferenceOperationsRepository,
     unavailable_database_snapshot,
 )
-from app.services.inference.asuka import ASUKA_PSEUDO_ARTIFACT_ID
 from app.services.inference.deployment import ModelDeploymentError, ModelDeploymentRegistry
 
 logger = logging.getLogger(__name__)
@@ -223,8 +222,6 @@ class InferenceOperationsService:
         model: str,
         artifact_id: str,
     ) -> bool:
-        if runtime_kind is RuntimeKind.PSEUDO_MODEL:
-            return artifact_id == ASUKA_PSEUDO_ARTIFACT_ID
         try:
             self._deployments.resolve_artifact(model, artifact_id)
         except ModelDeploymentError:
@@ -232,8 +229,6 @@ class InferenceOperationsService:
         return True
 
     def _artifact(self, runtime_kind: RuntimeKind, model: str) -> tuple[str | None, bool]:
-        if runtime_kind is RuntimeKind.PSEUDO_MODEL:
-            return ASUKA_PSEUDO_ARTIFACT_ID, True
         try:
             return self._deployments.resolve(model).artifact_id, True
         except ModelDeploymentError:

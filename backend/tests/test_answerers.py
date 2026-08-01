@@ -11,7 +11,6 @@ from app.domain.answerers import (
 )
 from app.domain.principals import Principal, PrincipalKind
 from app.domain.reasoning import ReasoningEffort
-from app.services.inference.asuka import AsukaPseudoGenerator
 from app.services.thread import (
     AnswererAccessError,
     ReasoningEffortAccessError,
@@ -31,8 +30,10 @@ def test_guest_cannot_select_asuka() -> None:
 def test_authenticated_account_can_select_asuka() -> None:
     answerer = ThreadService.select_answerer(principal(PrincipalKind.USER), AnswererId.ASUKA_1)
 
-    assert answerer.runtime_kind is RuntimeKind.PSEUDO_MODEL
+    assert answerer.runtime_kind is RuntimeKind.LOCAL_MODEL
     assert answerer.runtime_name == "asuka-1"
+    assert answerer.generation_temperature == 0.85
+    assert answerer.generation_max_output_tokens == 256
 
 
 @pytest.mark.parametrize(
@@ -67,6 +68,8 @@ def test_answerer_catalog_is_the_single_ui_source() -> None:
         by_id[AnswererId.ASUKA_1].pricing.unmetered_charge,
     ) == ("asuka-1-flat-v2", 100_000, 0, 0, 100_000, 100_000)
     assert by_id[AnswererId.HINA].pricing.kind is AnswererPricingKind.FREE
+    hina = get_answerer(AnswererId.HINA)
+    assert hina is not None and hina.generation_max_output_tokens == 128
     assert by_id[AnswererId.HINA].is_legacy is True
     assert by_id[AnswererId.HUMAN_LITE].is_legacy is False
     assert by_id[AnswererId.HUMAN_STANDARD].is_legacy is False
@@ -214,10 +217,3 @@ def test_human_reasoning_effort_unlocks_by_answerer_rank() -> None:
         ThreadService.select_reasoning_effort(pro, ReasoningEffort.XHIGH)
         is ReasoningEffort.XHIGH
     )
-
-
-def test_asuka_pseudo_response_is_long_enough_to_exercise_streaming() -> None:
-    response = AsukaPseudoGenerator.compose("こんにちは")
-
-    assert len(response) > 80
-    assert "疑似AI" in response

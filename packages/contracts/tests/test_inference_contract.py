@@ -9,6 +9,7 @@ from sodai_contracts.inference import (
     GenerationEvent,
     GenerationEventType,
     GenerationJob,
+    GenerationOptions,
     GenerationTurn,
     InferenceCorrelation,
     InferenceNamespace,
@@ -17,6 +18,11 @@ from sodai_contracts.inference import (
     MAX_GENERATION_TURNS,
     log_inference_event,
 )
+
+
+def test_generation_options_default_to_128_output_tokens() -> None:
+    assert GenerationOptions().max_output_tokens == 128
+    assert GenerationOptions.from_dict({}).max_output_tokens == 128
 
 
 def test_inference_namespace_preserves_production_keys_and_isolates_test_runs() -> None:
