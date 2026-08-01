@@ -19,3 +19,25 @@ export type BrainState = {
   rank_name: string;
   assignment: HumanAssignment | null;
 };
+
+export type HumanAnswerSummary = {
+  execution_id: string;
+  answerer_name: string;
+  reasoning_effort: ReasoningEffort;
+  prompt_preview: string;
+  answered_at: string;
+};
+
+export type HumanAnswerList = {
+  items: HumanAnswerSummary[];
+  next_cursor: string | null;
+};
+
+export type HumanAnswerDetail = {
+  execution_id: string;
+  answerer_name: string;
+  reasoning_effort: ReasoningEffort;
+  answered_at: string;
+  context: HumanContextEntry[];
+  answer: string;
+};

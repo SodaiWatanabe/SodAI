@@ -4,6 +4,7 @@ import { ApiAccessTokenProvider } from "@/components/auth/api-access-token-provi
 import { ChatDataProvider } from "@/components/chat/chat-data-provider";
 import { ChatFrame } from "@/components/chat/chat-frame";
 import { CreditBalanceProvider } from "@/components/credits/credit-balance-provider";
+import { HumanDataProvider } from "@/components/human/human-data-provider";
 import { ToastProvider } from "@/components/ui/toast-provider";
 import { getCurrentAccount } from "@/lib/account/server";
 import { getAuthCapabilities, getCurrentSession } from "@/lib/auth/session";
@@ -42,20 +43,22 @@ export default async function ChatLayout({
       <ApiAccessTokenProvider key={ownerKey} authenticated={Boolean(session)}>
         <CreditBalanceProvider>
           <ChatDataProvider>
-            <ChatFrame
-              googleAuthEnabled={authCapabilities.google}
-              initialAccountUnavailable={Boolean(
-                account && account.status !== "active",
-              )}
-              initialDesktopSidebarCollapsed={sidebarPreference === "collapsed"}
-              initialProfileIncomplete={
-                account?.status === "active" && account.display_name === null
-              }
-              initialUser={user}
-            >
-              {children}
-              {settings}
-            </ChatFrame>
+            <HumanDataProvider authenticated={Boolean(session)}>
+              <ChatFrame
+                googleAuthEnabled={authCapabilities.google}
+                initialAccountUnavailable={Boolean(
+                  account && account.status !== "active",
+                )}
+                initialDesktopSidebarCollapsed={sidebarPreference === "collapsed"}
+                initialProfileIncomplete={
+                  account?.status === "active" && account.display_name === null
+                }
+                initialUser={user}
+              >
+                {children}
+                {settings}
+              </ChatFrame>
+            </HumanDataProvider>
           </ChatDataProvider>
         </CreditBalanceProvider>
       </ApiAccessTokenProvider>

@@ -1,6 +1,7 @@
 export type SodaiProduct = "chat" | "brain";
 
 export type ChatFrameRoute = {
+  activeHumanAnswerId?: string;
   activeThreadId?: string;
   newChatActive: boolean;
   product: SodaiProduct;
@@ -19,6 +20,10 @@ export function resolveChatFrameRoute(
   const rootSegment = childSegments.at(0);
 
   return {
+    activeHumanAnswerId:
+      rootSegment === "brain" && childSegments.at(1) === "answers"
+        ? childSegments.at(2)
+        : undefined,
     activeThreadId:
       rootSegment === "t" ? childSegments.at(1) : undefined,
     newChatActive: rootSegment === undefined,

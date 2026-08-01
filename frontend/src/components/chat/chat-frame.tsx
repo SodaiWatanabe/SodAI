@@ -33,8 +33,11 @@ import {
 } from "@/components/chat/thread-search-navigation";
 import { useKeyboardShortcuts } from "@/components/preferences/keyboard-shortcuts-provider";
 import { ToastViewport } from "@/components/ui/toast-provider";
+import { HumanAnswerListItem } from "@/components/human/human-answer-list-item";
+import { useHumanData } from "@/components/human/human-data-provider";
 import { authClient } from "@/lib/auth/client";
 import type { ThreadSearchHit, ThreadSummary } from "@/lib/chat/types";
+import type { HumanAnswerSummary } from "@/lib/human/types";
 import { matchesKeyboardShortcut } from "@/lib/preferences/keyboard-shortcuts";
 import { saveDesktopSidebarPreference } from "@/lib/preferences/sidebar";
 
@@ -50,10 +53,16 @@ export type ChatFrameProps = {
 };
 
 type SidebarProps = {
+  activeHumanAnswerId?: string;
   activeThreadId?: string;
+  answers: HumanAnswerSummary[];
+  answersLoading: boolean;
+  brainHomeActive: boolean;
+  historyDisabled: boolean;
   compact: boolean;
   contentVisible: boolean;
   newChatActive: boolean;
+  nextAnswersCursor: string | null;
   product: SodaiProduct;
   threads: ThreadSummary[];
   guestActionsVisible: boolean;
@@ -63,6 +72,8 @@ type SidebarProps = {
   onOpenCredits: () => void;
   onOpenSearch: () => void;
   onOpenSettings: () => void;
+  onLoadMoreAnswers: () => void;
+  onSelectHumanAnswer: (id: string) => void;
   onSelectProduct: (product: SodaiProduct) => void;
   onSelectThread: (id: string) => void;
   onSignOut: () => void;
@@ -71,19 +82,27 @@ type SidebarProps = {
 };
 
 function Sidebar({
+  activeHumanAnswerId,
   activeThreadId,
+  answers,
+  answersLoading,
+  brainHomeActive,
   compact,
   contentVisible,
   newChatActive,
+  nextAnswersCursor,
   product,
   threads,
   guestActionsVisible,
+  historyDisabled,
   onClose,
   onArchiveThread,
   onOpenAuth,
   onOpenCredits,
   onOpenSearch,
   onOpenSettings,
+  onLoadMoreAnswers,
+  onSelectHumanAnswer,
   onSelectProduct,
   onSelectThread,
   onSignOut,
@@ -191,23 +210,64 @@ function Sidebar({
             ) : null}
           </>
         ) : (
-          <button
-            type="button"
-            title="思考する"
-            aria-current="page"
-            className="flex h-9 w-full shrink-0 items-center rounded-xl bg-[var(--hover)] text-left text-sm font-medium text-[var(--text)] transition-colors hover:bg-[var(--hover)]"
-            onClick={() => onSelectProduct("brain")}
-          >
-            <span className="grid shrink-0 place-items-center px-2.5">
-              <Orbit aria-hidden="true" className="size-5" />
-            </span>
-            <span
-              aria-hidden={!contentVisible}
-              className={`whitespace-nowrap transition-opacity duration-150 ${contentVisibility}`}
+          <>
+            <button
+              type="button"
+              title="思考する"
+              aria-current={brainHomeActive ? "page" : undefined}
+              className={`flex h-9 w-full shrink-0 items-center rounded-xl text-left text-sm font-medium text-[var(--text)] transition-colors hover:bg-[var(--hover)] ${
+                brainHomeActive ? "bg-[var(--hover)]" : ""
+              }`}
+              onClick={() => onSelectProduct("brain")}
             >
-              思考する
-            </span>
-          </button>
+              <span className="grid shrink-0 place-items-center px-2.5">
+                <Orbit aria-hidden="true" className="size-5" />
+              </span>
+              <span
+                aria-hidden={!contentVisible}
+                className={`whitespace-nowrap transition-opacity duration-150 ${contentVisibility}`}
+              >
+                思考する
+              </span>
+            </button>
+
+            <div
+              aria-hidden={!contentVisible}
+              inert={!contentVisible}
+              className={`sidebar-thread-scroll mt-6 min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain transition-opacity duration-150 ${contentVisibility}`}
+            >
+              <p className="mb-2 pl-2.5 pr-2 text-sm font-bold text-[var(--text)]">
+                回答履歴
+              </p>
+              {answers.length > 0 ? (
+                <div className="space-y-0.5">
+                  {answers.map((answer) => (
+                    <HumanAnswerListItem
+                      key={answer.execution_id}
+                      active={answer.execution_id === activeHumanAnswerId}
+                      answer={answer}
+                      disabled={historyDisabled}
+                      onSelect={() => onSelectHumanAnswer(answer.execution_id)}
+                    />
+                  ))}
+                </div>
+              ) : !answersLoading ? (
+                <p className="px-2.5 py-1 text-sm text-[var(--muted)]">
+                  まだ回答履歴はありません
+                </p>
+              ) : null}
+              {nextAnswersCursor ? (
+                <button
+                  type="button"
+                  disabled={answersLoading}
+                  className="mt-2 h-9 w-full rounded-xl px-2.5 text-left text-sm font-medium text-[var(--muted)] transition-colors hover:bg-[var(--hover)] hover:text-[var(--text)] disabled:opacity-50"
+                  onClick={onLoadMoreAnswers}
+                >
+                  {answersLoading ? "読み込み中…" : "さらに表示"}
+                </button>
+              ) : null}
+            </div>
+          </>
         )}
       </nav>
 
@@ -259,6 +319,13 @@ export function ChatFrame({
   const frameRoute = resolveChatFrameRoute(childSegments);
   const { invalidate: invalidateAccessToken } = useApiAccessToken();
   const { subscribeRealtime, threads } = useChatData();
+  const {
+    answers,
+    answersLoading,
+    loadMoreAnswers,
+    nextAnswersCursor,
+    state: humanState,
+  } = useHumanData();
   const { recordingAction, shortcuts } = useKeyboardShortcuts();
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const mobileSidebarRef = useRef<HTMLElement>(null);
@@ -281,6 +348,8 @@ export function ChatFrame({
   const [googleAuthError, setGoogleAuthError] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const product = frameRoute.product;
+  const activeHumanAnswerId = frameRoute.activeHumanAnswerId;
+  const humanAnswerActive = humanState?.status === "assigned";
   const openAuth = useCallback(() => setAuthOpen(true), []);
   const openMobileSidebar = useCallback(() => {
     setMobileGuestActionsVisible(false);
@@ -303,11 +372,12 @@ export function ChatFrame({
   }, []);
   const navigate = useCallback(
     (id: string) => {
+      if (humanAnswerActive) return;
       closeMobileSidebar();
       setSearchNavigationTarget(null);
       router.push(id ? `/t/${id}` : "/");
     },
-    [closeMobileSidebar, router],
+    [closeMobileSidebar, humanAnswerActive, router],
   );
   const activeThreadId = frameRoute.activeThreadId;
 
@@ -321,6 +391,23 @@ export function ChatFrame({
     url.searchParams.delete("authError");
     window.history.replaceState(window.history.state, "", url);
   }, []);
+
+  useEffect(() => {
+    if (
+      humanAnswerActive &&
+      (product !== "brain" || Boolean(activeHumanAnswerId))
+    ) {
+      const frame = requestAnimationFrame(closeMobileSidebar);
+      router.replace("/brain");
+      return () => cancelAnimationFrame(frame);
+    }
+  }, [
+    activeHumanAnswerId,
+    closeMobileSidebar,
+    humanAnswerActive,
+    product,
+    router,
+  ]);
 
   useEffect(() => {
     if (desktopCollapsed || desktopGuestActionsVisible) return;
@@ -448,7 +535,15 @@ export function ChatFrame({
       openAuth();
       return;
     }
+    if (humanAnswerActive && nextProduct !== "brain") return;
     router.push(nextProduct === "brain" ? "/brain" : "/");
+  }
+
+  function navigateToHumanAnswer(executionId: string) {
+    if (humanAnswerActive) return;
+    closeMobileSidebar();
+    setSearchNavigationTarget(null);
+    router.push(`/brain/answers/${encodeURIComponent(executionId)}`);
   }
 
   function navigateToSearchResult(hit: ThreadSearchHit, query: string) {
@@ -497,23 +592,31 @@ export function ChatFrame({
     onClose: () => void,
   ) => (
     <Sidebar
+      activeHumanAnswerId={activeHumanAnswerId}
       activeThreadId={activeThreadId}
+      answers={answers}
+      answersLoading={answersLoading}
+      brainHomeActive={!activeHumanAnswerId}
       compact={compact}
       contentVisible={contentVisible}
       newChatActive={frameRoute.newChatActive}
       product={product}
       threads={threads}
       guestActionsVisible={guestActionsVisible}
+      historyDisabled={humanAnswerActive}
       onClose={onClose}
       onArchiveThread={leaveArchivedThread}
       onOpenAuth={openAuth}
       onOpenCredits={navigateToCredits}
       onOpenSearch={openSearch}
       onOpenSettings={navigateToSettings}
+      onLoadMoreAnswers={() => void loadMoreAnswers()}
+      onSelectHumanAnswer={navigateToHumanAnswer}
       onSelectProduct={navigateToProduct}
       onSelectThread={navigate}
       onSignOut={signOut}
       signingOut={signingOut}
+      nextAnswersCursor={nextAnswersCursor}
       user={initialUser}
     />
   );

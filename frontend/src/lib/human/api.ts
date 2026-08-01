@@ -2,7 +2,11 @@
 
 import type { ApiAccessTokenSource } from "@/lib/auth/api-client";
 import { createApiFetch } from "@/lib/api/api-fetch";
-import type { BrainState } from "@/lib/human/types";
+import type {
+  BrainState,
+  HumanAnswerDetail,
+  HumanAnswerList,
+} from "@/lib/human/types";
 
 export function createHumanApi(accessToken: ApiAccessTokenSource) {
   const apiFetch = createApiFetch(accessToken);
@@ -41,7 +45,21 @@ export function createHumanApi(accessToken: ApiAccessTokenSource) {
     return (await response.json()) as BrainState;
   }
 
-  return { answer, ready, skip, state, stop };
+  async function listAnswers(cursor?: string): Promise<HumanAnswerList> {
+    const query = new URLSearchParams({ limit: "20" });
+    if (cursor) query.set("cursor", cursor);
+    const response = await apiFetch(`/api/v1/human/answers?${query}`);
+    return (await response.json()) as HumanAnswerList;
+  }
+
+  async function getAnswer(executionId: string): Promise<HumanAnswerDetail> {
+    const response = await apiFetch(
+      `/api/v1/human/answers/${encodeURIComponent(executionId)}`,
+    );
+    return (await response.json()) as HumanAnswerDetail;
+  }
+
+  return { answer, getAnswer, listAnswers, ready, skip, state, stop };
 }
 
 export type HumanApi = ReturnType<typeof createHumanApi>;
