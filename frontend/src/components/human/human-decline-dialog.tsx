@@ -43,7 +43,7 @@ export function HumanDeclineDialog({
           id={descriptionId}
           className="mt-2 text-sm leading-6 text-[var(--muted)]"
         >
-          入力中の回答は破棄され、この依頼は別のHumanへ引き継がれます。
+          入力中の回答は破棄されます。ペナルティが課される場合があります。
         </p>
         <div className="mt-6 flex justify-end gap-2">
           <button
