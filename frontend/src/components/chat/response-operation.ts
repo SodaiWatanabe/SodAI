@@ -1,6 +1,7 @@
 export type ResponseOperation =
   | { kind: "idle" }
   | { kind: "creating" }
+  | { kind: "regenerating"; responseRequestId: string }
   | { kind: "waiting-for-execution-to-cancel" }
   | { kind: "cancelling"; executionId: string };
 
@@ -12,7 +13,7 @@ export function requestResponseCancellation(
 ): ResponseOperation {
   if (operation.kind === "cancelling") return operation;
   if (executionId) return { kind: "cancelling", executionId };
-  if (operation.kind === "creating") {
+  if (operation.kind === "creating" || operation.kind === "regenerating") {
     return { kind: "waiting-for-execution-to-cancel" };
   }
   return operation;

@@ -1,6 +1,13 @@
 "use client";
 
-import { Brain, Check, Copy, ThumbsDown, ThumbsUp } from "lucide-react";
+import {
+  Brain,
+  Check,
+  Copy,
+  RefreshCw,
+  ThumbsDown,
+  ThumbsUp,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import type { MessageBrain } from "@/components/chat/message-brain";
@@ -21,6 +28,8 @@ type MessageActionsProps = {
   onEvaluationChange?: (
     value: ResponseEvaluationValue | null,
   ) => Promise<void>;
+  onRegenerate?: () => Promise<void>;
+  regenerating?: boolean;
 };
 
 const COPY_STATUS_DURATION = 1_600;
@@ -344,11 +353,72 @@ function EvaluationAction({
   );
 }
 
+function RegenerateAction({
+  disabled,
+  onRegenerate,
+}: {
+  disabled: boolean;
+  onRegenerate: () => Promise<void>;
+}) {
+  const {
+    clearCloseTimer,
+    closeAfterHover,
+    contentRef,
+    openOnHover,
+  } = useHoverPopover();
+  const [pending, setPending] = useState(false);
+  const unavailable = disabled || pending;
+
+  async function regenerate() {
+    if (unavailable) return;
+    clearCloseTimer();
+    setPending(true);
+    try {
+      await onRegenerate();
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <Popover collisionPadding={8} gutter={4} placement="top-start">
+      <div
+        className="inline-flex"
+        onPointerEnter={(event) => openOnHover(event.pointerType)}
+        onPointerLeave={(event) => closeAfterHover(event.pointerType)}
+      >
+        <PopoverTrigger
+          aria-label="回答を再生成"
+          className={`${actionClassName} disabled:pointer-events-none disabled:opacity-50`}
+          disabled={unavailable}
+          onClick={(event) => {
+            event.preventDefault();
+            void regenerate();
+          }}
+        >
+          <RefreshCw aria-hidden="true" className="size-4" />
+        </PopoverTrigger>
+        <PopoverContent
+          ref={contentRef}
+          role="tooltip"
+          className="w-max px-3 py-2 text-xs font-medium"
+          onPointerEnter={(event) => openOnHover(event.pointerType)}
+          onPointerLeave={(event) => closeAfterHover(event.pointerType)}
+        >
+          再生成
+        </PopoverContent>
+      </div>
+    </Popover>
+  );
+}
+
 export function MessageActions({
   brain,
   content,
   evaluation,
   onEvaluationChange,
+  onRegenerate,
+  regenerating = false,
 }: MessageActionsProps) {
   return (
     <div className="-ml-1.5 mt-1.5 flex h-8 items-center gap-0.5 whitespace-normal leading-none">
@@ -360,6 +430,12 @@ export function MessageActions({
         />
       ) : null}
       <BrainDisclosure brain={brain} />
+      {onRegenerate ? (
+        <RegenerateAction
+          disabled={regenerating}
+          onRegenerate={onRegenerate}
+        />
+      ) : null}
     </div>
   );
 }

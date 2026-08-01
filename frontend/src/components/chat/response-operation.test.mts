@@ -18,6 +18,19 @@ test("作成中の停止要求をExecution確定まで保持する", () => {
   });
 });
 
+test("再生成中の停止要求もExecution確定まで保持する", () => {
+  const waiting = requestResponseCancellation({
+    kind: "regenerating",
+    responseRequestId: "response",
+  });
+
+  assert.deepEqual(waiting, { kind: "waiting-for-execution-to-cancel" });
+  assert.deepEqual(resolveCreatedExecution(waiting, "execution"), {
+    kind: "cancelling",
+    executionId: "execution",
+  });
+});
+
 test("既知のExecutionは直ちに停止対象へする", () => {
   assert.deepEqual(
     requestResponseCancellation(IDLE_RESPONSE_OPERATION, "execution"),

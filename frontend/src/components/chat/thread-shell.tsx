@@ -46,7 +46,6 @@ import type {
   RealtimeEvent,
   ResponseEvaluationValue,
   Thread,
-  ThreadEntry,
 } from "@/lib/chat/types";
 import { isApiErrorStatus } from "@/lib/api/api-error";
 import { resolveReasoningEffort } from "@/lib/chat/reasoning-effort";
@@ -67,12 +66,6 @@ type TurnAnchor = {
   threadId: string;
 };
 
-function mergeEntries(current: ThreadEntry[], incoming: ThreadEntry[]) {
-  const byId = new Map(current.map((entry) => [entry.id, entry]));
-  for (const entry of incoming) byId.set(entry.id, entry);
-  return [...byId.values()].sort((left, right) => left.ordinal - right.ordinal);
-}
-
 function isResponding(thread?: Thread) {
   const status = thread?.latest_response?.status;
   return status === "queued" || status === "running";
@@ -84,6 +77,7 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
     clearResponseEvaluation,
     createResponse,
     getThread,
+    regenerateResponse,
     setResponseEvaluation,
   } = useChatApi();
   const searchNavigationTarget = useThreadSearchNavigationTarget();
@@ -132,6 +126,8 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
       : operation.kind === "creating" ||
           operation.kind === "waiting-for-execution-to-cancel"
         ? answerer
+        : operation.kind === "regenerating"
+          ? latestResponse?.requested_answerer
         : undefined;
   const respondingAnswerer = answerers.find(
     (option) => option.id === respondingAnswererId,
@@ -294,6 +290,62 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
     }
   }
 
+  async function regenerateLatestResponse(responseRequestId: string) {
+    const source = threadRef.current?.latest_response;
+    if (
+      responding ||
+      !source ||
+      source.id !== responseRequestId ||
+      (source.status !== "completed" && source.status !== "cancelled")
+    ) {
+      return;
+    }
+
+    positionedTurnRef.current = undefined;
+    setTurnAnchor({ entryId: source.input_entry_id, threadId });
+    setHumanResponsePresentation(undefined);
+    setOperation({ kind: "regenerating", responseRequestId });
+    dismissToast("response-regenerate");
+    try {
+      const created = await regenerateResponse(responseRequestId);
+      if (!mountedRef.current) return;
+      updateThread((current) =>
+        current?.id === created.thread.id &&
+        current.revision > created.thread.revision
+          ? current
+          : { ...created.thread, latest_response: created.response },
+      );
+      setTurnAnchor({
+        entryId: created.response.input_entry_id,
+        threadId,
+      });
+      const nextOperation = resolveCreatedExecution(
+        operationRef.current,
+        created.response.execution.id,
+      );
+      setOperation(nextOperation);
+      patchThread(threadId, {
+        answerer: created.thread.answerer,
+        last_activity_at: created.thread.last_activity_at,
+        revision: created.thread.revision,
+      });
+      if (nextOperation.kind === "cancelling") {
+        await cancelResponse(nextOperation.executionId);
+      }
+    } catch (error) {
+      if (!mountedRef.current) return;
+      setOperation(IDLE_RESPONSE_OPERATION);
+      const insufficientCredits = isApiErrorStatus(error, 402);
+      showToast({
+        id: "response-regenerate",
+        message: insufficientCredits
+          ? INSUFFICIENT_CREDITS_MESSAGE
+          : "回答を再生成できませんでした。もう一度お試しください。",
+        tone: insufficientCredits ? "warning" : "error",
+      });
+    }
+  }
+
   useEffect(() => {
     targetEntryIdRef.current = targetEntryId;
   }, [targetEntryId]);
@@ -303,6 +355,7 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
     return () => {
       mountedRef.current = false;
       dismissToast("message-send");
+      dismissToast("response-regenerate");
     };
   }, [dismissToast]);
 
@@ -343,13 +396,7 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
         updateThread((previous) =>
           previous?.id === current.id && previous.revision > current.revision
             ? previous
-            : {
-                ...current,
-                entries:
-                  previous?.id === current.id
-                    ? mergeEntries(previous.entries, current.entries)
-                    : current.entries,
-              },
+            : current,
         );
         if (!answererInitializedRef.current) {
           answererInitializedRef.current = true;
@@ -618,20 +665,10 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
       );
       if (!mountedRef.current) return;
       updateThread((current) => {
-        const entries = current
-          ? mergeEntries(current.entries, created.thread.entries)
-          : created.thread.entries;
         if (current && current.revision > created.thread.revision) {
-          return {
-            ...current,
-            entries,
-            latest_response:
-              current.latest_response?.id === created.response.id
-                ? current.latest_response
-                : created.response,
-          };
+          return current;
         }
-        return { ...created.thread, entries, latest_response: created.response };
+        return { ...created.thread, latest_response: created.response };
       });
       setTurnAnchor({
         entryId: created.response.input_entry_id,
@@ -704,7 +741,13 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
           turnSpacerRef={turnSpacerRef}
           targetEntryId={targetEntryId}
           targetSearchQuery={targetSearchQuery}
+          regeneratingResponseRequestId={
+            operation.kind === "regenerating"
+              ? operation.responseRequestId
+              : undefined
+          }
           onEvaluationChange={changeResponseEvaluation}
+          onRegenerate={regenerateLatestResponse}
         />
 
         <div

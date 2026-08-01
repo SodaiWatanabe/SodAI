@@ -38,10 +38,12 @@ type ThreadViewportProps = {
   targetEntryId?: string;
   targetSearchQuery?: string;
   answerers: AvailableAnswerer[];
+  regeneratingResponseRequestId?: string;
   onEvaluationChange: (
     executionId: string,
     value: ResponseEvaluationValue | null,
   ) => Promise<void>;
+  onRegenerate: (responseRequestId: string) => Promise<void>;
 };
 
 function StreamedText({
@@ -140,7 +142,10 @@ function ThreadMessage({
   searchQuery,
   searchAnchor,
   turnAnchor,
+  regenerateResponseRequestId,
+  regenerating,
   onEvaluationChange,
+  onRegenerate,
 }: {
   answerers: AvailableAnswerer[];
   entry: DisplayEntry;
@@ -148,10 +153,13 @@ function ThreadMessage({
   searchQuery?: string;
   searchAnchor: boolean;
   turnAnchor: boolean;
+  regenerateResponseRequestId?: string;
+  regenerating: boolean;
   onEvaluationChange: (
     executionId: string,
     value: ResponseEvaluationValue | null,
   ) => Promise<void>;
+  onRegenerate: (responseRequestId: string) => Promise<void>;
 }) {
   const layout = getConversationMessageLayout(entry.author.kind, "prompter");
   const showActions =
@@ -206,6 +214,13 @@ function ThreadMessage({
               ? (value) => onEvaluationChange(evaluationExecutionId, value)
               : undefined
           }
+          onRegenerate={
+            regenerateResponseRequestId &&
+            entry.execution_id
+              ? () => onRegenerate(regenerateResponseRequestId)
+              : undefined
+          }
+          regenerating={regenerating}
         />
       ) : null}
     </ConversationMessage>
@@ -225,7 +240,9 @@ export function ThreadViewport({
   turnSpacerRef,
   targetEntryId,
   targetSearchQuery,
+  regeneratingResponseRequestId,
   onEvaluationChange,
+  onRegenerate,
 }: ThreadViewportProps) {
   const entries = thread
     ? displayThreadEntries(thread, humanResponsePresentation)
@@ -252,6 +269,12 @@ export function ThreadViewport({
       ? "利用可能な脳を探しています"
       : "思考中"
     : "SodAIが応答しています";
+  const latestRegenerableResponse =
+    thread?.latest_response &&
+    (thread.latest_response.status === "completed" ||
+      thread.latest_response.status === "cancelled")
+      ? thread.latest_response
+      : undefined;
 
   return (
     <section
@@ -281,7 +304,18 @@ export function ThreadViewport({
                 searchQuery={targetSearchQuery}
                 searchAnchor={entry.id === targetEntryId}
                 turnAnchor={entry.id === turnAnchorEntryId}
+                regenerateResponseRequestId={
+                  entry.execution_id ===
+                  latestRegenerableResponse?.execution.id
+                    ? latestRegenerableResponse.id
+                    : undefined
+                }
+                regenerating={
+                  regeneratingResponseRequestId ===
+                  latestRegenerableResponse?.id
+                }
                 onEvaluationChange={onEvaluationChange}
+                onRegenerate={onRegenerate}
               />
             ))}
             {waitingForFirstToken ? (

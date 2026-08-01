@@ -108,6 +108,16 @@ export function createChatApi(accessToken: ApiAccessTokenSource) {
     return (await response.json()) as Execution;
   }
 
+  async function regenerateResponse(
+    responseRequestId: string,
+  ): Promise<ResponseCreation> {
+    const response = await apiFetch(
+      `/api/v1/response-requests/${responseRequestId}/regenerations`,
+      { method: "POST" },
+    );
+    return (await response.json()) as ResponseCreation;
+  }
+
   async function cancelExecution(executionId: string): Promise<Thread> {
     const response = await apiFetch(`/api/v1/executions/${executionId}/cancel`, {
       method: "POST",
@@ -160,6 +170,7 @@ export function createChatApi(accessToken: ApiAccessTokenSource) {
     getThread,
     listAnswerers,
     listThreads,
+    regenerateResponse,
     retryResponse,
     searchThreads,
     setResponseEvaluation,
