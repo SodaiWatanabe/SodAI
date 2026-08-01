@@ -14,7 +14,9 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
+import { createPortal } from "react-dom";
 
 import {
   availablePopoverSize,
@@ -53,6 +55,18 @@ type PopoverProps = {
 };
 
 const PopoverContext = createContext<PopoverContextValue | null>(null);
+
+function subscribeToBrowserReady() {
+  return () => undefined;
+}
+
+function getBrowserSnapshot() {
+  return true;
+}
+
+function getServerSnapshot() {
+  return false;
+}
 
 function usePopoverContext() {
   const context = useContext(PopoverContext);
@@ -271,8 +285,15 @@ export const PopoverContent = forwardRef<
     positionContent,
     setOpen,
   } = usePopoverContext();
+  const browserReady = useSyncExternalStore(
+    subscribeToBrowserReady,
+    getBrowserSnapshot,
+    getServerSnapshot,
+  );
 
-  return (
+  if (!browserReady) return null;
+
+  return createPortal(
     <div
       {...props}
       ref={(element) => {
@@ -302,7 +323,8 @@ export const PopoverContent = forwardRef<
       }}
     >
       {children}
-    </div>
+    </div>,
+    document.body,
   );
 });
 
