@@ -1,0 +1,97 @@
+.fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.root {
+  position: relative;
+  height: 28px;
+  cursor: pointer;
+  touch-action: none;
+  user-select: none;
+}
+
+.track {
+  position: absolute;
+  inset: 1px 0;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #4a4a4a;
+}
+
+.selection {
+  position: absolute;
+  inset-block: 0;
+  border-radius: inherit;
+  background: #0285ff;
+  transition:
+    left 140ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    right 140ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.marker {
+  position: absolute;
+  top: 50%;
+  width: 4px;
+  height: 4px;
+  border-radius: 999px;
+  background: #7d7d7d;
+  transform: translate(-50%, -50%);
+}
+
+.markerSelected {
+  background: #4eaaff;
+}
+
+.thumb {
+  position: absolute;
+  z-index: 2;
+  top: 50%;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: #ffffff;
+  box-shadow: 0 1px 5px rgb(0 0 0 / 20%);
+  cursor: grab;
+  outline: none;
+  transform: translate(-50%, -50%);
+  transition:
+    left 140ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    box-shadow 140ms ease;
+}
+
+.thumbActive {
+  z-index: 3;
+}
+
+.thumbDragging {
+  cursor: grabbing;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 28%);
+}
+
+.rootDragging {
+  cursor: grabbing;
+}
+
+.thumb:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.fieldset:disabled .root {
+  cursor: default;
+}
+
+.fieldset:disabled .thumb {
+  cursor: default;
+  opacity: 0.5;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .selection,
+  .thumb {
+    transition: none;
+  }
+}

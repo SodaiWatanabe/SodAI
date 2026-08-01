@@ -4,6 +4,7 @@ import type { ApiAccessTokenSource } from "@/lib/auth/api-client";
 import { createApiFetch } from "@/lib/api/api-fetch";
 import type {
   BrainState,
+  HumanAnswerConditions,
   HumanAnswerDetail,
   HumanAnswerList,
 } from "@/lib/human/types";
@@ -16,9 +17,12 @@ export function createHumanApi(accessToken: ApiAccessTokenSource) {
     return (await response.json()) as BrainState;
   }
 
-  async function ready(): Promise<BrainState> {
+  async function ready(
+    answerConditions: HumanAnswerConditions,
+  ): Promise<BrainState> {
     const response = await apiFetch("/api/v1/human/readiness", {
       method: "PUT",
+      body: JSON.stringify(answerConditions),
     });
     return (await response.json()) as BrainState;
   }

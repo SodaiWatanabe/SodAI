@@ -18,6 +18,7 @@ import { removeResolvedAssignment } from "@/components/human/brain-assignment-st
 import { useToast } from "@/components/ui/toast-provider";
 import type {
   BrainState,
+  HumanAnswerConditions,
   HumanAnswerDetail,
   HumanAnswerSummary,
 } from "@/lib/human/types";
@@ -44,7 +45,7 @@ type HumanDataContextValue = {
   ) => Promise<number>;
   skipClaim: (claimId: string) => Promise<boolean>;
   state?: BrainState;
-  toggleReadiness: () => Promise<boolean>;
+  toggleReadiness: (conditions?: HumanAnswerConditions) => Promise<boolean>;
 };
 
 const HumanDataContext = createContext<HumanDataContextValue | null>(null);
@@ -206,10 +207,12 @@ export function HumanDataProvider({
   useEffect(() => {
     if (!authenticated || !brainVisible || !brainActive) return;
     const timer = window.setInterval(() => {
-      if (!busyRef.current) void requestState(humanApi.ready);
+      if (!busyRef.current && state) {
+        void requestState(() => humanApi.ready(state.answer_conditions));
+      }
     }, 10_000);
     return () => window.clearInterval(timer);
-  }, [authenticated, brainActive, brainVisible, humanApi, requestState]);
+  }, [authenticated, brainActive, brainVisible, humanApi, requestState, state]);
 
   useEffect(() => {
     if (!authenticated || !brainVisible) return;
@@ -242,7 +245,7 @@ export function HumanDataProvider({
     if (deadlineReconciliationClaimRef.current === claimId) return;
     deadlineReconciliationClaimRef.current = claimId;
     void requestState(
-      humanApi.ready,
+      () => humanApi.ready(state.answer_conditions),
       "入力中の回答を確定できませんでした。もう一度お試しください。",
     ).then((reconciled) => {
       if (!reconciled) deadlineReconciliationClaimRef.current = undefined;
@@ -253,6 +256,7 @@ export function HumanDataProvider({
     deadlineExpired,
     humanApi,
     requestState,
+    state?.answer_conditions,
     state?.assignment?.claim_id,
   ]);
 
@@ -346,8 +350,13 @@ export function HumanDataProvider({
   );
 
   const toggleReadiness = useCallback(
-    () => run(state?.status === "waiting" ? humanApi.stop : humanApi.ready),
-    [humanApi, run, state?.status],
+    (conditions?: HumanAnswerConditions) => {
+      if (state?.status === "waiting") return run(humanApi.stop);
+      const nextConditions = conditions ?? state?.answer_conditions;
+      if (!nextConditions) return Promise.resolve(false);
+      return run(() => humanApi.ready(nextConditions));
+    },
+    [humanApi, run, state?.answer_conditions, state?.status],
   );
 
   const value = useMemo<HumanDataContextValue>(

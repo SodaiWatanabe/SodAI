@@ -1,6 +1,7 @@
 "use client";
 
 import { useChatAuth } from "@/components/chat/chat-auth-context";
+import { useChatData } from "@/components/chat/chat-data-provider";
 import { BrainAssignmentView } from "@/components/human/brain-assignment-view";
 import { BrainLobby } from "@/components/human/brain-lobby";
 import { useHumanData } from "@/components/human/human-data-provider";
@@ -8,7 +9,14 @@ import { IOSSpinner } from "@/components/ui/ios-spinner";
 
 export function BrainShell() {
   const { authenticated, openAuth } = useChatAuth();
-  const { busy, error, notice, state, toggleReadiness } = useHumanData();
+  const { answerers } = useChatData();
+  const {
+    busy,
+    error,
+    notice,
+    state,
+    toggleReadiness,
+  } = useHumanData();
 
   if (!authenticated) {
     return <BrainLobby mode="signed-out" onAction={openAuth} />;
@@ -37,13 +45,29 @@ export function BrainShell() {
     );
   }
 
+  const humanAnswerers = answerers.filter(
+    (answerer) => answerer.kind === "human" && !answerer.is_legacy,
+  );
+  const conditionKey = [
+    ...state.answer_conditions.answerer_ids,
+    "|",
+    ...state.answer_conditions.reasoning_efforts,
+    "|",
+    ...state.available_answerer_ids,
+  ].join(":");
+
   return (
     <BrainLobby
+      key={conditionKey}
+      answerers={humanAnswerers}
+      availableAnswererIds={state.available_answerer_ids}
       busy={busy}
+      conditions={state.answer_conditions}
       error={error}
       mode={state.status === "waiting" ? "waiting" : "idle"}
       notice={notice}
-      onAction={() => void toggleReadiness()}
+      onAction={(conditions) => toggleReadiness(conditions)}
+      rankName={state.rank_name}
     />
   );
 }

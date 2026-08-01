@@ -17,10 +17,17 @@ export type HumanAssignment = {
   context: HumanContextEntry[];
 };
 
+export type HumanAnswerConditions = {
+  answerer_ids: string[];
+  reasoning_efforts: ReasoningEffort[];
+};
+
 export type BrainState = {
   status: "idle" | "waiting" | "assigned";
   rank_name: string;
   assignment: HumanAssignment | null;
+  answer_conditions: HumanAnswerConditions;
+  available_answerer_ids: string[];
 };
 
 export type HumanAnswerSummary = {
