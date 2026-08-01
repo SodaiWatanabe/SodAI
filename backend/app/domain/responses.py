@@ -73,6 +73,13 @@ class ResponseCreation:
 
 
 @dataclass(frozen=True, slots=True)
+class ResponseRegeneration:
+    thread: Thread
+    response: ResponseRequest
+    replayed: bool
+
+
+@dataclass(frozen=True, slots=True)
 class ExecutionRetry:
     thread: Thread
     response: ResponseRequest

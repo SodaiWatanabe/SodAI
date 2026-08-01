@@ -8,6 +8,7 @@ from app.domain.credits import InsufficientCreditsError
 from app.domain.principals import Principal
 from app.repositories.threads import (
     ExecutionNotFoundError,
+    ResponseNotRegenerableError,
     ResponseNotRetryableError,
     ResponseRequestNotFoundError,
     ThreadBusyError,
@@ -110,6 +111,38 @@ async def retry_response_execution(
     except InsufficientCreditsError as exc:
         raise HTTPException(status_code=402, detail="Insufficient credits") from exc
     return ExecutionResponse.model_validate(execution, from_attributes=True)
+
+
+@router.post(
+    "/response-requests/{response_request_id}/regenerations",
+    response_model=ResponseCreationResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def regenerate_response(
+    response_request_id: UUID,
+    principal: Principal = Depends(get_principal),
+    service: ThreadService = Depends(get_thread_service),
+) -> ResponseCreationResponse:
+    try:
+        creation = await service.regenerate(principal, response_request_id)
+    except ResponseRequestNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Response request not found") from exc
+    except (ResponseNotRegenerableError, ThreadBusyError) as exc:
+        raise HTTPException(status_code=409, detail="Response cannot be regenerated") from exc
+    except AnswererAccessError as exc:
+        raise HTTPException(status_code=403, detail="Answerer is not available") from exc
+    except AnswererUnavailableError as exc:
+        raise HTTPException(status_code=503, detail="Answerer is temporarily unavailable") from exc
+    except ReasoningEffortAccessError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail="Reasoning effort is not available for this answerer",
+        ) from exc
+    except GenerationCapacityError as exc:
+        raise HTTPException(status_code=429, detail="Generation capacity is exhausted") from exc
+    except InsufficientCreditsError as exc:
+        raise HTTPException(status_code=402, detail="Insufficient credits") from exc
+    return ResponseCreationResponse.model_validate(creation, from_attributes=True)
 
 
 @router.post(

@@ -264,6 +264,85 @@ class ThreadService:
         )
         return retry.execution
 
+    async def regenerate(
+        self,
+        principal: Principal,
+        response_request_id: UUID,
+    ) -> ResponseCreation:
+        async with self._session_factory() as session:
+            repository = SqlAlchemyThreadRepository(session)
+            source = await repository.response_request(principal, response_request_id)
+            answerer = self.select_answerer(principal, source.requested_answerer)
+            reasoning_effort = self.select_reasoning_effort(
+                answerer,
+                source.reasoning_effort,
+            )
+            execution_target, artifact_id = self._resolve_runtime(answerer)
+            deadline = self._execution_deadline(answerer, reasoning_effort)
+            try:
+                regeneration = await repository.regenerate_response(
+                    principal,
+                    response_request_id,
+                    answerer,
+                    execution_target=execution_target,
+                    artifact_id=artifact_id,
+                    deadline_at=deadline,
+                    model_limit=self._settings.inference_model_active_limit,
+                    guest_model_limit=self._settings.inference_guest_model_active_limit,
+                )
+            except GenerationCapacityExceededError as error:
+                raise GenerationCapacityError from error
+            creation = ResponseCreation(
+                thread=regeneration.thread,
+                response=regeneration.response,
+            )
+            if regeneration.replayed:
+                await session.commit()
+                return creation
+
+            if answerer.runtime_kind is RuntimeKind.HUMAN:
+                await HumanCreditService(session).reserve(
+                    principal.id,
+                    creation.response.execution,
+                    answerer.id,
+                    reasoning_effort,
+                )
+            else:
+                await InferenceBillingService(session).register(
+                    principal,
+                    creation.response.execution,
+                    answerer.tariff,
+                )
+                await self._enqueue_generation(
+                    repository,
+                    creation.thread,
+                    creation.response,
+                    answerer,
+                    self._required_artifact(artifact_id),
+                    self._required_deadline(deadline),
+                )
+            await session.commit()
+
+        await realtime_hub.publish(
+            principal,
+            event_type="response.queued",
+            space_id=creation.thread.space_id,
+            thread_id=creation.thread.id,
+            thread_revision=creation.thread.revision,
+            response_request_id=creation.response.id,
+            execution_id=creation.response.execution.id,
+            data={
+                "input_entry_id": str(creation.response.input_entry_id),
+                "target_actor_id": str(creation.response.target_actor.id),
+                "answerer": answerer.id.value,
+                "attempt_no": creation.response.execution.attempt_no,
+                "last_activity_at": creation.thread.last_activity_at.isoformat(),
+            },
+        )
+        if answerer.runtime_kind is RuntimeKind.HUMAN:
+            await get_human_service().match_available_best_effort()
+        return creation
+
     async def cancel(
         self,
         principal: Principal,

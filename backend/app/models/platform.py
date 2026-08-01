@@ -335,6 +335,20 @@ class ResponseRequestModel(Base):
             name="fk_response_requests_target_is_participant",
             ondelete="CASCADE",
         ),
+        ForeignKeyConstraint(
+            ["regenerated_from_response_request_id", "thread_id"],
+            [
+                f"{APPLICATION_SCHEMA}.response_requests.id",
+                f"{APPLICATION_SCHEMA}.response_requests.thread_id",
+            ],
+            name="fk_response_requests_regenerated_from_same_thread",
+            ondelete="CASCADE",
+        ),
+        CheckConstraint(
+            "regenerated_from_response_request_id IS NULL OR "
+            "regenerated_from_response_request_id <> id",
+            name="regenerated_from_other_request",
+        ),
         Index(
             "uq_response_requests_active_thread",
             "thread_id",
@@ -342,6 +356,10 @@ class ResponseRequestModel(Base):
             postgresql_where=text("status IN ('queued', 'running')"),
         ),
         UniqueConstraint("id", "thread_id", name="uq_response_requests_id_thread"),
+        UniqueConstraint(
+            "regenerated_from_response_request_id",
+            name="uq_response_requests_regenerated_from",
+        ),
         UniqueConstraint(
             "id",
             "thread_id",
@@ -367,6 +385,9 @@ class ResponseRequestModel(Base):
     requested_answerer: Mapped[str] = mapped_column(String(64), nullable=False)
     reasoning_effort: Mapped[str] = mapped_column(
         String(16), nullable=False, default="none", server_default="none"
+    )
+    regenerated_from_response_request_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True)
     )
     status: Mapped[str] = mapped_column(
         String(32), nullable=False, default="queued", server_default="queued"

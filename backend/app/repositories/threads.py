@@ -41,6 +41,7 @@ from app.domain.responses import (
     ExecutionRetry,
     ResponseCreation,
     ResponseEvaluationValue,
+    ResponseRegeneration,
     ResponseRequest,
     ResponseStatus,
 )
@@ -90,6 +91,10 @@ class ResponseRequestNotFoundError(Exception):
 
 
 class ResponseNotRetryableError(Exception):
+    pass
+
+
+class ResponseNotRegenerableError(Exception):
     pass
 
 
@@ -288,6 +293,171 @@ class SqlAlchemyThreadRepository:
         return ResponseCreation(
             thread=await self.get(principal, thread_id),
             response=await self._latest_response(thread_id),
+        )
+
+    async def response_request(
+        self,
+        principal: Principal,
+        response_request_id: UUID,
+    ) -> ResponseRequest:
+        statement = (
+            select(ResponseRequestModel)
+            .join(ThreadModel, ThreadModel.id == ResponseRequestModel.thread_id)
+            .join(SpaceModel, SpaceModel.id == ThreadModel.space_id)
+            .where(
+                ResponseRequestModel.id == response_request_id,
+                self._space_accessible_by(principal),
+                ThreadModel.status == "active",
+            )
+            .options(
+                selectinload(ResponseRequestModel.target_actor),
+                selectinload(ResponseRequestModel.executions).selectinload(
+                    ExecutionModel.model_execution
+                ),
+                selectinload(ResponseRequestModel.executions).selectinload(
+                    ExecutionModel.evaluation
+                ),
+            )
+        )
+        request = await self._session.scalar(statement)
+        if request is None:
+            raise ResponseRequestNotFoundError
+        return self._to_response(request)
+
+    async def regenerate_response(
+        self,
+        principal: Principal,
+        response_request_id: UUID,
+        answerer: AnswererDefinition,
+        *,
+        execution_target: str,
+        artifact_id: str | None,
+        deadline_at: datetime | None,
+        model_limit: int,
+        guest_model_limit: int,
+    ) -> ResponseRegeneration:
+        thread_id = await self._session.scalar(
+            select(ResponseRequestModel.thread_id)
+            .join(ThreadModel, ThreadModel.id == ResponseRequestModel.thread_id)
+            .join(SpaceModel, SpaceModel.id == ThreadModel.space_id)
+            .where(
+                ResponseRequestModel.id == response_request_id,
+                self._space_accessible_by(principal),
+                ThreadModel.status == "active",
+            )
+        )
+        if thread_id is None:
+            raise ResponseRequestNotFoundError
+        try:
+            thread = await self._locked_thread(principal, thread_id)
+        except ThreadNotFoundError as error:
+            raise ResponseRequestNotFoundError from error
+
+        source = await self._session.scalar(
+            select(ResponseRequestModel)
+            .where(
+                ResponseRequestModel.id == response_request_id,
+                ResponseRequestModel.thread_id == thread.id,
+            )
+            .with_for_update()
+        )
+        if source is None:
+            raise ResponseRequestNotFoundError
+
+        replacement = await self._session.scalar(
+            select(ResponseRequestModel)
+            .where(
+                ResponseRequestModel.regenerated_from_response_request_id == source.id
+            )
+            .options(
+                selectinload(ResponseRequestModel.target_actor),
+                selectinload(ResponseRequestModel.executions).selectinload(
+                    ExecutionModel.model_execution
+                ),
+                selectinload(ResponseRequestModel.executions).selectinload(
+                    ExecutionModel.evaluation
+                ),
+            )
+        )
+        if replacement is not None:
+            return ResponseRegeneration(
+                thread=await self.get(principal, thread.id),
+                response=self._to_response(replacement),
+                replayed=True,
+            )
+
+        latest_request_id = await self._session.scalar(
+            select(ResponseRequestModel.id)
+            .join(
+                ThreadEntryModel,
+                and_(
+                    ThreadEntryModel.id == ResponseRequestModel.input_entry_id,
+                    ThreadEntryModel.thread_id == ResponseRequestModel.thread_id,
+                ),
+            )
+            .where(ResponseRequestModel.thread_id == source.thread_id)
+            .order_by(
+                ThreadEntryModel.ordinal.desc(),
+                ResponseRequestModel.created_at.desc(),
+                ResponseRequestModel.id.desc(),
+            )
+            .limit(1)
+        )
+        if (
+            latest_request_id != source.id
+            or source.requested_answerer != answerer.id.value
+            or source.status
+            not in {
+                ResponseStatus.COMPLETED.value,
+                ResponseStatus.CANCELLED.value,
+            }
+        ):
+            raise ResponseNotRegenerableError
+
+        active_request_id = await self._session.scalar(
+            select(ResponseRequestModel.id).where(
+                ResponseRequestModel.thread_id == source.thread_id,
+                ResponseRequestModel.status.in_(["queued", "running"]),
+            )
+        )
+        if active_request_id is not None:
+            raise ThreadBusyError
+        if answerer.runtime_kind is RuntimeKind.LOCAL_MODEL:
+            admitted = await self.reserve_generation_capacity(
+                principal,
+                answerer.id,
+                model_limit=model_limit,
+                guest_model_limit=guest_model_limit,
+            )
+            if not admitted:
+                raise GenerationCapacityExceededError
+
+        await self._session.execute(
+            pg_insert(ThreadParticipantModel)
+            .values(thread_id=thread.id, actor_id=answerer.actor_id, role="answerer")
+            .on_conflict_do_nothing()
+        )
+        now = datetime.now(timezone.utc)
+        thread.revision += 1
+        thread.updated_at = now
+        thread.last_activity_at = now
+        regenerated = await self._create_response_request_models(
+            thread,
+            source.requester_actor_id,
+            source.input_entry_id,
+            answerer,
+            execution_target=execution_target,
+            artifact_id=artifact_id,
+            deadline_at=deadline_at,
+            reasoning_effort=ReasoningEffort(source.reasoning_effort),
+            regenerated_from_response_request_id=source.id,
+        )
+        await self._copy_context(source.id, regenerated.id)
+        await self._session.flush()
+        return ResponseRegeneration(
+            thread=await self.get(principal, thread.id),
+            response=await self._response(regenerated.id),
+            replayed=False,
         )
 
     async def retry_execution(
@@ -574,14 +744,43 @@ class SqlAlchemyThreadRepository:
         input_entry.text = EntryTextContentModel(content=content)
         self._session.add(input_entry)
         await self._session.flush()
+        response_request = await self._create_response_request_models(
+            thread,
+            requester_actor_id,
+            input_entry.id,
+            answerer,
+            execution_target=execution_target,
+            artifact_id=artifact_id,
+            deadline_at=deadline_at,
+            reasoning_effort=reasoning_effort,
+        )
+        await self._snapshot_context(
+            response_request,
+            full_thread=answerer.runtime_kind is RuntimeKind.HUMAN,
+        )
+
+    async def _create_response_request_models(
+        self,
+        thread: ThreadModel,
+        requester_actor_id: UUID,
+        input_entry_id: UUID,
+        answerer: AnswererDefinition,
+        *,
+        execution_target: str,
+        artifact_id: str | None,
+        deadline_at: datetime | None,
+        reasoning_effort: ReasoningEffort,
+        regenerated_from_response_request_id: UUID | None = None,
+    ) -> ResponseRequestModel:
         response_request = ResponseRequestModel(
             id=uuid4(),
             thread_id=thread.id,
             requester_actor_id=requester_actor_id,
             target_actor_id=answerer.actor_id,
-            input_entry_id=input_entry.id,
+            input_entry_id=input_entry_id,
             requested_answerer=answerer.id.value,
             reasoning_effort=reasoning_effort.value,
+            regenerated_from_response_request_id=regenerated_from_response_request_id,
             status=ResponseStatus.QUEUED.value,
         )
         execution = ExecutionModel(
@@ -610,10 +809,7 @@ class SqlAlchemyThreadRepository:
             )
         self._session.add_all([response_request, execution])
         await self._session.flush()
-        await self._snapshot_context(
-            response_request,
-            full_thread=answerer.runtime_kind is RuntimeKind.HUMAN,
-        )
+        return response_request
 
     async def _snapshot_context(
         self, request: ResponseRequestModel, *, full_thread: bool = False
@@ -621,7 +817,10 @@ class SqlAlchemyThreadRepository:
         statement = (
             select(ThreadEntryModel, EntryTextContentModel)
             .join(EntryTextContentModel, EntryTextContentModel.entry_id == ThreadEntryModel.id)
-            .where(ThreadEntryModel.thread_id == request.thread_id)
+            .where(
+                ThreadEntryModel.thread_id == request.thread_id,
+                ~self._entry_was_replaced(),
+            )
             .order_by(ThreadEntryModel.ordinal.desc())
         )
         if not full_thread:
@@ -646,6 +845,30 @@ class SqlAlchemyThreadRepository:
                     ordinal=ordinal,
                 )
             )
+
+    async def _copy_context(self, source_request_id: UUID, target_request_id: UUID) -> None:
+        rows = (
+            await self._session.execute(
+                select(
+                    ResponseContextItemModel.entry_id,
+                    ResponseContextItemModel.thread_id,
+                    ResponseContextItemModel.ordinal,
+                )
+                .where(ResponseContextItemModel.response_request_id == source_request_id)
+                .order_by(ResponseContextItemModel.ordinal)
+            )
+        ).all()
+        self._session.add_all(
+            [
+                ResponseContextItemModel(
+                    response_request_id=target_request_id,
+                    entry_id=entry_id,
+                    thread_id=thread_id,
+                    ordinal=ordinal,
+                )
+                for entry_id, thread_id, ordinal in rows
+            ]
+        )
 
     async def generation_turns(self, response_request_id: UUID) -> tuple[GenerationTurn, ...]:
         statement = (
@@ -721,6 +944,7 @@ class SqlAlchemyThreadRepository:
             .where(
                 ThreadEntryModel.thread_id == ThreadModel.id,
                 EntryTextContentModel.content.ilike(pattern, escape="\\"),
+                ~self._entry_was_replaced(),
             )
             .order_by(ThreadEntryModel.ordinal.desc())
             .limit(1)
@@ -1184,8 +1408,31 @@ class SqlAlchemyThreadRepository:
                 ),
             )
             .where(ResponseRequestModel.thread_id == thread_id)
-            .order_by(ThreadEntryModel.ordinal.desc())
+            .order_by(
+                ThreadEntryModel.ordinal.desc(),
+                ResponseRequestModel.created_at.desc(),
+                ResponseRequestModel.id.desc(),
+            )
             .limit(1)
+            .options(
+                selectinload(ResponseRequestModel.target_actor),
+                selectinload(ResponseRequestModel.executions).selectinload(
+                    ExecutionModel.model_execution
+                ),
+                selectinload(ResponseRequestModel.executions).selectinload(
+                    ExecutionModel.evaluation
+                ),
+            )
+        )
+        model = await self._session.scalar(statement)
+        if model is None:
+            raise RuntimeError("response request was not persisted")
+        return self._to_response(model)
+
+    async def _response(self, response_request_id: UUID) -> ResponseRequest:
+        statement = (
+            select(ResponseRequestModel)
+            .where(ResponseRequestModel.id == response_request_id)
             .options(
                 selectinload(ResponseRequestModel.target_actor),
                 selectinload(ResponseRequestModel.executions).selectinload(
@@ -1241,6 +1488,21 @@ class SqlAlchemyThreadRepository:
         )
 
     @staticmethod
+    def _entry_was_replaced():
+        return (
+            select(1)
+            .select_from(ExecutionModel)
+            .join(
+                ResponseRequestModel,
+                ResponseRequestModel.regenerated_from_response_request_id
+                == ExecutionModel.response_request_id,
+            )
+            .where(ExecutionModel.result_entry_id == ThreadEntryModel.id)
+            .correlate(ThreadEntryModel)
+            .exists()
+        )
+
+    @staticmethod
     def _to_space(model: SpaceModel) -> SpaceSummary:
         return SpaceSummary(
             id=model.id, kind=model.kind, name=model.name, created_at=model.created_at
@@ -1261,8 +1523,23 @@ class SqlAlchemyThreadRepository:
 
     @classmethod
     def _to_thread(cls, model: ThreadModel) -> Thread:
-        ordered_entries = sorted(model.entries, key=lambda entry: entry.ordinal)
-        entry_ordinals = {entry.id: entry.ordinal for entry in ordered_entries}
+        replaced_request_ids = {
+            request.regenerated_from_response_request_id
+            for request in model.response_requests
+            if request.regenerated_from_response_request_id is not None
+        }
+        replaced_entry_ids = {
+            execution.result_entry_id
+            for request in model.response_requests
+            if request.id in replaced_request_ids
+            for execution in request.executions
+            if execution.result_entry_id is not None
+        }
+        all_entry_ordinals = {entry.id: entry.ordinal for entry in model.entries}
+        ordered_entries = sorted(
+            (entry for entry in model.entries if entry.id not in replaced_entry_ids),
+            key=lambda entry: entry.ordinal,
+        )
         entry_responses: dict[
             UUID,
             tuple[
@@ -1289,7 +1566,11 @@ class SqlAlchemyThreadRepository:
                 )
         latest = max(
             model.response_requests,
-            key=lambda item: entry_ordinals.get(item.input_entry_id, -1),
+            key=lambda item: (
+                all_entry_ordinals.get(item.input_entry_id, -1),
+                item.created_at,
+                item.id,
+            ),
             default=None,
         )
         return Thread(
