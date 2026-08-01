@@ -4,6 +4,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
 from app.auth.principal import get_principal
+from app.domain.human_answer_conditions import HumanAnswerConditions
 from app.domain.principals import Principal, PrincipalKind
 from app.repositories.human_answers import HumanAnswerNotFoundError
 from app.repositories.humans import (
@@ -13,6 +14,7 @@ from app.repositories.humans import (
 )
 from app.schemas.human import (
     BrainStateResponse,
+    HumanAnswerConditionsRequest,
     HumanAnswerDetailResponse,
     HumanAnswerListResponse,
     HumanAnswerRequest,
@@ -80,12 +82,25 @@ async def read_human_answer(
 
 @router.put("/readiness", response_model=BrainStateResponse)
 async def become_ready(
+    payload: HumanAnswerConditionsRequest | None = None,
     principal: Principal = Depends(get_principal),
     service: HumanService = Depends(get_human_service),
 ) -> BrainStateResponse:
-    return BrainStateResponse.model_validate(
-        await service.ready(_user_id(principal)), from_attributes=True
-    )
+    try:
+        state = await service.ready(
+            _user_id(principal),
+            (
+                HumanAnswerConditions(
+                    tuple(payload.answerer_ids),
+                    tuple(payload.reasoning_efforts),
+                )
+                if payload is not None
+                else None
+            ),
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    return BrainStateResponse.model_validate(state, from_attributes=True)
 
 
 @router.delete("/readiness", response_model=BrainStateResponse)

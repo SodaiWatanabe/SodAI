@@ -15,7 +15,7 @@ ChatではHuman Lite、Human Standard、Human ProへPromptを送り、Brainで�
 
 ## 最小データ
 
-- `human_profiles`: Userの現在rankとrank変更時刻。
+- `human_profiles`: Userの現在rank、rank変更時刻、次の回答で受け付けるモデルと思考の深さ。
 - `human_rank_events`: 昇降格時のpolicy revisionと判定根拠を保存する監査履歴。
 - `human_tasks`: Human Executionの必要rankとFIFO時刻。
 - `human_wait_entries`: 準備OKになったHumanのFIFO待機とreadiness lease。
@@ -50,6 +50,25 @@ DBは判定材料と現在rankだけを保持し、統計値の複製tableや条
 profileを再判定する。待機中であればwait entryのrankも同じtransactionで更新する。
 既に開始済みのClaimは開始時のモデル、料金、報酬を維持し、新しいrankは次のマッチから適用する。
 評価はrankにのみ影響し、確定済み・将来の回答報酬額には影響しない。
+
+## 回答条件
+
+Brainでは、現在rankまでに開放されたHumanモデルと、そのモデル群が対応する思考の深さを、
+2つのpopover内に置いた両端付きsliderで範囲指定する。sliderの範囲は連続した公開値を
+`accepted_answerer_ids`と`accepted_reasoning_efforts`の明示的な集合へ展開し、profileへ保存する。
+初回の既定値はHuman Liteと`low`だけとする。Brain上の変更は待機開始時に確定し、待機中は
+設定panelを隠す。条件を変える場合は一度待機を終了する。
+
+回答条件はHuman専用の時間モデルを作らず、Chatと同じAnswerer catalogと共通の
+`reasoning_effort`を参照する。選択した各モデルには対応する思考の深さが一つ以上あり、選択した
+各思考の深さにも対応するモデルが一つ以上あることをapplication境界で検証する。条件は既存の
+`PUT /human/readiness`でreadiness leaseと一緒に保存し、同じadvisory lock内で直ちに
+再マッチングする。独立した設定tableや設定endpointは作らない。
+
+matcherはrank条件に加え、Taskのrequested answererと`reasoning_effort`がprofileの両集合に
+含まれることを要求する。昇格時は本人が選んだ範囲を維持する。降格で選択肢が失われる場合だけ、
+新しいrankで有効な最も近い条件へ縮める。既に開始したClaimのモデル、思考の深さ、回答期限、
+料金、報酬は変更しない。
 
 ## 思考の深さと実行期限
 

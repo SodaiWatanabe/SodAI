@@ -6,6 +6,11 @@ from uuid import UUID, uuid4
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.domain.human_answer_conditions import (
+    DEFAULT_HUMAN_ANSWER_CONDITIONS,
+    clamp_human_answer_conditions,
+    human_answer_conditions_from_model,
+)
 from app.domain.human_ranks import (
     HUMAN_RANK_POLICY,
     HumanRankDecisionReason,
@@ -57,8 +62,19 @@ class SqlAlchemyHumanRankRepository:
             return
 
         now = datetime.now(timezone.utc)
+        conditions = clamp_human_answer_conditions(
+            human_answer_conditions_from_model(
+                profile.accepted_answerer_ids,
+                profile.accepted_reasoning_efforts,
+                rank_level=profile.rank_level,
+            ),
+            rank_level=decision.rank_level,
+        )
+        answerer_ids, reasoning_efforts = conditions.as_model_values()
         profile.rank_level = decision.rank_level
         profile.rank_changed_at = now
+        profile.accepted_answerer_ids = answerer_ids
+        profile.accepted_reasoning_efforts = reasoning_efforts
         profile.updated_at = now
         await self._update_waiting_rank(user_id, decision.rank_level)
         self._session.add(
@@ -102,10 +118,15 @@ class SqlAlchemyHumanRankRepository:
         profile = await self._locked_profile(user_id)
         if profile is None:
             previous_rank_level = 1
+            answerer_ids, reasoning_efforts = (
+                DEFAULT_HUMAN_ANSWER_CONDITIONS.as_model_values()
+            )
             profile = HumanProfileModel(
                 user_id=user_id,
                 rank_level=rank_level,
                 rank_changed_at=now,
+                accepted_answerer_ids=answerer_ids,
+                accepted_reasoning_efforts=reasoning_efforts,
                 created_at=now,
                 updated_at=now,
             )
@@ -116,8 +137,19 @@ class SqlAlchemyHumanRankRepository:
             evidence = await self._evidence(profile)
 
         if previous_rank_level != rank_level:
+            conditions = clamp_human_answer_conditions(
+                human_answer_conditions_from_model(
+                    profile.accepted_answerer_ids,
+                    profile.accepted_reasoning_efforts,
+                    rank_level=profile.rank_level,
+                ),
+                rank_level=rank_level,
+            )
+            answerer_ids, reasoning_efforts = conditions.as_model_values()
             profile.rank_level = rank_level
             profile.rank_changed_at = now
+            profile.accepted_answerer_ids = answerer_ids
+            profile.accepted_reasoning_efforts = reasoning_efforts
             profile.updated_at = now
             self._session.add(
                 HumanRankEventModel(

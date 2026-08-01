@@ -5,6 +5,11 @@ from datetime import datetime, timedelta
 from enum import Enum
 from uuid import UUID
 
+from app.domain.answerers import AnswererId
+from app.domain.human_answer_conditions import (
+    DEFAULT_HUMAN_ANSWER_CONDITIONS,
+    HumanAnswerConditions,
+)
 from app.domain.reasoning import ReasoningEffort
 from app.domain.threads import ActorKind
 
@@ -68,3 +73,5 @@ class BrainState:
     rank_level: int
     rank_name: str
     assignment: HumanAssignment | None = None
+    answer_conditions: HumanAnswerConditions = DEFAULT_HUMAN_ANSWER_CONDITIONS
+    available_answerer_ids: tuple[AnswererId, ...] = (AnswererId.HUMAN_LITE,)

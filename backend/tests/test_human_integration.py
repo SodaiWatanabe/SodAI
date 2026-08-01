@@ -11,6 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from app.db.session import dispose_engine, get_session_factory
 from app.domain.answerers import AnswererId, get_answerer
 from app.domain.execution_events import EventDisposition
+from app.domain.human_answer_conditions import HumanAnswerConditions
 from app.domain.human_ranks import (
     HumanRankPolicy,
     HumanRankPromotionRequirement,
@@ -129,7 +130,13 @@ async def test_reasoning_effort_sets_human_deadline_when_matching_starts() -> No
                 f"{effort.value}の期限を検証するPrompt",
                 effort,
             )
-            assigned = await human.ready(performer.id)
+            assigned = await human.ready(
+                performer.id,
+                HumanAnswerConditions(
+                    answerer_ids=(AnswererId.HUMAN_PRO,),
+                    reasoning_efforts=(effort,),
+                ),
+            )
             assert assigned.assignment is not None
             assert assigned.assignment.reasoning_effort is effort
 
@@ -281,6 +288,10 @@ async def test_human_rank_promotes_and_demotes_from_tier_specific_quality() -> N
         assert promoted.rank_level == 2
         assert promoted.rank_name == "Human Standard"
         assert promoted.status.value == "waiting"
+        assert promoted.answer_conditions == HumanAnswerConditions(
+            answerer_ids=(AnswererId.HUMAN_LITE,),
+            reasoning_efforts=(ReasoningEffort.LOW,),
+        )
 
         async with factory() as session:
             waiting = await session.scalar(
@@ -306,7 +317,13 @@ async def test_human_rank_promotes_and_demotes_from_tier_specific_quality() -> N
             AnswererId.HUMAN_STANDARD,
             "Standardの降格判定",
         )
-        standard_assignment = await human.ready(performer.id)
+        standard_assignment = await human.ready(
+            performer.id,
+            HumanAnswerConditions(
+                answerer_ids=(AnswererId.HUMAN_STANDARD,),
+                reasoning_efforts=(ReasoningEffort.MEDIUM,),
+            ),
+        )
         assert standard_assignment.assignment is not None
         assert standard_assignment.assignment.execution_id == standard_execution_id
         await human.answer(
@@ -325,6 +342,10 @@ async def test_human_rank_promotes_and_demotes_from_tier_specific_quality() -> N
         assert demoted.rank_level == 1
         assert demoted.rank_name == "Human Lite"
         assert demoted.status.value == "waiting"
+        assert demoted.answer_conditions == HumanAnswerConditions(
+            answerer_ids=(AnswererId.HUMAN_LITE,),
+            reasoning_efforts=(ReasoningEffort.LOW,),
+        )
 
         async with factory() as session:
             waiting = await session.scalar(
@@ -346,6 +367,80 @@ async def test_human_rank_promotes_and_demotes_from_tier_specific_quality() -> N
             (2, 1),
         ]
         assert events[-1].reason == "quality"
+    finally:
+        await delete_users([item.id for item in users])
+
+
+@pytest.mark.anyio
+async def test_waiting_answer_conditions_are_persisted_and_used_for_matching() -> None:
+    lite_owner = principal()
+    standard_owner = principal()
+    performer = principal()
+    users = [lite_owner, standard_owner, performer]
+    factory = get_session_factory()
+    human = HumanService(factory)
+
+    async with factory() as session:
+        session.add_all(
+            UserModel(id=item.id, display_name=f"user-{index}")
+            for index, item in enumerate(users)
+        )
+        await session.commit()
+
+    standard_conditions = HumanAnswerConditions(
+        answerer_ids=(AnswererId.HUMAN_STANDARD,),
+        reasoning_efforts=(ReasoningEffort.MEDIUM,),
+    )
+    try:
+        await create_task(
+            lite_owner,
+            AnswererId.HUMAN_LITE,
+            "条件から除外されるLiteの質問",
+            ReasoningEffort.LOW,
+        )
+        _, standard_execution_id = await create_task(
+            standard_owner,
+            AnswererId.HUMAN_STANDARD,
+            "条件に一致するStandardの質問",
+            ReasoningEffort.MEDIUM,
+        )
+        await human.set_rank(performer.id, 3)
+        initial = await human.state(performer.id)
+        assert initial.answer_conditions == HumanAnswerConditions(
+            answerer_ids=(AnswererId.HUMAN_LITE,),
+            reasoning_efforts=(ReasoningEffort.LOW,),
+        )
+
+        waiting = await human.ready(
+            performer.id,
+            HumanAnswerConditions(
+                answerer_ids=(AnswererId.HUMAN_PRO,),
+                reasoning_efforts=(ReasoningEffort.XHIGH,),
+            ),
+        )
+        assert waiting.status.value == "waiting"
+        assert waiting.assignment is None
+
+        assigned = await human.ready(performer.id, standard_conditions)
+        assert assigned.assignment is not None
+        assert assigned.assignment.execution_id == standard_execution_id
+        assert assigned.assignment.answerer_name == get_answerer(
+            AnswererId.HUMAN_STANDARD
+        ).name
+        assert assigned.assignment.reasoning_effort is ReasoningEffort.MEDIUM
+        assert assigned.answer_conditions == standard_conditions
+
+        async with factory() as session:
+            profile = await session.get(HumanProfileModel, performer.id)
+        assert profile is not None
+        assert profile.accepted_answerer_ids == [AnswererId.HUMAN_STANDARD.value]
+        assert profile.accepted_reasoning_efforts == [ReasoningEffort.MEDIUM.value]
+
+        await human.answer(
+            performer.id,
+            assigned.assignment.claim_id,
+            "Standard条件で回答します",
+        )
     finally:
         await delete_users([item.id for item in users])
 
@@ -702,12 +797,24 @@ async def test_human_matching_uses_oldest_compatible_task_and_returns_answer() -
         assert senior_state.assignment is not None
         assert senior_state.assignment.execution_id == self_execution_id
 
-        standard_state = await human.ready(standard_performer.id)
+        standard_state = await human.ready(
+            standard_performer.id,
+            HumanAnswerConditions(
+                answerer_ids=(AnswererId.HUMAN_STANDARD,),
+                reasoning_efforts=(ReasoningEffort.MEDIUM,),
+            ),
+        )
         assert standard_state.rank_name == "Human Standard"
         assert standard_state.assignment is not None
         assert standard_state.assignment.execution_id == standard_execution_id
 
-        second_senior_state = await human.ready(second_senior.id)
+        second_senior_state = await human.ready(
+            second_senior.id,
+            HumanAnswerConditions(
+                answerer_ids=(AnswererId.HUMAN_PRO,),
+                reasoning_efforts=(ReasoningEffort.MEDIUM,),
+            ),
+        )
         assert second_senior_state.rank_name == "Human Pro"
         assert second_senior_state.assignment is not None
         assert second_senior_state.assignment.execution_id == pro_execution_id

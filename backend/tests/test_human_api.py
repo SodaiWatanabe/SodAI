@@ -5,6 +5,8 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from app.auth.principal import get_principal
+from app.domain.answerers import AnswererId
+from app.domain.human_answer_conditions import HumanAnswerConditions
 from app.domain.humans import (
     BrainState,
     BrainStatus,
@@ -108,6 +110,31 @@ class StubDraftHumanService:
             raise HumanClaimNotFoundError
         self.received = (user_id, claim_id, content, revision)
         return revision
+
+
+class StubReadyHumanService:
+    def __init__(self) -> None:
+        self.received: tuple[UUID, HumanAnswerConditions | None] | None = None
+
+    async def ready(
+        self,
+        user_id: UUID,
+        answer_conditions: HumanAnswerConditions | None = None,
+    ) -> BrainState:
+        self.received = (user_id, answer_conditions)
+        return BrainState(
+            BrainStatus.WAITING,
+            2,
+            "Human Standard",
+            answer_conditions=answer_conditions or HumanAnswerConditions(
+                (AnswererId.HUMAN_LITE,),
+                (ReasoningEffort.LOW,),
+            ),
+            available_answerer_ids=(
+                AnswererId.HUMAN_LITE,
+                AnswererId.HUMAN_STANDARD,
+            ),
+        )
 
 
 @pytest.fixture
@@ -250,8 +277,48 @@ async def test_human_decline_requeues_after_the_grace_period() -> None:
         "status": "waiting",
         "rank_name": "Lite",
         "assignment": None,
+        "answer_conditions": {
+            "answerer_ids": ["human-lite"],
+            "reasoning_efforts": ["low"],
+        },
+        "available_answerer_ids": ["human-lite"],
     }
     assert service.received == (USER_ID, claim_id)
+
+
+@pytest.mark.anyio
+async def test_human_readiness_accepts_answer_conditions() -> None:
+    service = StubReadyHumanService()
+    app.dependency_overrides[get_principal] = lambda: Principal(
+        PrincipalKind.USER,
+        USER_ID,
+    )
+    app.dependency_overrides[get_human_service] = lambda: service
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+    ) as client:
+        response = await client.put(
+            "/api/v1/human/readiness",
+            json={
+                "answerer_ids": ["human-lite", "human-standard"],
+                "reasoning_efforts": ["low", "medium", "high"],
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json()["answer_conditions"] == {
+        "answerer_ids": ["human-lite", "human-standard"],
+        "reasoning_efforts": ["low", "medium", "high"],
+    }
+    assert service.received == (
+        USER_ID,
+        HumanAnswerConditions(
+            (AnswererId.HUMAN_LITE, AnswererId.HUMAN_STANDARD),
+            (ReasoningEffort.LOW, ReasoningEffort.MEDIUM, ReasoningEffort.HIGH),
+        ),
+    )
 
 
 @pytest.mark.anyio

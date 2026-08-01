@@ -8,6 +8,7 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.db.session import get_session_factory
+from app.domain.human_answer_conditions import HumanAnswerConditions
 from app.domain.human_ranks import (
     HUMAN_RANK_POLICY,
     HumanRankPolicy,
@@ -37,9 +38,13 @@ class HumanService:
         async with self._session_factory() as session:
             return await SqlAlchemyHumanRepository(session).state(user_id)
 
-    async def ready(self, user_id: UUID) -> BrainState:
+    async def ready(
+        self,
+        user_id: UUID,
+        answer_conditions: HumanAnswerConditions | None = None,
+    ) -> BrainState:
         async with self._session_factory() as session:
-            await SqlAlchemyHumanRepository(session).ready(user_id)
+            await SqlAlchemyHumanRepository(session).ready(user_id, answer_conditions)
             await session.commit()
         await self.match_available_best_effort()
         return await self.state(user_id)

@@ -16,7 +16,7 @@ from sqlalchemy import (
     UniqueConstraint,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func as sql_func
 
@@ -25,7 +25,21 @@ from app.db.base import APPLICATION_SCHEMA, Base
 
 class HumanProfileModel(Base):
     __tablename__ = "human_profiles"
-    __table_args__ = (CheckConstraint("rank_level BETWEEN 1 AND 3", name="rank_level"),)
+    __table_args__ = (
+        CheckConstraint("rank_level BETWEEN 1 AND 3", name="rank_level"),
+        CheckConstraint(
+            "cardinality(accepted_answerer_ids) > 0 AND "
+            "accepted_answerer_ids <@ "
+            "ARRAY['human-lite', 'human-standard', 'human-pro']::varchar[]",
+            name="accepted_answerer_ids",
+        ),
+        CheckConstraint(
+            "cardinality(accepted_reasoning_efforts) > 0 AND "
+            "accepted_reasoning_efforts <@ "
+            "ARRAY['low', 'medium', 'high', 'xhigh']::varchar[]",
+            name="accepted_reasoning_efforts",
+        ),
+    )
 
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -35,6 +49,18 @@ class HumanProfileModel(Base):
     rank_level: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
     rank_changed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=sql_func.now()
+    )
+    accepted_answerer_ids: Mapped[list[str]] = mapped_column(
+        ARRAY(String(64)),
+        nullable=False,
+        default=lambda: ["human-lite"],
+        server_default=text("ARRAY['human-lite']::varchar[]"),
+    )
+    accepted_reasoning_efforts: Mapped[list[str]] = mapped_column(
+        ARRAY(String(16)),
+        nullable=False,
+        default=lambda: ["low"],
+        server_default=text("ARRAY['low']::varchar[]"),
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=sql_func.now()

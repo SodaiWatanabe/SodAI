@@ -4,6 +4,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
+from app.domain.answerers import AnswererId
 from app.domain.reasoning import ReasoningEffort
 
 HumanAnswerText = Annotated[
@@ -33,12 +34,26 @@ class HumanAssignmentResponse(BaseModel):
     context: list[HumanContextEntryResponse]
 
 
+class HumanAnswerConditionsResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    answerer_ids: list[AnswererId]
+    reasoning_efforts: list[ReasoningEffort]
+
+
+class HumanAnswerConditionsRequest(BaseModel):
+    answerer_ids: list[AnswererId] = Field(min_length=1, max_length=3)
+    reasoning_efforts: list[ReasoningEffort] = Field(min_length=1, max_length=4)
+
+
 class BrainStateResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     status: Literal["idle", "waiting", "assigned"]
     rank_name: str
     assignment: HumanAssignmentResponse | None
+    answer_conditions: HumanAnswerConditionsResponse
+    available_answerer_ids: list[AnswererId]
 
 
 class HumanAnswerRequest(BaseModel):

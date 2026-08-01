@@ -5,11 +5,18 @@ from datetime import datetime, timedelta, timezone
 from typing import Literal
 from uuid import UUID, uuid4
 
-from sqlalchemy import and_, exists, func, or_, select, update
+from sqlalchemy import and_, any_, exists, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.answerers import AnswererId, get_answerer, get_human_rank_name
+from app.domain.human_answer_conditions import (
+    DEFAULT_HUMAN_ANSWER_CONDITIONS,
+    HumanAnswerConditions,
+    available_human_answerer_ids,
+    human_answer_conditions_from_model,
+    validate_human_answer_conditions,
+)
 from app.domain.humans import (
     HUMAN_MATCH_LOCK_KEY,
     HUMAN_SKIP_WINDOW,
@@ -96,6 +103,16 @@ class SqlAlchemyHumanRepository:
     async def state(self, user_id: UUID) -> BrainState:
         profile = await self._session.get(HumanProfileModel, user_id)
         rank_level = profile.rank_level if profile else 1
+        answer_conditions = (
+            human_answer_conditions_from_model(
+                profile.accepted_answerer_ids,
+                profile.accepted_reasoning_efforts,
+                rank_level=rank_level,
+            )
+            if profile is not None
+            else DEFAULT_HUMAN_ANSWER_CONDITIONS
+        )
+        available_answerers = available_human_answerer_ids(rank_level)
         assignment = await self._active_assignment(user_id)
         if assignment is not None:
             return BrainState(
@@ -103,6 +120,8 @@ class SqlAlchemyHumanRepository:
                 rank_level,
                 get_human_rank_name(rank_level),
                 assignment,
+                answer_conditions,
+                available_answerers,
             )
         waiting = await self._session.scalar(
             select(HumanWaitEntryModel.id).where(
@@ -115,9 +134,15 @@ class SqlAlchemyHumanRepository:
             BrainStatus.WAITING if waiting is not None else BrainStatus.IDLE,
             rank_level,
             get_human_rank_name(rank_level),
+            answer_conditions=answer_conditions,
+            available_answerer_ids=available_answerers,
         )
 
-    async def ready(self, user_id: UUID) -> None:
+    async def ready(
+        self,
+        user_id: UUID,
+        answer_conditions: HumanAnswerConditions | None = None,
+    ) -> None:
         await self._lock_matching()
         now = datetime.now(timezone.utc)
         await self._session.execute(
@@ -125,6 +150,23 @@ class SqlAlchemyHumanRepository:
             .values(user_id=user_id, rank_level=1, updated_at=now)
             .on_conflict_do_nothing(index_elements=[HumanProfileModel.user_id])
         )
+        profile = await self._session.scalar(
+            select(HumanProfileModel)
+            .where(HumanProfileModel.user_id == user_id)
+            .with_for_update()
+        )
+        if profile is None:
+            raise RuntimeError("Human readiness requires a profile")
+        if answer_conditions is not None:
+            normalized = validate_human_answer_conditions(
+                answer_conditions.answerer_ids,
+                answer_conditions.reasoning_efforts,
+                rank_level=profile.rank_level,
+            )
+            answerer_ids, reasoning_efforts = normalized.as_model_values()
+            profile.accepted_answerer_ids = answerer_ids
+            profile.accepted_reasoning_efforts = reasoning_efforts
+            profile.updated_at = now
         if not await self._renew_active_claim(user_id, now):
             await self._ensure_wait_entry(user_id, now)
         await self._session.flush()
@@ -195,9 +237,17 @@ class SqlAlchemyHumanRepository:
                     HumanWaitEntryModel.performer_user_id != SpaceModel.owner_user_id,
                 ),
             )
+            .join(
+                HumanProfileModel,
+                HumanProfileModel.user_id == HumanWaitEntryModel.performer_user_id,
+            )
             .where(
                 ExecutionModel.status == ResponseStatus.QUEUED.value,
                 ResponseRequestModel.status == ResponseStatus.QUEUED.value,
+                ResponseRequestModel.requested_answerer
+                == any_(HumanProfileModel.accepted_answerer_ids),
+                ResponseRequestModel.reasoning_effort
+                == any_(HumanProfileModel.accepted_reasoning_efforts),
                 HumanWaitEntryModel.status == "waiting",
                 HumanWaitEntryModel.last_seen_at > now - WAIT_LEASE,
                 ~prior_claim,
