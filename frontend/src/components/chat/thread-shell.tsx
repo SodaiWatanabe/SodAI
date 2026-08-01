@@ -682,7 +682,10 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
       />
 
       {humanPrivacyDialogOpen ? (
-        <HumanPrivacyDialog onClose={() => setHumanPrivacyDialogOpen(false)} />
+        <HumanPrivacyDialog
+          scope="thread"
+          onClose={() => setHumanPrivacyDialogOpen(false)}
+        />
       ) : null}
 
       <div className="relative isolate flex flex-1 flex-col">

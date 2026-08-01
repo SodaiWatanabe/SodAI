@@ -151,7 +151,10 @@ export function ChatShell(props: ChatShellProps) {
         onAnswererChange={selectAnswerer}
       />
       {humanPrivacyDialogOpen ? (
-        <HumanPrivacyDialog onClose={() => setHumanPrivacyDialogOpen(false)} />
+        <HumanPrivacyDialog
+          scope="message"
+          onClose={() => setHumanPrivacyDialogOpen(false)}
+        />
       ) : null}
       <section className="mx-auto grid w-full max-w-[760px] flex-1 grid-rows-[1fr_auto] px-5 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-8 lg:flex lg:flex-col lg:justify-center lg:pb-16">
         <h1 className="self-center -translate-y-[3vh] text-center text-2xl font-normal tracking-[-0.04em] text-[var(--text)] sm:text-[28px] lg:hidden">

@@ -6,12 +6,18 @@ import { useEffect, useId, useRef } from "react";
 
 type HumanPrivacyDialogProps = {
   onClose: () => void;
+  scope: "message" | "thread";
 };
 
-export function HumanPrivacyDialog({ onClose }: HumanPrivacyDialogProps) {
+export function HumanPrivacyDialog({ onClose, scope }: HumanPrivacyDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   const descriptionId = useId();
+  const title = scope === "thread" ? "会話が共有されます" : "Humanへの送信";
+  const description =
+    scope === "thread"
+      ? "このスレッド内の全メッセージが第三者のユーザーに送信されます。個人情報と機密情報は含めないようにしてください。"
+      : "プロンプトは第三者のユーザーに送信されます。個人情報と機密情報は含めないようにしてください。";
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -48,7 +54,7 @@ export function HumanPrivacyDialog({ onClose }: HumanPrivacyDialogProps) {
         />
         <button
           type="button"
-          aria-label="Humanへの送信についてを閉じる"
+          aria-label={`${title}を閉じる`}
           className="absolute right-3 top-3 grid size-9 place-items-center rounded-full border border-[var(--border)] bg-[var(--surface-translucent)] text-[var(--muted)] shadow-sm backdrop-blur-md transition-colors hover:text-[var(--text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)]"
           onClick={closeDialog}
         >
@@ -60,13 +66,13 @@ export function HumanPrivacyDialog({ onClose }: HumanPrivacyDialogProps) {
           id={titleId}
           className="text-lg font-semibold tracking-[-0.02em]"
         >
-          Humanへの送信
+          {title}
         </h2>
         <p
           id={descriptionId}
           className="mt-1.5 text-sm leading-6 text-[var(--muted)]"
         >
-          プロンプトは第三者のユーザーに送信されます。個人情報と機密情報は含めないようにしてください。
+          {description}
         </p>
         <button
           type="button"
