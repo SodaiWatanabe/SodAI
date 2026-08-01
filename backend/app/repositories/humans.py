@@ -66,6 +66,12 @@ class HumanProjection:
 
 
 @dataclass(frozen=True, slots=True)
+class HumanAutoAnswer:
+    projection: HumanProjection
+    content: str
+
+
+@dataclass(frozen=True, slots=True)
 class CancelledHumanClaim:
     performer_user_id: UUID
     claim_id: UUID
@@ -74,6 +80,7 @@ class CancelledHumanClaim:
 @dataclass(frozen=True, slots=True)
 class MatchResult:
     expired: tuple[HumanProjection, ...]
+    auto_answered: tuple[HumanAutoAnswer, ...]
     matched: HumanProjection | None
 
 
@@ -168,7 +175,7 @@ class SqlAlchemyHumanRepository:
             )
             .values(status="stale", ended_at=now)
         )
-        expired = await self._expire_claims(now)
+        expired, auto_answered = await self._reconcile_claims(now)
 
         prior_claim = exists(
             select(HumanClaimModel.id).where(
@@ -228,7 +235,7 @@ class SqlAlchemyHumanRepository:
         )
         row = (await self._session.execute(statement)).one_or_none()
         if row is None:
-            return MatchResult(tuple(expired), None)
+            return MatchResult(tuple(expired), tuple(auto_answered), None)
         task, waiter, execution, request, thread, space = row
         if space.owner_user_id is None:
             raise RuntimeError("Human tasks require an authenticated thread owner")
@@ -259,6 +266,7 @@ class SqlAlchemyHumanRepository:
         await self._session.flush()
         return MatchResult(
             tuple(expired),
+            tuple(auto_answered),
             self._projection(space, thread, request, execution, claim),
         )
 
@@ -271,6 +279,7 @@ class SqlAlchemyHumanRepository:
             raise HumanClaimSkipWindowClosedError
         claim.status = "skipped"
         claim.finished_at = now
+        self._clear_draft(claim)
         execution.status = ResponseStatus.QUEUED.value
         execution.started_at = None
         execution.deadline_at = None
@@ -283,24 +292,50 @@ class SqlAlchemyHumanRepository:
         await self._session.flush()
         return self._projection(space, thread, request, execution, claim)
 
+    async def save_draft(
+        self,
+        user_id: UUID,
+        claim_id: UUID,
+        content: str,
+        revision: int,
+    ) -> int:
+        row = (
+            await self._session.execute(
+                select(HumanClaimModel, ExecutionModel)
+                .join(
+                    ExecutionModel,
+                    ExecutionModel.id == HumanClaimModel.execution_id,
+                )
+                .where(
+                    HumanClaimModel.id == claim_id,
+                    HumanClaimModel.performer_user_id == user_id,
+                    HumanClaimModel.status == "active",
+                    ExecutionModel.deadline_at > func.now(),
+                )
+                .with_for_update(of=(HumanClaimModel, ExecutionModel))
+            )
+        ).one_or_none()
+        if row is None:
+            raise HumanClaimNotFoundError
+        claim, execution = row
+        if revision <= claim.draft_revision:
+            return claim.draft_revision
+
+        now = datetime.now(timezone.utc)
+        claim.draft_content = content
+        claim.draft_revision = revision
+        claim.draft_updated_at = now
+        claim.lease_expires_at = now + CLAIM_LEASE
+        execution.lease_expires_at = now + CLAIM_LEASE
+        await self._session.flush()
+        return revision
+
     async def answer(self, user_id: UUID, claim_id: UUID, content: str) -> HumanProjection:
         await self._lock_matching()
         row = await self._locked_claim(user_id, claim_id)
         claim, execution, request, thread, space = row
         now = datetime.now(timezone.utc)
-        thread.revision += 1
-        thread.updated_at = now
-        await complete_response(
-            self._session,
-            execution,
-            request,
-            thread,
-            content,
-            now,
-        )
-        claim.status = "answered"
-        claim.finished_at = now
-        await self._ensure_wait_entry(user_id, now)
+        await self._complete_answer(claim, execution, request, thread, content, now)
         await self._session.flush()
         return self._projection(space, thread, request, execution, claim)
 
@@ -323,6 +358,7 @@ class SqlAlchemyHumanRepository:
             return None
         claim.status = "cancelled"
         claim.finished_at = now
+        self._clear_draft(claim)
         await self._ensure_wait_entry(claim.performer_user_id, now)
         await self._session.flush()
         return CancelledHumanClaim(claim.performer_user_id, claim.id)
@@ -369,6 +405,8 @@ class SqlAlchemyHumanRepository:
             reasoning_effort=ReasoningEffort(request.reasoning_effort),
             skip_allowed_until=claim.claimed_at + HUMAN_SKIP_WINDOW,
             deadline_at=execution.deadline_at,
+            draft_content=claim.draft_content,
+            draft_revision=claim.draft_revision,
             context=await load_human_context(self._session, request.id),
         )
 
@@ -416,7 +454,10 @@ class SqlAlchemyHumanRepository:
             raise HumanClaimNotFoundError
         return row
 
-    async def _expire_claims(self, now: datetime) -> list[HumanProjection]:
+    async def _reconcile_claims(
+        self,
+        now: datetime,
+    ) -> tuple[list[HumanProjection], list[HumanAutoAnswer]]:
         statement = (
             select(
                 HumanClaimModel,
@@ -444,15 +485,36 @@ class SqlAlchemyHumanRepository:
                 skip_locked=True,
             )
         )
-        projections: list[HumanProjection] = []
+        expired: list[HumanProjection] = []
+        auto_answered: list[HumanAutoAnswer] = []
         for claim, execution, request, thread, space in (
             await self._session.execute(statement)
         ).all():
             answer_deadline_expired = (
                 execution.deadline_at is not None and execution.deadline_at <= now
             )
+            draft_content = claim.draft_content.strip()
+            if answer_deadline_expired and draft_content:
+                await self._complete_answer(
+                    claim,
+                    execution,
+                    request,
+                    thread,
+                    draft_content,
+                    now,
+                )
+                await self._session.flush()
+                auto_answered.append(
+                    HumanAutoAnswer(
+                        self._projection(space, thread, request, execution, claim),
+                        draft_content,
+                    )
+                )
+                continue
+
             claim.status = "expired"
             claim.finished_at = now
+            self._clear_draft(claim)
             execution.status = ResponseStatus.QUEUED.value
             execution.started_at = None
             execution.deadline_at = None
@@ -461,7 +523,7 @@ class SqlAlchemyHumanRepository:
             request.started_at = None
             thread.revision += 1
             thread.updated_at = now
-            projections.append(
+            expired.append(
                 self._projection(
                     space,
                     thread,
@@ -475,7 +537,35 @@ class SqlAlchemyHumanRepository:
                     ),
                 )
             )
-        return projections
+        return expired, auto_answered
+
+    async def _complete_answer(
+        self,
+        claim: HumanClaimModel,
+        execution: ExecutionModel,
+        request: ResponseRequestModel,
+        thread: ThreadModel,
+        content: str,
+        now: datetime,
+    ) -> None:
+        thread.revision += 1
+        thread.updated_at = now
+        await complete_response(
+            self._session,
+            execution,
+            request,
+            thread,
+            content,
+            now,
+        )
+        claim.status = "answered"
+        claim.finished_at = now
+        self._clear_draft(claim)
+
+    @staticmethod
+    def _clear_draft(claim: HumanClaimModel) -> None:
+        claim.draft_content = ""
+        claim.draft_updated_at = None
 
     async def _lock_matching(self) -> None:
         await self._session.execute(select(func.pg_advisory_xact_lock(HUMAN_MATCH_LOCK_KEY)))

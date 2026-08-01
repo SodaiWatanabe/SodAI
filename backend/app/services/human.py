@@ -53,6 +53,23 @@ class HumanService:
         await self.match_available_best_effort()
         return await self.state(user_id)
 
+    async def save_draft(
+        self,
+        user_id: UUID,
+        claim_id: UUID,
+        content: str,
+        revision: int,
+    ) -> int:
+        async with self._session_factory() as session:
+            saved_revision = await SqlAlchemyHumanRepository(session).save_draft(
+                user_id,
+                claim_id,
+                content,
+                revision,
+            )
+            await session.commit()
+        return saved_revision
+
     async def answer(self, user_id: UUID, claim_id: UUID, content: str) -> BrainState:
         async with self._session_factory() as session:
             repository = SqlAlchemyHumanRepository(session)
@@ -86,7 +103,42 @@ class HumanService:
         while True:
             async with self._session_factory() as session:
                 result = await SqlAlchemyHumanRepository(session).match_once()
+                credit_service = HumanCreditService(session)
+                for auto_answer in result.auto_answered:
+                    performer_user_id = auto_answer.projection.performer_user_id
+                    if performer_user_id is None:
+                        raise RuntimeError("automatic Human answer is missing its performer")
+                    await credit_service.settle_answer(
+                        auto_answer.projection.execution_id,
+                        performer_user_id,
+                    )
                 await session.commit()
+            for auto_answer in result.auto_answered:
+                projection = auto_answer.projection
+                await self._publish_owner(
+                    projection,
+                    "response.completed",
+                    {
+                        "target_actor_id": str(projection.target_actor_id),
+                        "result_entry_id": (
+                            str(projection.result_entry_id)
+                            if projection.result_entry_id
+                            else None
+                        ),
+                        "content": auto_answer.content,
+                    },
+                )
+                if projection.performer_user_id is not None and projection.claim_id is not None:
+                    await realtime_hub.publish(
+                        Principal(PrincipalKind.USER, projection.performer_user_id),
+                        event_type="human.answer.auto_submitted",
+                        space_id=projection.space_id,
+                        thread_id=projection.thread_id,
+                        thread_revision=projection.thread_revision,
+                        response_request_id=projection.response_request_id,
+                        execution_id=projection.execution_id,
+                        data={"claim_id": str(projection.claim_id)},
+                    )
             for projection in result.expired:
                 await self._publish_owner(projection, "response.queued", {})
                 if projection.performer_user_id is not None and projection.claim_id is not None:

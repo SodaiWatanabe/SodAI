@@ -2726,6 +2726,66 @@ async def test_human_answer_splits_charge_between_performer_and_platform() -> No
 
 
 @pytest.mark.anyio
+async def test_automatic_human_answer_uses_the_same_credit_settlement() -> None:
+    requester = await create_user()
+    performer = await create_user()
+    settings = get_settings()
+    factory = get_session_factory()
+    threads = ThreadService(
+        factory,
+        ModelDeploymentRegistry(settings.model_root),
+        settings,
+    )
+    human = HumanService(factory)
+    terms = get_human_credit_terms(
+        AnswererId.HUMAN_STANDARD,
+        ReasoningEffort.MEDIUM,
+    )
+
+    creation = await threads.create(
+        requester,
+        "期限時のHuman報酬を精算してください",
+        AnswererId.HUMAN_STANDARD,
+        ReasoningEffort.MEDIUM,
+    )
+    execution_id = creation.response.execution.id
+    await human.set_rank(performer.id, 2)
+    assigned = await human.ready(performer.id)
+    assert assigned.assignment is not None
+    await human.save_draft(
+        performer.id,
+        assigned.assignment.claim_id,
+        "期限時に確定するHuman回答です。",
+        revision=1,
+    )
+
+    async with factory() as session:
+        execution = await session.get(ExecutionModel, execution_id)
+        assert execution is not None
+        execution.deadline_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+        await session.commit()
+
+    await human.match_available()
+
+    async with factory() as session:
+        ledger = CreditLedgerRepository(session)
+        requester_balance = await ledger.balance(requester.id)
+        performer_balance = await ledger.balance(performer.id)
+        reservation = await session.scalar(
+            select(InferenceCreditReservationModel).where(
+                InferenceCreditReservationModel.execution_reference_id
+                == execution_id
+            )
+        )
+    assert reservation is not None
+    assert reservation.status == CreditReservationStatus.SETTLED.value
+    assert reservation.settled_amount == terms.customer_charge
+    assert requester_balance.reserved == 0
+    assert performer_balance.available == terms.performer_reward
+    assert performer_balance.reserved == 0
+
+
+@pytest.mark.anyio
 async def test_cancelled_human_request_releases_the_full_reservation() -> None:
     requester = await create_user()
     settings = get_settings()

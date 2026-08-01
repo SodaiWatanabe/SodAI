@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from app.domain.reasoning import ReasoningEffort
 
@@ -10,6 +10,7 @@ HumanAnswerText = Annotated[
     str,
     StringConstraints(strip_whitespace=True, min_length=1, max_length=32000),
 ]
+HumanDraftText = Annotated[str, StringConstraints(max_length=32000)]
 
 
 class HumanContextEntryResponse(BaseModel):
@@ -27,6 +28,8 @@ class HumanAssignmentResponse(BaseModel):
     reasoning_effort: ReasoningEffort
     skip_allowed_until: datetime
     deadline_at: datetime
+    draft_content: str
+    draft_revision: int
     context: list[HumanContextEntryResponse]
 
 
@@ -40,6 +43,15 @@ class BrainStateResponse(BaseModel):
 
 class HumanAnswerRequest(BaseModel):
     content: HumanAnswerText
+
+
+class HumanDraftRequest(BaseModel):
+    content: HumanDraftText
+    revision: int = Field(ge=1, le=9_007_199_254_740_991)
+
+
+class HumanDraftResponse(BaseModel):
+    revision: int
 
 
 class HumanAnswerSummaryResponse(BaseModel):

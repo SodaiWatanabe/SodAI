@@ -15,6 +15,8 @@ from app.schemas.human import (
     HumanAnswerDetailResponse,
     HumanAnswerListResponse,
     HumanAnswerRequest,
+    HumanDraftRequest,
+    HumanDraftResponse,
 )
 from app.services.human import HumanService, get_human_service
 from app.services.human_answers import (
@@ -122,3 +124,22 @@ async def answer_claim(
     except HumanClaimNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Active assignment not found") from exc
     return BrainStateResponse.model_validate(state, from_attributes=True)
+
+
+@router.put("/claims/{claim_id}/draft", response_model=HumanDraftResponse)
+async def save_claim_draft(
+    claim_id: UUID,
+    payload: HumanDraftRequest,
+    principal: Principal = Depends(get_principal),
+    service: HumanService = Depends(get_human_service),
+) -> HumanDraftResponse:
+    try:
+        revision = await service.save_draft(
+            _user_id(principal),
+            claim_id,
+            payload.content,
+            payload.revision,
+        )
+    except HumanClaimNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Active assignment not found") from exc
+    return HumanDraftResponse(revision=revision)

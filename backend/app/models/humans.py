@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
+    BigInteger,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -11,6 +12,7 @@ from sqlalchemy import (
     Index,
     Integer,
     String,
+    Text,
     UniqueConstraint,
     text,
 )
@@ -112,6 +114,12 @@ class HumanClaimModel(Base):
             "(status != 'active' AND finished_at IS NOT NULL)",
             name="state",
         ),
+        CheckConstraint("char_length(draft_content) <= 32000", name="draft_content_length"),
+        CheckConstraint("draft_revision >= 0", name="draft_revision"),
+        CheckConstraint(
+            "status = 'active' OR (draft_content = '' AND draft_updated_at IS NULL)",
+            name="draft_state",
+        ),
         UniqueConstraint(
             "execution_id", "performer_user_id", name="uq_human_claims_execution_performer"
         ),
@@ -163,6 +171,19 @@ class HumanClaimModel(Base):
         DateTime(timezone=True), nullable=False, server_default=sql_func.now()
     )
     lease_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    draft_content: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="",
+        server_default="",
+    )
+    draft_revision: Mapped[int] = mapped_column(
+        BigInteger,
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
+    draft_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 

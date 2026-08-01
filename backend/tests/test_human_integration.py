@@ -137,11 +137,12 @@ async def test_reasoning_effort_sets_human_deadline_when_matching_starts() -> No
             ).total_seconds() == seconds
             assert assigned.assignment.deadline_at == execution.deadline_at
 
-            await human.answer(
+            answered = await human.answer(
                 performer.id,
                 assigned.assignment.claim_id,
                 f"{effort.value}の回答",
             )
+            assert answered.status.value == "idle"
     finally:
         await delete_users([item.id for item in users])
 
@@ -386,12 +387,13 @@ async def test_human_answer_and_requester_cancellation_have_one_winner() -> None
             )
         assert thread.latest_response is not None
         assert claim is not None
-        assert waiting_count == 1
         if answered:
+            assert waiting_count == 0
             assert thread.latest_response.status.value == "completed"
             assert claim.status == "answered"
             assert [entry.content for entry in thread.entries][-1] == "競合に勝ったHuman回答"
         else:
+            assert waiting_count == 1
             assert thread.latest_response.status.value == "cancelled"
             assert claim.status == "cancelled"
             assert len(thread.entries) == 1
@@ -576,7 +578,7 @@ async def test_human_matching_uses_oldest_compatible_task_and_returns_answer() -
             junior_state.assignment.claim_id,
             "Human Liteからの回答です。",
         )
-        assert answered_state.status.value == "waiting"
+        assert answered_state.status.value == "idle"
         async with factory() as session:
             thread = await SqlAlchemyThreadRepository(session).get(lite_owner, lite_thread_id)
             human_task = await session.get(HumanTaskModel, lite_execution_id)
@@ -603,7 +605,7 @@ async def test_human_matching_uses_oldest_compatible_task_and_returns_answer() -
             standard_state.assignment.claim_id,
             "Human Standardからの回答です。",
         )
-        assert standard_answered_state.status.value == "waiting"
+        assert standard_answered_state.status.value == "idle"
         async with factory() as session:
             standard_thread = await SqlAlchemyThreadRepository(session).get(
                 standard_owner,
@@ -674,6 +676,155 @@ async def test_human_matching_uses_oldest_compatible_task_and_returns_answer() -
             with pytest.raises(ThreadNotFoundError):
                 await SqlAlchemyThreadRepository(session).get(junior, lite_thread_id)
         assert self_thread_id != pro_thread_id
+    finally:
+        await delete_users([item.id for item in users])
+
+
+@pytest.mark.anyio
+async def test_answer_completion_requires_readiness_before_the_next_match() -> None:
+    owner = principal()
+    performer = principal()
+    users = [owner, performer]
+    factory = get_session_factory()
+    human = HumanService(factory)
+
+    async with factory() as session:
+        session.add_all(
+            UserModel(id=item.id, display_name=f"user-{index}")
+            for index, item in enumerate(users)
+        )
+        await session.commit()
+
+    try:
+        _, first_execution_id = await create_task(
+            owner,
+            AnswererId.HUMAN_LITE,
+            "1件目のPrompt",
+        )
+        _, second_execution_id = await create_task(
+            owner,
+            AnswererId.HUMAN_LITE,
+            "2件目のPrompt",
+        )
+
+        assigned = await human.ready(performer.id)
+        assert assigned.assignment is not None
+        remaining_execution_id = (
+            second_execution_id
+            if assigned.assignment.execution_id == first_execution_id
+            else first_execution_id
+        )
+
+        answered = await human.answer(
+            performer.id,
+            assigned.assignment.claim_id,
+            "回答完了後は一度停止します。",
+        )
+        assert answered.status.value == "idle"
+        assert answered.assignment is None
+
+        async with factory() as session:
+            waiting_count = await session.scalar(
+                select(func.count())
+                .select_from(HumanWaitEntryModel)
+                .where(
+                    HumanWaitEntryModel.performer_user_id == performer.id,
+                    HumanWaitEntryModel.status == "waiting",
+                )
+            )
+            remaining_execution = await session.get(
+                ExecutionModel,
+                remaining_execution_id,
+            )
+        assert waiting_count == 0
+        assert remaining_execution is not None
+        assert remaining_execution.status == "queued"
+
+        resumed = await human.ready(performer.id)
+        assert resumed.status.value == "assigned"
+        assert resumed.assignment is not None
+        assert resumed.assignment.execution_id == remaining_execution_id
+    finally:
+        await delete_users([item.id for item in users])
+
+
+@pytest.mark.anyio
+async def test_automatic_answer_completion_also_requires_readiness() -> None:
+    owner = principal()
+    performer = principal()
+    users = [owner, performer]
+    factory = get_session_factory()
+    human = HumanService(factory)
+
+    async with factory() as session:
+        session.add_all(
+            UserModel(id=item.id, display_name=f"user-{index}")
+            for index, item in enumerate(users)
+        )
+        await session.commit()
+
+    try:
+        _, first_execution_id = await create_task(
+            owner,
+            AnswererId.HUMAN_LITE,
+            "自動送信の1件目",
+        )
+        _, second_execution_id = await create_task(
+            owner,
+            AnswererId.HUMAN_LITE,
+            "自動送信の2件目",
+        )
+
+        assigned = await human.ready(performer.id)
+        assert assigned.assignment is not None
+        remaining_execution_id = (
+            second_execution_id
+            if assigned.assignment.execution_id == first_execution_id
+            else first_execution_id
+        )
+        await human.save_draft(
+            performer.id,
+            assigned.assignment.claim_id,
+            "期限時に自動送信される回答",
+            revision=1,
+        )
+
+        async with factory() as session:
+            execution = await session.get(
+                ExecutionModel,
+                assigned.assignment.execution_id,
+            )
+            assert execution is not None
+            execution.deadline_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+            await session.commit()
+
+        await human.match_available()
+
+        completed = await human.state(performer.id)
+        assert completed.status.value == "idle"
+        assert completed.assignment is None
+        async with factory() as session:
+            claim = await session.get(HumanClaimModel, assigned.assignment.claim_id)
+            waiting_count = await session.scalar(
+                select(func.count())
+                .select_from(HumanWaitEntryModel)
+                .where(
+                    HumanWaitEntryModel.performer_user_id == performer.id,
+                    HumanWaitEntryModel.status == "waiting",
+                )
+            )
+            remaining_execution = await session.get(
+                ExecutionModel,
+                remaining_execution_id,
+            )
+        assert claim is not None and claim.status == "answered"
+        assert waiting_count == 0
+        assert remaining_execution is not None
+        assert remaining_execution.status == "queued"
+
+        resumed = await human.ready(performer.id)
+        assert resumed.assignment is not None
+        assert resumed.assignment.execution_id == remaining_execution_id
     finally:
         await delete_users([item.id for item in users])
 
@@ -788,6 +939,135 @@ async def test_reasoning_deadline_expires_claim_and_requeues_task() -> None:
 
 
 @pytest.mark.anyio
+async def test_reasoning_deadline_submits_the_latest_nonempty_draft_once() -> None:
+    owner = principal()
+    performer = principal()
+    users = [owner, performer]
+    factory = get_session_factory()
+    human = HumanService(factory)
+
+    async with factory() as session:
+        session.add_all(
+            UserModel(id=item.id, display_name=f"user-{index}")
+            for index, item in enumerate(users)
+        )
+        await session.commit()
+
+    try:
+        thread_id, execution_id = await create_task(
+            owner,
+            AnswererId.HUMAN_LITE,
+            "下書きの自動送信を検証するPrompt",
+            ReasoningEffort.LOW,
+        )
+        assigned = await human.ready(performer.id)
+        assert assigned.assignment is not None
+        claim_id = assigned.assignment.claim_id
+        assert assigned.assignment.draft_content == ""
+        assert assigned.assignment.draft_revision == 0
+
+        assert await human.save_draft(
+            performer.id,
+            claim_id,
+            "期限時に送られる最新の回答です。",
+            2,
+        ) == 2
+        assert await human.save_draft(
+            performer.id,
+            claim_id,
+            "古い回答",
+            1,
+        ) == 2
+
+        restored = await human.state(performer.id)
+        assert restored.assignment is not None
+        assert restored.assignment.draft_content == "期限時に送られる最新の回答です。"
+        assert restored.assignment.draft_revision == 2
+
+        async with factory() as session:
+            execution = await session.get(ExecutionModel, execution_id)
+            assert execution is not None
+            execution.deadline_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+            await session.commit()
+
+        await human.match_available()
+        await human.match_available()
+
+        async with factory() as session:
+            thread = await SqlAlchemyThreadRepository(session).get(owner, thread_id)
+            claim = await session.get(HumanClaimModel, claim_id)
+            execution = await session.get(ExecutionModel, execution_id)
+        assert thread.latest_response is not None
+        assert thread.latest_response.status.value == "completed"
+        assert [entry.content for entry in thread.entries] == [
+            "下書きの自動送信を検証するPrompt",
+            "期限時に送られる最新の回答です。",
+        ]
+        assert claim is not None
+        assert claim.status == "answered"
+        assert claim.draft_content == ""
+        assert claim.draft_updated_at is None
+        assert execution is not None and execution.status == "completed"
+        assert (await human.state(performer.id)).status.value == "idle"
+    finally:
+        await delete_users([item.id for item in users])
+
+
+@pytest.mark.anyio
+async def test_lease_expiry_does_not_submit_a_draft_before_the_deadline() -> None:
+    owner = principal()
+    performer = principal()
+    users = [owner, performer]
+    factory = get_session_factory()
+    human = HumanService(factory)
+
+    async with factory() as session:
+        session.add_all(
+            UserModel(id=item.id, display_name=f"user-{index}")
+            for index, item in enumerate(users)
+        )
+        await session.commit()
+
+    try:
+        thread_id, execution_id = await create_task(
+            owner,
+            AnswererId.HUMAN_LITE,
+            "lease切れと回答期限を区別するPrompt",
+        )
+        assigned = await human.ready(performer.id)
+        assert assigned.assignment is not None
+        claim_id = assigned.assignment.claim_id
+        await human.save_draft(performer.id, claim_id, "まだ入力途中です。", 1)
+
+        async with factory() as session:
+            claim = await session.get(HumanClaimModel, claim_id)
+            execution = await session.get(ExecutionModel, execution_id)
+            assert claim is not None
+            assert execution is not None
+            claim.lease_expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+            execution.lease_expires_at = claim.lease_expires_at
+            assert execution.deadline_at is not None
+            assert execution.deadline_at > datetime.now(timezone.utc)
+            await session.commit()
+
+        await human.match_available()
+
+        async with factory() as session:
+            thread = await SqlAlchemyThreadRepository(session).get(owner, thread_id)
+            claim = await session.get(HumanClaimModel, claim_id)
+            execution = await session.get(ExecutionModel, execution_id)
+        assert [entry.content for entry in thread.entries] == [
+            "lease切れと回答期限を区別するPrompt"
+        ]
+        assert claim is not None
+        assert claim.status == "expired"
+        assert claim.draft_content == ""
+        assert execution is not None and execution.status == "queued"
+    finally:
+        await delete_users([item.id for item in users])
+
+
+@pytest.mark.anyio
 async def test_skip_is_rejected_twenty_seconds_after_assignment() -> None:
     owner = principal()
     performer = principal()
@@ -831,7 +1111,7 @@ async def test_skip_is_rejected_twenty_seconds_after_assignment() -> None:
         assert execution is not None and execution.status == "running"
 
         answered = await human.answer(performer.id, claim_id, "猶予後も回答はできます。")
-        assert answered.status.value == "waiting"
+        assert answered.status.value == "idle"
     finally:
         await delete_users([item.id for item in users])
 

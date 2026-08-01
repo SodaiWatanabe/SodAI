@@ -16,7 +16,10 @@ from app.domain.reasoning import ReasoningEffort
 from app.domain.threads import ActorKind
 from app.main import app
 from app.repositories.human_answers import HumanAnswerNotFoundError
-from app.repositories.humans import HumanClaimSkipWindowClosedError
+from app.repositories.humans import (
+    HumanClaimNotFoundError,
+    HumanClaimSkipWindowClosedError,
+)
 from app.services.human import get_human_service
 from app.services.human_answers import get_human_answer_history_service
 
@@ -72,6 +75,24 @@ class StubHumanAnswerHistoryService:
 class StubClosedSkipWindowHumanService:
     async def skip(self, user_id: UUID, claim_id: UUID) -> None:
         raise HumanClaimSkipWindowClosedError
+
+
+class StubDraftHumanService:
+    def __init__(self, *, missing: bool = False) -> None:
+        self.missing = missing
+        self.received: tuple[UUID, UUID, str, int] | None = None
+
+    async def save_draft(
+        self,
+        user_id: UUID,
+        claim_id: UUID,
+        content: str,
+        revision: int,
+    ) -> int:
+        if self.missing:
+            raise HumanClaimNotFoundError
+        self.received = (user_id, claim_id, content, revision)
+        return revision
 
 
 @pytest.fixture
@@ -191,3 +212,55 @@ async def test_human_skip_returns_conflict_after_the_grace_period() -> None:
 
     assert response.status_code == 409
     assert response.json() == {"detail": "Skip window has closed"}
+
+
+@pytest.mark.anyio
+async def test_human_draft_is_saved_with_its_client_revision() -> None:
+    claim_id = UUID("018f96d4-7c48-7c27-a71f-591e3cb87490")
+    service = StubDraftHumanService()
+    app.dependency_overrides[get_principal] = lambda: Principal(
+        PrincipalKind.USER,
+        USER_ID,
+    )
+    app.dependency_overrides[get_human_service] = lambda: service
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+    ) as client:
+        response = await client.put(
+            f"/api/v1/human/claims/{claim_id}/draft",
+            json={"content": "入力途中の回答", "revision": 7},
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {"revision": 7}
+    assert service.received == (USER_ID, claim_id, "入力途中の回答", 7)
+
+
+@pytest.mark.anyio
+async def test_human_draft_rejects_invalid_payload_and_closed_claim() -> None:
+    claim_id = UUID("018f96d4-7c48-7c27-a71f-591e3cb87490")
+    service = StubDraftHumanService(missing=True)
+    app.dependency_overrides[get_principal] = lambda: Principal(
+        PrincipalKind.USER,
+        USER_ID,
+    )
+    app.dependency_overrides[get_human_service] = lambda: service
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+    ) as client:
+        invalid_revision = await client.put(
+            f"/api/v1/human/claims/{claim_id}/draft",
+            json={"content": "回答", "revision": 0},
+        )
+        missing = await client.put(
+            f"/api/v1/human/claims/{claim_id}/draft",
+            json={"content": "回答", "revision": 1},
+        )
+
+    assert invalid_revision.status_code == 422
+    assert missing.status_code == 404
+    assert missing.json() == {"detail": "Active assignment not found"}

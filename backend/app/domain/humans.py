@@ -32,6 +32,8 @@ class HumanAssignment:
     reasoning_effort: ReasoningEffort
     skip_allowed_until: datetime
     deadline_at: datetime
+    draft_content: str
+    draft_revision: int
     context: tuple[HumanContextEntry, ...]
 
 
