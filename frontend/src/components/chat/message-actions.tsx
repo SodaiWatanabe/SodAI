@@ -16,6 +16,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { useHoverPopover } from "@/components/ui/use-hover-popover";
 import { nextResponseEvaluation } from "@/lib/chat/response-evaluation";
 import type { ResponseEvaluationValue } from "@/lib/chat/types";
 
@@ -33,67 +34,28 @@ type MessageActionsProps = {
 };
 
 const COPY_STATUS_DURATION = 1_600;
-const POPOVER_CLOSE_DELAY = 120;
 const actionClassName =
   "grid size-8 place-items-center rounded-xl text-[var(--muted)] transition-colors hover:bg-[var(--hover)] hover:text-[var(--text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)]";
-
-function useHoverPopover() {
-  const contentRef = useRef<HTMLDivElement>(null);
-  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  function clearCloseTimer() {
-    if (closeTimerRef.current === null) return;
-    clearTimeout(closeTimerRef.current);
-    closeTimerRef.current = null;
-  }
-
-  function setOpen(open: boolean) {
-    const content = contentRef.current;
-    if (!content) return;
-    const currentlyOpen = content.matches(":popover-open");
-    if (open && !currentlyOpen) content.showPopover();
-    if (!open && currentlyOpen) content.hidePopover();
-  }
-
-  function openOnHover(pointerType: string) {
-    if (pointerType !== "mouse") return;
-    clearCloseTimer();
-    setOpen(true);
-  }
-
-  function closeAfterHover(pointerType: string) {
-    if (pointerType !== "mouse") return;
-    clearCloseTimer();
-    closeTimerRef.current = setTimeout(() => {
-      setOpen(false);
-      closeTimerRef.current = null;
-    }, POPOVER_CLOSE_DELAY);
-  }
-
-  useEffect(() => () => clearCloseTimer(), []);
-
-  return {
-    clearCloseTimer,
-    closeAfterHover,
-    contentRef,
-    openOnHover,
-    setOpen,
-  };
-}
 
 function BrainDisclosure({ brain }: { brain: MessageBrain }) {
   const lastPointerTypeRef = useRef("");
   const {
     clearCloseTimer,
     closeAfterHover,
-    contentRef,
+    open,
     openOnHover,
     setOpen,
   } = useHoverPopover();
   const brainLabel = `使用したモデル: ${brain.name}`;
 
   return (
-    <Popover collisionPadding={8} gutter={4} placement="top-start">
+    <Popover
+      collisionPadding={8}
+      gutter={4}
+      open={open}
+      placement="top-start"
+      onOpenChange={setOpen}
+    >
       <div
         className="inline-flex"
         onPointerEnter={(event) => openOnHover(event.pointerType)}
@@ -119,7 +81,6 @@ function BrainDisclosure({ brain }: { brain: MessageBrain }) {
           <Brain aria-hidden="true" className="size-4" />
         </PopoverTrigger>
         <PopoverContent
-          ref={contentRef}
           role="tooltip"
           className="w-max min-w-40 max-w-64 px-3 py-2.5"
           onPointerEnter={(event) => openOnHover(event.pointerType)}
@@ -141,7 +102,7 @@ function CopyAction({ content }: { content: string }) {
   const {
     clearCloseTimer,
     closeAfterHover,
-    contentRef,
+    open,
     openOnHover,
     setOpen,
   } = useHoverPopover();
@@ -213,7 +174,13 @@ function CopyAction({ content }: { content: string }) {
         : "本文をコピー";
 
   return (
-    <Popover collisionPadding={8} gutter={4} placement="top-start">
+    <Popover
+      collisionPadding={8}
+      gutter={4}
+      open={open}
+      placement="top-start"
+      onOpenChange={setOpen}
+    >
       <div
         className="inline-flex"
         onPointerEnter={(event) => openOnHover(event.pointerType)}
@@ -236,7 +203,6 @@ function CopyAction({ content }: { content: string }) {
           )}
         </PopoverTrigger>
         <PopoverContent
-          ref={contentRef}
           role="tooltip"
           className={`w-max px-3 py-2 text-xs font-medium ${copyStatus === "failed" ? "text-[var(--danger-text)]" : ""}`}
           onPointerEnter={(event) => openOnHover(event.pointerType)}
@@ -309,13 +275,20 @@ function EvaluationAction({
   const {
     clearCloseTimer,
     closeAfterHover,
-    contentRef,
+    open,
     openOnHover,
+    setOpen,
   } = useHoverPopover();
   const Icon = value === "positive" ? ThumbsUp : ThumbsDown;
 
   return (
-    <Popover collisionPadding={8} gutter={4} placement="top-start">
+    <Popover
+      collisionPadding={8}
+      gutter={4}
+      open={open}
+      placement="top-start"
+      onOpenChange={setOpen}
+    >
       <div
         className="inline-flex"
         onPointerEnter={(event) => openOnHover(event.pointerType)}
@@ -340,7 +313,6 @@ function EvaluationAction({
           />
         </PopoverTrigger>
         <PopoverContent
-          ref={contentRef}
           role="tooltip"
           className="w-max px-3 py-2 text-xs font-medium"
           onPointerEnter={(event) => openOnHover(event.pointerType)}
@@ -363,8 +335,9 @@ function RegenerateAction({
   const {
     clearCloseTimer,
     closeAfterHover,
-    contentRef,
+    open,
     openOnHover,
+    setOpen,
   } = useHoverPopover();
   const [pending, setPending] = useState(false);
   const unavailable = disabled || pending;
@@ -381,7 +354,13 @@ function RegenerateAction({
   }
 
   return (
-    <Popover collisionPadding={8} gutter={4} placement="top-start">
+    <Popover
+      collisionPadding={8}
+      gutter={4}
+      open={open}
+      placement="top-start"
+      onOpenChange={setOpen}
+    >
       <div
         className="inline-flex"
         onPointerEnter={(event) => openOnHover(event.pointerType)}
@@ -399,7 +378,6 @@ function RegenerateAction({
           <RefreshCw aria-hidden="true" className="size-4" />
         </PopoverTrigger>
         <PopoverContent
-          ref={contentRef}
           role="tooltip"
           className="w-max px-3 py-2 text-xs font-medium"
           onPointerEnter={(event) => openOnHover(event.pointerType)}

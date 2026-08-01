@@ -14,59 +14,38 @@ import {
   useMemo,
   useRef,
   useState,
-  useSyncExternalStore,
 } from "react";
 import { createPortal } from "react-dom";
 
-import {
-  availablePopoverSize,
-  insetPopoverBoundary,
-  type PopoverInsets,
-  type PopoverPlacement,
-  resolvePopoverPosition,
-} from "@/components/ui/popover-position";
+import type { PopoverPlacement } from "@/components/ui/popover-position";
+import { usePopoverPosition } from "@/components/ui/use-popover-position";
 
 export type { PopoverPlacement } from "@/components/ui/popover-position";
-
-const SAFE_AREA_PROPERTIES = {
-  bottom: "--safe-area-inset-bottom",
-  left: "--safe-area-inset-left",
-  right: "--safe-area-inset-right",
-  top: "--safe-area-inset-top",
-} as const;
 
 type PopoverContextValue = {
   contentId: string;
   contentRef: RefObject<HTMLDivElement | null>;
   open: boolean;
   placement: PopoverPlacement;
-  positionContent: () => void;
+  popoverTree: string[];
+  portalRoot: HTMLElement | null;
   setOpen: (open: boolean) => void;
+  setTriggerElement: (element: HTMLButtonElement | null) => void;
   triggerRef: RefObject<HTMLButtonElement | null>;
 };
 
 type PopoverProps = {
   children: ReactNode;
   collisionPadding?: number;
+  defaultOpen?: boolean;
   gutter?: number;
   matchTriggerWidth?: boolean;
   onOpenChange?: (open: boolean) => void;
+  open?: boolean;
   placement?: PopoverPlacement;
 };
 
 const PopoverContext = createContext<PopoverContextValue | null>(null);
-
-function subscribeToBrowserReady() {
-  return () => undefined;
-}
-
-function getBrowserSnapshot() {
-  return true;
-}
-
-function getServerSnapshot() {
-  return false;
-}
 
 function usePopoverContext() {
   const context = useContext(PopoverContext);
@@ -86,147 +65,117 @@ function assignRef<T>(ref: ForwardedRef<T>, value: T | null) {
   }
 }
 
-function readCssPixels(style: CSSStyleDeclaration, property: string) {
-  const value = Number.parseFloat(style.getPropertyValue(property));
-  return Number.isFinite(value) ? value : 0;
+function eventElement(target: EventTarget | null) {
+  if (target instanceof Element) return target;
+  if (target instanceof Node) return target.parentElement;
+  return null;
 }
 
-function readSafeArea(): PopoverInsets {
-  const style = window.getComputedStyle(document.documentElement);
-  return {
-    bottom: readCssPixels(style, SAFE_AREA_PROPERTIES.bottom),
-    left: readCssPixels(style, SAFE_AREA_PROPERTIES.left),
-    right: readCssPixels(style, SAFE_AREA_PROPERTIES.right),
-    top: readCssPixels(style, SAFE_AREA_PROPERTIES.top),
-  };
+function popoverTreeFor(element: Element | null) {
+  return element
+    ?.closest<HTMLElement>("[data-popover-tree]")
+    ?.dataset.popoverTree?.split(" ") ?? [];
 }
 
-function visualViewportBoundary() {
-  const viewport = window.visualViewport;
-  const left = viewport?.offsetLeft ?? 0;
-  const top = viewport?.offsetTop ?? 0;
-  const width = viewport?.width ?? document.documentElement.clientWidth;
-  const height = viewport?.height ?? document.documentElement.clientHeight;
-  return {
-    bottom: top + height,
-    left,
-    right: left + width,
-    top,
-  };
+function isInsidePopoverTree(target: EventTarget | null, contentId: string) {
+  return popoverTreeFor(eventElement(target)).includes(contentId);
+}
+
+function hasOpenDescendantPopover(contentId: string) {
+  return Array.from(
+    document.querySelectorAll<HTMLElement>("[data-popover-tree]"),
+  ).some((element) => {
+    const tree = element.dataset.popoverTree?.split(" ") ?? [];
+    return tree.includes(contentId) && tree.at(-1) !== contentId;
+  });
 }
 
 export function Popover({
   children,
   collisionPadding = 12,
+  defaultOpen = false,
   gutter = 8,
   matchTriggerWidth = false,
   onOpenChange,
+  open: controlledOpen,
   placement = "bottom-start",
 }: PopoverProps) {
+  const parentPopover = useContext(PopoverContext);
   const contentId = `popover-${useId()}`;
   const contentRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const positionFrameRef = useRef<number | null>(null);
-  const [open, setOpenState] = useState(false);
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(defaultOpen);
+  const [portalRoot, setPortalRoot] = useState<HTMLElement | null>(null);
+  const open = controlledOpen ?? uncontrolledOpen;
+  const popoverTree = useMemo(
+    () => [...(parentPopover?.popoverTree ?? []), contentId],
+    [contentId, parentPopover?.popoverTree],
+  );
 
   const setOpen = useCallback(
     (nextOpen: boolean) => {
-      setOpenState(nextOpen);
+      if (nextOpen === open) return;
+      if (controlledOpen === undefined) setUncontrolledOpen(nextOpen);
       onOpenChange?.(nextOpen);
     },
-    [onOpenChange],
+    [controlledOpen, onOpenChange, open],
   );
 
-  const positionContent = useCallback(() => {
-    const content = contentRef.current;
-    const trigger = triggerRef.current;
+  const setTriggerElement = useCallback(
+    (element: HTMLButtonElement | null) => {
+      triggerRef.current = element;
+      if (!element) return;
 
-    if (!content || !trigger) {
-      return;
-    }
+      const nextPortalRoot = element.closest("dialog") ?? document.body;
+      setPortalRoot((current) =>
+        current === nextPortalRoot ? current : nextPortalRoot,
+      );
+    },
+    [],
+  );
 
-    if (!content.matches(":popover-open")) return;
-
-    const triggerRect = trigger.getBoundingClientRect();
-    const boundary = insetPopoverBoundary(
-      visualViewportBoundary(),
-      readSafeArea(),
-      collisionPadding,
-    );
-    const availableSize = availablePopoverSize(boundary);
-    const style = content.style;
-
-    for (const property of ["top", "right", "bottom", "left"]) {
-      style.removeProperty(property);
-    }
-
-    style.maxHeight = `${availableSize.height}px`;
-    style.maxWidth = `${availableSize.width}px`;
-
-    if (matchTriggerWidth) {
-      style.width = `${Math.min(triggerRect.width, availableSize.width)}px`;
-    } else {
-      style.removeProperty("width");
-    }
-
-    style.left = `${boundary.left}px`;
-    style.top = `${boundary.top}px`;
-    const position = resolvePopoverPosition({
-      boundary,
-      content: {
-        height: content.offsetHeight,
-        width: content.offsetWidth,
-      },
-      gutter,
-      placement,
-      trigger: triggerRect,
-    });
-    content.dataset.placement = position.placement;
-    style.left = `${position.left}px`;
-    style.top = `${position.top}px`;
-    content.dataset.positioned = "true";
-  }, [collisionPadding, gutter, matchTriggerWidth, placement]);
-
-  const schedulePosition = useCallback(() => {
-    if (positionFrameRef.current !== null) return;
-    positionFrameRef.current = window.requestAnimationFrame(() => {
-      positionFrameRef.current = null;
-      positionContent();
-    });
-  }, [positionContent]);
+  usePopoverPosition({
+    collisionPadding,
+    contentRef,
+    gutter,
+    matchTriggerWidth,
+    open,
+    placement,
+    portalRoot,
+    triggerRef,
+  });
 
   useEffect(() => {
-    if (!open) {
-      return;
-    }
+    if (!open) return;
 
-    const content = contentRef.current;
-    const trigger = triggerRef.current;
-    if (!content || !trigger) {
-      return;
-    }
-
-    positionContent();
-    const resizeObserver = new ResizeObserver(positionContent);
-    resizeObserver.observe(trigger);
-    resizeObserver.observe(content);
-    window.addEventListener("resize", schedulePosition);
-    window.addEventListener("scroll", schedulePosition, true);
-    window.visualViewport?.addEventListener("resize", schedulePosition);
-    window.visualViewport?.addEventListener("scroll", schedulePosition);
-
-    return () => {
-      resizeObserver.disconnect();
-      window.removeEventListener("resize", schedulePosition);
-      window.removeEventListener("scroll", schedulePosition, true);
-      window.visualViewport?.removeEventListener("resize", schedulePosition);
-      window.visualViewport?.removeEventListener("scroll", schedulePosition);
-      if (positionFrameRef.current !== null) {
-        window.cancelAnimationFrame(positionFrameRef.current);
-        positionFrameRef.current = null;
+    function handlePointerDown(event: PointerEvent) {
+      const trigger = triggerRef.current;
+      const target = event.target;
+      if (
+        (target instanceof Node && trigger?.contains(target)) ||
+        isInsidePopoverTree(target, contentId)
+      ) {
+        return;
       }
+      setOpen(false);
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key !== "Escape" || hasOpenDescendantPopover(contentId)) {
+        return;
+      }
+      event.preventDefault();
+      setOpen(false);
+      triggerRef.current?.focus({ preventScroll: true });
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown, true);
+    document.addEventListener("keydown", handleKeyDown, true);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown, true);
+      document.removeEventListener("keydown", handleKeyDown, true);
     };
-  }, [open, positionContent, schedulePosition]);
+  }, [contentId, open, setOpen]);
 
   const context = useMemo(
     () => ({
@@ -234,11 +183,21 @@ export function Popover({
       contentRef,
       open,
       placement,
-      positionContent,
+      popoverTree,
+      portalRoot,
       setOpen,
+      setTriggerElement,
       triggerRef,
     }),
-    [contentId, open, placement, positionContent, setOpen],
+    [
+      contentId,
+      open,
+      placement,
+      popoverTree,
+      portalRoot,
+      setOpen,
+      setTriggerElement,
+    ],
   );
 
   return (
@@ -251,20 +210,30 @@ export function Popover({
 export const PopoverTrigger = forwardRef<
   HTMLButtonElement,
   ComponentPropsWithoutRef<"button">
->(function PopoverTrigger({ children, ...props }, forwardedRef) {
-  const { contentId, open, triggerRef } = usePopoverContext();
+>(function PopoverTrigger(
+  { children, onClick, ...props },
+  forwardedRef,
+) {
+  const { contentId, open, setOpen, setTriggerElement } = usePopoverContext();
+  const setTriggerRef = useCallback(
+    (element: HTMLButtonElement | null) => {
+      setTriggerElement(element);
+      assignRef(forwardedRef, element);
+    },
+    [forwardedRef, setTriggerElement],
+  );
 
   return (
     <button
       {...props}
-      ref={(element) => {
-        triggerRef.current = element;
-        assignRef(forwardedRef, element);
-      }}
+      ref={setTriggerRef}
       type={props.type ?? "button"}
+      aria-controls={contentId}
       aria-expanded={open}
-      popoverTarget={contentId}
-      popoverTargetAction="toggle"
+      onClick={(event) => {
+        onClick?.(event);
+        if (!event.defaultPrevented) setOpen(!open);
+      }}
     >
       {children}
     </button>
@@ -275,72 +244,62 @@ export const PopoverContent = forwardRef<
   HTMLDivElement,
   ComponentPropsWithoutRef<"div">
 >(function PopoverContent(
-  { children, className = "", onBeforeToggle, onToggle, ...props },
+  { children, className = "", ...props },
   forwardedRef,
 ) {
   const {
     contentId,
     contentRef,
+    open,
     placement,
-    positionContent,
-    setOpen,
+    popoverTree,
+    portalRoot,
   } = usePopoverContext();
-  const browserReady = useSyncExternalStore(
-    subscribeToBrowserReady,
-    getBrowserSnapshot,
-    getServerSnapshot,
+  const setContentRef = useCallback(
+    (element: HTMLDivElement | null) => {
+      contentRef.current = element;
+      if (element) element.dataset.positioned = "false";
+      assignRef(forwardedRef, element);
+    },
+    [contentRef, forwardedRef],
   );
 
-  if (!browserReady) return null;
+  if (!open || !portalRoot) return null;
 
   return createPortal(
     <div
       {...props}
-      ref={(element) => {
-        contentRef.current = element;
-        assignRef(forwardedRef, element);
-      }}
+      ref={setContentRef}
       id={contentId}
-      popover="auto"
       data-placement={placement}
+      data-popover-tree={popoverTree.join(" ")}
+      data-state="open"
       className={`ui-popover fixed inset-auto z-50 m-0 max-h-[calc(100dvh-1.5rem)] max-w-[calc(100vw-1.5rem)] overflow-y-auto rounded-2xl border border-[var(--divider)] bg-[var(--surface-translucent)] p-1.5 text-[var(--text)] shadow-[0_16px_48px_var(--popover-shadow)] backdrop-blur-xl outline-none ${className}`}
-      onBeforeToggle={(event) => {
-        if (event.target !== event.currentTarget) return;
-        if (event.newState === "open") {
-          event.currentTarget.dataset.positioned = "false";
-        }
-        onBeforeToggle?.(event);
-      }}
-      onToggle={(event) => {
-        if (event.target !== event.currentTarget) return;
-        if (event.newState === "open") {
-          positionContent();
-        } else {
-          event.currentTarget.dataset.positioned = "false";
-        }
-        setOpen(event.newState === "open");
-        onToggle?.(event);
-      }}
     >
       {children}
     </div>,
-    document.body,
+    portalRoot,
   );
 });
 
 export const PopoverClose = forwardRef<
   HTMLButtonElement,
   ComponentPropsWithoutRef<"button">
->(function PopoverClose({ children, ...props }, forwardedRef) {
-  const { contentId } = usePopoverContext();
+>(function PopoverClose(
+  { children, onClick, ...props },
+  forwardedRef,
+) {
+  const { setOpen } = usePopoverContext();
 
   return (
     <button
       {...props}
       ref={forwardedRef}
       type={props.type ?? "button"}
-      popoverTarget={contentId}
-      popoverTargetAction="hide"
+      onClick={(event) => {
+        onClick?.(event);
+        if (!event.defaultPrevented) setOpen(false);
+      }}
     >
       {children}
     </button>

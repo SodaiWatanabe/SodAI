@@ -30,6 +30,7 @@ export type PopoverBoundary = Pick<
 >;
 
 type PopoverSize = Pick<PopoverRect, "height" | "width">;
+type PopoverSide = keyof typeof oppositeSide;
 
 const oppositeSide = {
   bottom: "top",
@@ -74,6 +75,21 @@ export function availablePopoverSize(boundary: PopoverBoundary): PopoverSize {
   };
 }
 
+export function intersectPopoverBoundaries(
+  first: PopoverBoundary,
+  second: PopoverBoundary,
+): PopoverBoundary {
+  const left = Math.max(first.left, second.left);
+  const top = Math.max(first.top, second.top);
+
+  return {
+    bottom: Math.max(top, Math.min(first.bottom, second.bottom)),
+    left,
+    right: Math.max(left, Math.min(first.right, second.right)),
+    top,
+  };
+}
+
 export function resolvePopoverPosition({
   boundary,
   content,
@@ -88,7 +104,7 @@ export function resolvePopoverPosition({
   trigger: PopoverRect;
 }) {
   const [preferredSide, alignment] = placement.split("-") as [
-    keyof typeof oppositeSide,
+    PopoverSide,
     "end" | "start",
   ];
   const spaces = {
@@ -97,16 +113,21 @@ export function resolvePopoverPosition({
     right: boundary.right - trigger.right - gutter,
     top: trigger.top - boundary.top - gutter,
   };
-  const mainSize =
-    preferredSide === "left" || preferredSide === "right"
-      ? content.width
-      : content.height;
   const alternativeSide = oppositeSide[preferredSide];
+  const candidateSides: PopoverSide[] =
+    preferredSide === "left" || preferredSide === "right"
+      ? [preferredSide, alternativeSide, "bottom", "top"]
+      : [preferredSide, alternativeSide];
+  const mainSize = (side: PopoverSide) =>
+    side === "left" || side === "right" ? content.width : content.height;
   const resolvedSide =
-    spaces[preferredSide] < mainSize &&
-    spaces[alternativeSide] > spaces[preferredSide]
-      ? alternativeSide
-      : preferredSide;
+    candidateSides.find((side) => spaces[side] >= mainSize(side)) ??
+    candidateSides.reduce((best, side) =>
+      spaces[side] / Math.max(1, mainSize(side)) >
+      spaces[best] / Math.max(1, mainSize(best))
+        ? side
+        : best,
+    );
   const resolvedPlacement = `${resolvedSide}-${alignment}` as PopoverPlacement;
 
   let left: number;

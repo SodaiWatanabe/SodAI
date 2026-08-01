@@ -1,7 +1,7 @@
 "use client";
 
 import { CircleHelp } from "lucide-react";
-import { type ReactNode, useEffect, useRef } from "react";
+import { type ReactNode, useRef } from "react";
 
 import {
   Popover,
@@ -9,8 +9,7 @@ import {
   type PopoverPlacement,
   PopoverTrigger,
 } from "@/components/ui/popover";
-
-const CLOSE_DELAY_MS = 120;
+import { useHoverPopover } from "@/components/ui/use-hover-popover";
 
 export function HelpTooltip({
   children,
@@ -21,43 +20,23 @@ export function HelpTooltip({
   label: string;
   placement?: PopoverPlacement;
 }) {
-  const contentRef = useRef<HTMLDivElement>(null);
-  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastPointerTypeRef = useRef("");
-
-  function clearCloseTimer() {
-    if (closeTimerRef.current === null) return;
-    clearTimeout(closeTimerRef.current);
-    closeTimerRef.current = null;
-  }
-
-  function setOpen(open: boolean) {
-    const content = contentRef.current;
-    if (!content) return;
-    const currentlyOpen = content.matches(":popover-open");
-    if (open && !currentlyOpen) content.showPopover();
-    if (!open && currentlyOpen) content.hidePopover();
-  }
-
-  function openOnHover(pointerType: string) {
-    if (pointerType !== "mouse") return;
-    clearCloseTimer();
-    setOpen(true);
-  }
-
-  function closeAfterHover(pointerType: string) {
-    if (pointerType !== "mouse") return;
-    clearCloseTimer();
-    closeTimerRef.current = setTimeout(() => {
-      setOpen(false);
-      closeTimerRef.current = null;
-    }, CLOSE_DELAY_MS);
-  }
-
-  useEffect(() => () => clearCloseTimer(), []);
+  const {
+    clearCloseTimer,
+    closeAfterHover,
+    open,
+    openOnHover,
+    setOpen,
+  } = useHoverPopover();
 
   return (
-    <Popover collisionPadding={8} gutter={6} placement={placement}>
+    <Popover
+      collisionPadding={8}
+      gutter={6}
+      open={open}
+      placement={placement}
+      onOpenChange={setOpen}
+    >
       <span
         className="inline-flex"
         onPointerEnter={(event) => openOnHover(event.pointerType)}
@@ -83,7 +62,6 @@ export function HelpTooltip({
           <CircleHelp aria-hidden="true" className="size-4" />
         </PopoverTrigger>
         <PopoverContent
-          ref={contentRef}
           role="tooltip"
           className="w-64 px-3 py-2.5 text-sm leading-5"
           onPointerEnter={(event) => openOnHover(event.pointerType)}

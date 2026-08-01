@@ -28,11 +28,11 @@ export function ThreadListItem({
 }: ThreadListItemProps) {
   const { archiveThread, renameThread } = useChatData();
   const { showToast } = useToast();
-  const contentRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const cancelBlurSaveRef = useRef(false);
   const [title, setTitle] = useState(thread.title);
   const [editing, setEditing] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -45,7 +45,7 @@ export function ThreadListItem({
   }, [editing, submitting]);
 
   function closePopover() {
-    contentRef.current?.hidePopover();
+    setMenuOpen(false);
   }
 
   function startRename() {
@@ -166,7 +166,13 @@ export function ThreadListItem({
       )}
 
       {!editing ? (
-        <Popover collisionPadding={8} gutter={6} placement="bottom-start">
+        <Popover
+          collisionPadding={8}
+          gutter={6}
+          open={menuOpen}
+          placement="bottom-start"
+          onOpenChange={setMenuOpen}
+        >
           <PopoverTrigger
             aria-label={`${thread.title}の操作`}
             className="absolute right-0.5 grid size-8 place-items-center rounded-[10px] text-[var(--muted)] opacity-100 transition-[color,opacity] hover:text-[var(--text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--focus)] aria-expanded:text-[var(--text)] lg:opacity-0 lg:group-hover:opacity-100 lg:group-focus-within:opacity-100 lg:aria-expanded:opacity-100"
@@ -174,11 +180,7 @@ export function ThreadListItem({
             <Ellipsis aria-hidden="true" className="size-[18px]" />
           </PopoverTrigger>
 
-          <PopoverContent
-            ref={contentRef}
-            role="dialog"
-            aria-label={`${thread.title}の操作`}
-          >
+          <PopoverContent role="dialog" aria-label={`${thread.title}の操作`}>
             <div className="grid gap-0.5">
               <button
                 type="button"

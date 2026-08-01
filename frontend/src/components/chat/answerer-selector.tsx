@@ -2,7 +2,7 @@
 
 import { Check, ChevronDown, ChevronRight } from "lucide-react";
 import Image from "next/image";
-import { useEffect, useRef } from "react";
+import { useRef, useState } from "react";
 
 import { useChatAuth } from "@/components/chat/chat-auth-context";
 import {
@@ -11,6 +11,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { useHoverPopover } from "@/components/ui/use-hover-popover";
 import type { AvailableAnswerer } from "@/lib/chat/types";
 
 type AnswererSelectorProps = {
@@ -67,42 +68,23 @@ function AnswererSubmenu({
   options: AvailableAnswerer[];
   selectedId?: AvailableAnswerer["id"];
 }) {
-  const contentRef = useRef<HTMLDivElement>(null);
-  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  function clearCloseTimer() {
-    if (closeTimerRef.current === null) return;
-    clearTimeout(closeTimerRef.current);
-    closeTimerRef.current = null;
-  }
-
-  function setOpen(open: boolean) {
-    const content = contentRef.current;
-    if (!content) return;
-    const currentlyOpen = content.matches(":popover-open");
-    if (open && !currentlyOpen) content.showPopover();
-    if (!open && currentlyOpen) content.hidePopover();
-  }
-
-  function openOnHover(pointerType: string) {
-    if (pointerType !== "mouse") return;
-    clearCloseTimer();
-    setOpen(true);
-  }
-
-  function closeAfterHover(pointerType: string) {
-    if (pointerType !== "mouse") return;
-    clearCloseTimer();
-    closeTimerRef.current = setTimeout(() => {
-      setOpen(false);
-      closeTimerRef.current = null;
-    }, 140);
-  }
-
-  useEffect(() => () => clearCloseTimer(), []);
+  const lastPointerTypeRef = useRef("");
+  const {
+    clearCloseTimer,
+    closeAfterHover,
+    open,
+    openOnHover,
+    setOpen,
+  } = useHoverPopover(140);
 
   return (
-    <Popover collisionPadding={6} gutter={6} placement="right-start">
+    <Popover
+      collisionPadding={6}
+      gutter={6}
+      open={open}
+      placement="right-start"
+      onOpenChange={setOpen}
+    >
       <div
         onPointerEnter={(event) => openOnHover(event.pointerType)}
         onPointerLeave={(event) => closeAfterHover(event.pointerType)}
@@ -111,6 +93,19 @@ function AnswererSubmenu({
           role="menuitem"
           aria-haspopup="menu"
           className="flex min-h-9 w-full items-center rounded-xl px-3 py-2 text-left text-sm text-[var(--text)] transition-colors hover:bg-[var(--hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--focus)]"
+          onClick={(event) => {
+            if (
+              event.detail > 0 &&
+              lastPointerTypeRef.current === "mouse"
+            ) {
+              event.preventDefault();
+              clearCloseTimer();
+              setOpen(true);
+            }
+          }}
+          onPointerDown={(event) => {
+            lastPointerTypeRef.current = event.pointerType;
+          }}
         >
           <span className="min-w-0 flex-1">
             <span className={emphasizeLabel ? "block font-medium" : "block"}>
@@ -128,7 +123,6 @@ function AnswererSubmenu({
           />
         </PopoverTrigger>
         <PopoverContent
-          ref={contentRef}
           role="menu"
           aria-label={label}
           className="w-52"
@@ -157,7 +151,7 @@ export function AnswererSelector({
   onChange,
 }: AnswererSelectorProps) {
   const { authenticated, openAuth } = useChatAuth();
-  const contentRef = useRef<HTMLDivElement>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
   const selected = answerers.find((option) => option.id === answerer);
   const currentAnswerers = answerers.filter(
     (option) => option.kind === "ai" && !option.is_legacy,
@@ -169,7 +163,12 @@ export function AnswererSelector({
   const label = selected?.name ?? "モデル";
 
   return (
-    <Popover placement="bottom-start" gutter={6}>
+    <Popover
+      gutter={6}
+      open={menuOpen}
+      placement="bottom-start"
+      onOpenChange={setMenuOpen}
+    >
       <PopoverTrigger
         disabled={!selected}
         aria-label={`モデル: ${label}`}
@@ -183,7 +182,6 @@ export function AnswererSelector({
       </PopoverTrigger>
 
       <PopoverContent
-        ref={contentRef}
         role={authenticated ? "menu" : "dialog"}
         aria-label={authenticated ? "モデル" : "よりスマートな回答"}
         className={authenticated ? "w-52" : "overflow-hidden"}
@@ -212,7 +210,7 @@ export function AnswererSelector({
                 selectedId={selected?.id}
                 onSelect={(id) => {
                   onChange(id);
-                  contentRef.current?.hidePopover();
+                  setMenuOpen(false);
                 }}
               />
             ) : null}
@@ -228,7 +226,7 @@ export function AnswererSelector({
                 selectedId={selected?.id}
                 onSelect={(id) => {
                   onChange(id);
-                  contentRef.current?.hidePopover();
+                  setMenuOpen(false);
                 }}
               />
             ) : null}

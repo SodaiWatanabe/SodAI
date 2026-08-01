@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   availablePopoverSize,
   insetPopoverBoundary,
+  intersectPopoverBoundaries,
   resolvePopoverPosition,
 } from "./popover-position.ts";
 
@@ -49,6 +50,16 @@ test("safe areaと衝突余白を可視領域から除外する", () => {
     height: 798,
     width: 378,
   });
+});
+
+test("モーダル内では可視領域とモーダルの共通範囲を境界にする", () => {
+  assert.deepEqual(
+    intersectPopoverBoundaries(
+      { bottom: 804, left: 6, right: 384, top: 6 },
+      { bottom: 760, left: 12, right: 378, top: 84 },
+    ),
+    { bottom: 760, left: 12, right: 378, top: 84 },
+  );
 });
 
 test("下端のアカウントメニューをトリガーの上へ配置する", () => {
@@ -109,6 +120,25 @@ test("指定方向に収まらなければ空きの大きい反対側へ反転�
       left: 160,
       placement: "bottom-end",
       top: 124,
+    },
+  );
+});
+
+test("横向きのサブメニューはモバイルで収まる縦方向へ切り替える", () => {
+  const boundary = insetPopoverBoundary(viewport, safeArea, 6);
+
+  assert.deepEqual(
+    resolvePopoverPosition({
+      boundary,
+      content: { height: 220, width: 208 },
+      gutter: 6,
+      placement: "right-start",
+      trigger: rect({ height: 44, left: 12, top: 120, width: 196 }),
+    }),
+    {
+      left: 12,
+      placement: "bottom-start",
+      top: 170,
     },
   );
 });
