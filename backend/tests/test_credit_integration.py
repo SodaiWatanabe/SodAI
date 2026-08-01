@@ -36,6 +36,7 @@ from app.domain.credits import (
     InsufficientCreditsError,
     earned_credit_expiration,
 )
+from app.domain.human_answer_conditions import HumanAnswerConditions
 from app.domain.inference_jobs import GENERATION_CANCELLATION_OUTBOX_TOPIC
 from app.domain.principals import Principal, PrincipalKind
 from app.domain.reasoning import ReasoningEffort
@@ -2623,7 +2624,13 @@ async def test_human_answer_splits_charge_between_performer_and_platform() -> No
         ) is None
 
     await human.set_rank(performer.id, 2)
-    assignment = await human.ready(performer.id)
+    assignment = await human.ready(
+        performer.id,
+        HumanAnswerConditions(
+            answerer_ids=(AnswererId.HUMAN_STANDARD,),
+            reasoning_efforts=(ReasoningEffort.MEDIUM,),
+        ),
+    )
     assert assignment.assignment is not None
     assert assignment.assignment.execution_id == execution_id
     await human.answer(
@@ -2763,7 +2770,13 @@ async def test_automatic_human_answer_uses_the_same_credit_settlement() -> None:
     )
     execution_id = creation.response.execution.id
     await human.set_rank(performer.id, 2)
-    assigned = await human.ready(performer.id)
+    assigned = await human.ready(
+        performer.id,
+        HumanAnswerConditions(
+            answerer_ids=(AnswererId.HUMAN_STANDARD,),
+            reasoning_efforts=(ReasoningEffort.MEDIUM,),
+        ),
+    )
     assert assigned.assignment is not None
     await human.save_draft(
         performer.id,
