@@ -173,7 +173,7 @@ export function BrainAssignmentView({
                 maxLength={32000}
                 placeholder="回答を書く"
                 readOnly={autoSubmitting || deadlineExpired}
-                className="block min-h-[max(14rem,calc(100dvh-16rem))] w-full resize-none overflow-y-hidden border-0 bg-transparent p-0 text-[15px] leading-7 text-[var(--text)] outline-none placeholder:text-[var(--muted)]"
+                className="block min-h-[max(14rem,calc(100dvh-16rem))] w-full resize-none overflow-y-hidden border-0 bg-transparent p-0 text-[16px] leading-7 text-[var(--text)] outline-none placeholder:text-[var(--muted)]"
                 onChange={(event) => setAnswer(event.target.value)}
               />
             </form>
