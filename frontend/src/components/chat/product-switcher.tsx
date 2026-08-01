@@ -14,7 +14,7 @@ export type { SodaiProduct } from "@/components/chat/chat-frame-route";
 
 const products = [
   { id: "chat" as const, label: "Chat", description: "モデルと会話する。" },
-  { id: "brain" as const, label: "Brain", description: "あなたの頭で考える。" },
+  { id: "brain" as const, label: "Brain", description: "思考を引き受ける。" },
 ];
 
 export function ProductSwitcher({
