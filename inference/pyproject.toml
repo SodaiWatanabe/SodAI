@@ -24,6 +24,7 @@ dev = [
 
 [project.scripts]
 sodai-inference = "sodai_inference.worker:main"
+sodai-inference-healthcheck = "sodai_inference.healthcheck:main"
 sodai-import-hina = "sodai_inference.import_hina:main"
 sodai-import-asuka1 = "sodai_inference.models.asuka1.importer:main"
 sodai-deploy-hina = "sodai_inference.deployment:main"

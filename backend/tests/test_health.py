@@ -11,6 +11,7 @@ from app.domain.inference_operations import (
 )
 from app.main import app
 from app.services.inference.operations import get_inference_operations_service
+from app.services.readiness import get_readiness_service
 
 
 @pytest.fixture
@@ -31,6 +32,47 @@ async def test_health() -> None:
         "service": "SodAI API",
         "environment": "development",
     }
+
+
+@pytest.mark.anyio
+async def test_readiness() -> None:
+    class StubReadinessService:
+        @staticmethod
+        async def check() -> None:
+            return None
+
+    app.dependency_overrides[get_readiness_service] = StubReadinessService
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.get("/api/v1/health/ready")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ready"}
+
+
+@pytest.mark.anyio
+async def test_readiness_hides_dependency_failure() -> None:
+    class StubReadinessService:
+        @staticmethod
+        async def check() -> None:
+            raise ConnectionError("private dependency details")
+
+    app.dependency_overrides[get_readiness_service] = StubReadinessService
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.get("/api/v1/health/ready")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 503
+    assert response.json() == {"status": "unavailable"}
+    assert "private dependency details" not in response.text
 
 
 @pytest.mark.anyio

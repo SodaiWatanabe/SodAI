@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://sodai_app:sodai@localhost:13203/sodai"
     redis_url: str = "redis://127.0.0.1:13204/0"
     redis_password: str | None = None
+    readiness_timeout_seconds: float = Field(default=3, gt=0, le=30)
     model_root: Path = Field(
         default=REPOSITORY_ROOT / "var" / "models",
         validation_alias=AliasChoices("SODAI_MODEL_ROOT", "model_root"),

@@ -124,6 +124,12 @@ require_internal_origin() {
   [[ "$value" != *"sodai.me"* ]] || fail "$key must use an internal service address in $env_file."
 }
 
+require_equal "$root_env" SODAI_PUBLIC_ORIGIN "$canonical_origin"
+require_value "$root_env" SODAI_IMAGE_TAG
+image_tag="$(read_value "$root_env" SODAI_IMAGE_TAG)"
+[[ "$image_tag" =~ ^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$ ]] || \
+  fail "SODAI_IMAGE_TAG must be a valid container image tag in $root_env."
+
 require_non_placeholder "$auth_env" AUTH_DATABASE_URL
 require_database_password_match "$auth_env" AUTH_DATABASE_URL AUTH_DATABASE_PASSWORD
 require_secret "$auth_env" BETTER_AUTH_SECRET 32

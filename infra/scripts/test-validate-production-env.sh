@@ -13,6 +13,8 @@ frontend_env="$fixture_dir/frontend.env"
 
 write_valid_fixtures() {
   cat >"$root_env" <<'EOF'
+SODAI_PUBLIC_ORIGIN=https://app.sodai.me
+SODAI_IMAGE_TAG=2026.08.01-test
 POSTGRES_ADMIN_PASSWORD=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 AUTH_DATABASE_PASSWORD=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 APP_DATABASE_PASSWORD=cccccccccccccccccccccccccccccccc
@@ -64,6 +66,18 @@ expect_failure() {
 
 write_valid_fixtures
 "$validator" "$root_env" "$auth_env" "$backend_env" "$frontend_env" >/dev/null
+env \
+  PRODUCTION_AUTH_ENV_FILE="$auth_env" \
+  PRODUCTION_BACKEND_ENV_FILE="$backend_env" \
+  PRODUCTION_FRONTEND_ENV_FILE="$frontend_env" \
+  docker compose \
+    --env-file "$root_env" \
+    -f "$repository_root/compose.yaml" \
+    -f "$repository_root/compose.production.yaml" \
+    --profile operations \
+    --profile gpu \
+    --profile tunnel \
+    config --quiet
 
 sed -i 's#BETTER_AUTH_URL=https://app.sodai.me#BETTER_AUTH_URL=https://sodai.me#' "$auth_env"
 expect_failure "apex domain used as the auth origin"
@@ -87,5 +101,9 @@ expect_failure "database password mismatch"
 write_valid_fixtures
 sed -i 's/AUTH_SMTP_PASSWORD=gggggggggggggggggggggggggggggggg/AUTH_SMTP_PASSWORD=change-me/' "$auth_env"
 expect_failure "SMTP placeholder"
+
+write_valid_fixtures
+sed -i 's/SODAI_IMAGE_TAG=2026.08.01-test/SODAI_IMAGE_TAG=invalid tag/' "$root_env"
+expect_failure "invalid container image tag"
 
 printf 'Production environment validation tests passed.\n'

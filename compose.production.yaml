@@ -1,0 +1,234 @@
+x-runtime-security: &runtime-security
+  read_only: true
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+
+x-default-logging: &default-logging
+  driver: local
+  options:
+    max-size: 10m
+    max-file: "5"
+
+x-inference-environment: &inference-environment
+  REDIS_URL: redis://redis:6379/0
+  REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
+  SODAI_MODEL_ROOT: /models
+  INFERENCE_NAMESPACE: ${INFERENCE_NAMESPACE:-sodai:inference}
+
+x-inference-runtime: &inference-runtime
+  profiles:
+    - gpu
+  image: sodai/inference:${SODAI_IMAGE_TAG:-local}
+  build:
+    context: .
+    dockerfile: inference/Dockerfile
+  restart: unless-stopped
+  init: true
+  depends_on:
+    redis:
+      condition: service_healthy
+  networks:
+    - data
+  volumes:
+    - ${SODAI_MODEL_HOST_PATH:-./var/models}:/models:ro
+  gpus: all
+  healthcheck:
+    test: ["CMD", "sodai-inference-healthcheck"]
+    interval: 10s
+    timeout: 5s
+    retries: 6
+    start_period: 120s
+  <<: *runtime-security
+  tmpfs:
+    - /tmp:size=128m,mode=1777
+  stop_grace_period: 30s
+  logging: *default-logging
+
+services:
+  auth:
+    image: sodai/auth:${SODAI_IMAGE_TAG:-local}
+    build:
+      context: ./auth
+      target: runtime
+    restart: unless-stopped
+    init: true
+    env_file:
+      - ${PRODUCTION_AUTH_ENV_FILE:-./auth/.env.production}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - app
+      - data
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          fetch('http://127.0.0.1:13201/readyz')
+          .then(response => { if (!response.ok) process.exit(1) })
+          .catch(() => process.exit(1))
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 10s
+    <<: *runtime-security
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    stop_grace_period: 20s
+    logging: *default-logging
+
+  backend:
+    image: sodai/backend:${SODAI_IMAGE_TAG:-local}
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      target: runtime
+    restart: unless-stopped
+    init: true
+    env_file:
+      - ${PRODUCTION_BACKEND_ENV_FILE:-./backend/.env.production}
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
+    depends_on:
+      auth:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - app
+      - data
+      - edge
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen('http://127.0.0.1:13202/api/v1/health/ready', timeout=2).read()
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 15s
+    <<: *runtime-security
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    stop_grace_period: 30s
+    logging: *default-logging
+
+  frontend:
+    image: sodai/frontend:${SODAI_IMAGE_TAG:-local}
+    build:
+      context: ./frontend
+      target: runtime
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ${SODAI_PUBLIC_ORIGIN:-https://app.sodai.me}
+        SODAI_DEPLOYMENT_ID: ${SODAI_IMAGE_TAG:-local}
+    restart: unless-stopped
+    init: true
+    env_file:
+      - ${PRODUCTION_FRONTEND_ENV_FILE:-./frontend/.env.production}
+    depends_on:
+      auth:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    networks:
+      - app
+      - edge
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          fetch('http://127.0.0.1:13200/healthz')
+          .then(response => { if (!response.ok) process.exit(1) })
+          .catch(() => process.exit(1))
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 15s
+    <<: *runtime-security
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+      - /app/.next-build/cache:size=128m,mode=0755,uid=10001,gid=10001
+    stop_grace_period: 30s
+    logging: *default-logging
+
+  inference-hina:
+    <<: *inference-runtime
+    environment:
+      <<: *inference-environment
+      SODAI_INFERENCE_MODEL: hina
+      SODAI_INFERENCE_DEVICE: ${HINA_DEVICE:-cuda:0}
+      SODAI_INFERENCE_ARTIFACT_ID: ${HINA_ARTIFACT_ID:-}
+      SODAI_INFERENCE_RESOURCE_POOL: ${HINA_RESOURCE_POOL:-gpu-cuda:0}
+      INFERENCE_CONSUMER_NAME: ${HINA_CONSUMER_NAME:-sodai-production-hina}
+
+  inference-asuka1:
+    <<: *inference-runtime
+    environment:
+      <<: *inference-environment
+      SODAI_INFERENCE_MODEL: asuka-1
+      SODAI_INFERENCE_DEVICE: ${ASUKA1_DEVICE:-cuda:0}
+      SODAI_INFERENCE_ARTIFACT_ID: ${ASUKA1_ARTIFACT_ID:-}
+      SODAI_INFERENCE_RESOURCE_POOL: ${ASUKA1_RESOURCE_POOL:-gpu-cuda:0}
+      INFERENCE_CONSUMER_NAME: ${ASUKA1_CONSUMER_NAME:-sodai-production-asuka1}
+
+  auth-migrate:
+    profiles:
+      - operations
+    image: sodai/auth-migrator:${SODAI_IMAGE_TAG:-local}
+    build:
+      context: ./auth
+      target: migrator
+    env_file:
+      - ${PRODUCTION_AUTH_ENV_FILE:-./auth/.env.production}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - data
+    restart: "no"
+    <<: *runtime-security
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+      - /home/node/.npm:size=16m,mode=0700,uid=1000,gid=1000
+    logging: *default-logging
+
+  backend-migrate:
+    profiles:
+      - operations
+    image: sodai/backend:${SODAI_IMAGE_TAG:-local}
+    command: ["alembic", "upgrade", "head"]
+    env_file:
+      - ${PRODUCTION_BACKEND_ENV_FILE:-./backend/.env.production}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - data
+    restart: "no"
+    <<: *runtime-security
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    logging: *default-logging
+
+  cloudflared:
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+    logging: *default-logging
+
+networks:
+  app:
+    name: sodai-app

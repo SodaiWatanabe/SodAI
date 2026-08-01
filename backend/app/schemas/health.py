@@ -9,5 +9,9 @@ class HealthResponse(BaseModel):
     environment: str
 
 
+class ReadinessResponse(BaseModel):
+    status: Literal["ready", "unavailable"]
+
+
 class InferenceHealthResponse(BaseModel):
     status: Literal["healthy", "degraded", "unavailable"]

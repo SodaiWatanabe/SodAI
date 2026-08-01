@@ -11,6 +11,10 @@ PRODUCTION_FRONTEND_ENV_FILE ?= frontend/.env.production
 COMPOSE ?= docker compose
 COMPOSE_BASE = $(COMPOSE) --env-file $(ENV_FILE) -f compose.yaml
 COMPOSE_DEV = $(COMPOSE_BASE) -f compose.dev.yaml
+COMPOSE_PRODUCTION = PRODUCTION_AUTH_ENV_FILE="$(PRODUCTION_AUTH_ENV_FILE)" \
+	PRODUCTION_BACKEND_ENV_FILE="$(PRODUCTION_BACKEND_ENV_FILE)" \
+	PRODUCTION_FRONTEND_ENV_FILE="$(PRODUCTION_FRONTEND_ENV_FILE)" \
+	$(COMPOSE) --env-file "$(PRODUCTION_ENV_FILE)" -f compose.yaml -f compose.production.yaml
 DEV_FRONTEND_HOST ?= 127.0.0.1
 DEV_FRONTEND_PORT ?= 13200
 DEV_AUTH_HOST ?= 127.0.0.1
@@ -23,7 +27,9 @@ DEV_BACKEND_PORT ?= 13202
 	deploy-hina deploy-asuka1 \
 	inference-status credits-grant credits-expire credits-audit human-rank test-inference-e2e \
 	test-asuka1-e2e \
-	infra-check-env infra-config production-config infra-up infra-up-internal infra-down infra-logs infra-ps \
+	infra-check-env infra-config production-config production-build production-migrate \
+	production-up production-up-gpu production-down production-logs production-ps \
+	infra-up infra-up-internal infra-down infra-logs infra-ps \
 	tunnel-up tunnel-down db-shell redis-cli db-backup db-restore \
 	migrate migrate-auth migrate-app reinitialize-app-schema \
 	test test-integration lint build check
@@ -143,7 +149,31 @@ production-config:
 		"$(PRODUCTION_AUTH_ENV_FILE)" \
 		"$(PRODUCTION_BACKEND_ENV_FILE)" \
 		"$(PRODUCTION_FRONTEND_ENV_FILE)"
-	$(COMPOSE) --env-file "$(PRODUCTION_ENV_FILE)" -f compose.yaml config --quiet
+	$(COMPOSE_PRODUCTION) --profile operations --profile gpu --profile tunnel config --quiet
+
+production-build: production-config
+	$(COMPOSE_PRODUCTION) --profile operations --profile gpu build
+
+production-migrate: production-config
+	$(COMPOSE_PRODUCTION) up -d --wait postgres redis
+	$(COMPOSE_PRODUCTION) --profile operations run --rm auth-migrate
+	$(COMPOSE_PRODUCTION) --profile operations run --rm backend-migrate
+
+production-up: production-config
+	$(COMPOSE_PRODUCTION) --profile tunnel up -d --wait auth backend frontend cloudflared
+
+production-up-gpu: production-config
+	$(COMPOSE_PRODUCTION) --profile tunnel --profile gpu up -d --wait \
+		auth backend frontend inference-hina inference-asuka1 cloudflared
+
+production-down: production-config
+	$(COMPOSE_PRODUCTION) --profile tunnel --profile gpu down --remove-orphans
+
+production-logs: production-config
+	$(COMPOSE_PRODUCTION) --profile tunnel --profile gpu logs -f
+
+production-ps: production-config
+	$(COMPOSE_PRODUCTION) --profile tunnel --profile gpu ps
 
 # Host上で動くFastAPI/Next.jsから利用する開発構成。データポートは127.0.0.1限定。
 infra-up: infra-check-env
