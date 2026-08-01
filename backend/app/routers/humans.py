@@ -7,6 +7,7 @@ from app.auth.principal import get_principal
 from app.domain.principals import Principal, PrincipalKind
 from app.repositories.human_answers import HumanAnswerNotFoundError
 from app.repositories.humans import (
+    HumanClaimDeclineWindowNotOpenError,
     HumanClaimNotFoundError,
     HumanClaimSkipWindowClosedError,
 )
@@ -107,6 +108,21 @@ async def skip_claim(
         state = await service.skip(_user_id(principal), claim_id)
     except HumanClaimSkipWindowClosedError as exc:
         raise HTTPException(status_code=409, detail="Skip window has closed") from exc
+    except HumanClaimNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Active assignment not found") from exc
+    return BrainStateResponse.model_validate(state, from_attributes=True)
+
+
+@router.post("/claims/{claim_id}/decline", response_model=BrainStateResponse)
+async def decline_claim(
+    claim_id: UUID,
+    principal: Principal = Depends(get_principal),
+    service: HumanService = Depends(get_human_service),
+) -> BrainStateResponse:
+    try:
+        state = await service.decline(_user_id(principal), claim_id)
+    except HumanClaimDeclineWindowNotOpenError as exc:
+        raise HTTPException(status_code=409, detail="Decline window has not opened") from exc
     except HumanClaimNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Active assignment not found") from exc
     return BrainStateResponse.model_validate(state, from_attributes=True)

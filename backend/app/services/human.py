@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from functools import lru_cache
+from typing import Literal
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -45,9 +46,25 @@ class HumanService:
             return state
 
     async def skip(self, user_id: UUID, claim_id: UUID) -> BrainState:
+        return await self._release_assignment(user_id, claim_id, outcome="skipped")
+
+    async def decline(self, user_id: UUID, claim_id: UUID) -> BrainState:
+        return await self._release_assignment(user_id, claim_id, outcome="declined")
+
+    async def _release_assignment(
+        self,
+        user_id: UUID,
+        claim_id: UUID,
+        *,
+        outcome: Literal["skipped", "declined"],
+    ) -> BrainState:
         async with self._session_factory() as session:
             repository = SqlAlchemyHumanRepository(session)
-            projection = await repository.skip(user_id, claim_id)
+            projection = (
+                await repository.skip(user_id, claim_id)
+                if outcome == "skipped"
+                else await repository.decline(user_id, claim_id)
+            )
             await session.commit()
         await self._publish_owner(projection, "response.queued", {})
         await self.match_available_best_effort()

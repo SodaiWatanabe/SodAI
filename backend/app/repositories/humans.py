@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from typing import Literal
 from uuid import UUID, uuid4
 
 from sqlalchemy import and_, exists, func, or_, select, update
@@ -47,6 +48,10 @@ class HumanClaimNotFoundError(Exception):
 
 
 class HumanClaimSkipWindowClosedError(Exception):
+    pass
+
+
+class HumanClaimDeclineWindowNotOpenError(Exception):
     pass
 
 
@@ -247,6 +252,7 @@ class SqlAlchemyHumanRepository:
             performer_user_id=waiter.performer_user_id,
             status="active",
             claimed_at=now,
+            skip_allowed_until=now + HUMAN_SKIP_WINDOW,
             lease_expires_at=now + CLAIM_LEASE,
         )
         self._session.add(claim)
@@ -271,13 +277,27 @@ class SqlAlchemyHumanRepository:
         )
 
     async def skip(self, user_id: UUID, claim_id: UUID) -> HumanProjection:
+        return await self._release_claim(user_id, claim_id, outcome="skipped")
+
+    async def decline(self, user_id: UUID, claim_id: UUID) -> HumanProjection:
+        return await self._release_claim(user_id, claim_id, outcome="declined")
+
+    async def _release_claim(
+        self,
+        user_id: UUID,
+        claim_id: UUID,
+        *,
+        outcome: Literal["skipped", "declined"],
+    ) -> HumanProjection:
         await self._lock_matching()
         row = await self._locked_claim(user_id, claim_id)
         claim, execution, request, thread, space = row
         now = datetime.now(timezone.utc)
-        if now >= claim.claimed_at + HUMAN_SKIP_WINDOW:
+        if outcome == "skipped" and now >= claim.skip_allowed_until:
             raise HumanClaimSkipWindowClosedError
-        claim.status = "skipped"
+        if outcome == "declined" and now < claim.skip_allowed_until:
+            raise HumanClaimDeclineWindowNotOpenError
+        claim.status = outcome
         claim.finished_at = now
         self._clear_draft(claim)
         execution.status = ResponseStatus.QUEUED.value
@@ -403,7 +423,7 @@ class SqlAlchemyHumanRepository:
             execution_id=execution.id,
             answerer_name=answerer.name,
             reasoning_effort=ReasoningEffort(request.reasoning_effort),
-            skip_allowed_until=claim.claimed_at + HUMAN_SKIP_WINDOW,
+            skip_allowed_until=claim.skip_allowed_until,
             deadline_at=execution.deadline_at,
             draft_content=claim.draft_content,
             draft_revision=claim.draft_revision,

@@ -12,3 +12,10 @@ export function isBrainSkipAllowed(
 ): boolean {
   return millisecondsUntilBrainSkipCloses(skipAllowedUntil, now) > 0;
 }
+
+export function resolveBrainReleaseAction(
+  skipAllowedUntil: string,
+  now: number = Date.now(),
+): "skip" | "decline" {
+  return isBrainSkipAllowed(skipAllowedUntil, now) ? "skip" : "decline";
+}

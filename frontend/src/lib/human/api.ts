@@ -37,6 +37,13 @@ export function createHumanApi(accessToken: ApiAccessTokenSource) {
     return (await response.json()) as BrainState;
   }
 
+  async function decline(claimId: string): Promise<BrainState> {
+    const response = await apiFetch(`/api/v1/human/claims/${claimId}/decline`, {
+      method: "POST",
+    });
+    return (await response.json()) as BrainState;
+  }
+
   async function answer(claimId: string, content: string): Promise<BrainState> {
     const response = await apiFetch(`/api/v1/human/claims/${claimId}/answer`, {
       method: "POST",
@@ -74,6 +81,7 @@ export function createHumanApi(accessToken: ApiAccessTokenSource) {
 
   return {
     answer,
+    decline,
     getAnswer,
     listAnswers,
     ready,

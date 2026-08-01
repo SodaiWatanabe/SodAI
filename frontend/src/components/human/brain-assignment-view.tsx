@@ -16,7 +16,9 @@ import { BrainConversation } from "@/components/human/brain-conversation";
 import {
   isBrainSkipAllowed,
   millisecondsUntilBrainSkipCloses,
+  resolveBrainReleaseAction,
 } from "@/components/human/brain-skip-window";
+import { HumanDeclineDialog } from "@/components/human/human-decline-dialog";
 import { useBrainAnswerDraft } from "@/components/human/use-brain-answer-draft";
 import { useHumanData } from "@/components/human/human-data-provider";
 import { useTextareaAutosize } from "@/components/ui/use-textarea-autosize";
@@ -31,6 +33,7 @@ export function BrainAssignmentView({
   const {
     answerClaim,
     busy,
+    declineClaim,
     deadlineExpired,
     error,
     saveClaimDraft,
@@ -42,8 +45,9 @@ export function BrainAssignmentView({
   const turnSpacerRef = useRef<HTMLDivElement>(null);
   const alignedRef = useRef(false);
   const [autoSubmitting, setAutoSubmitting] = useState(false);
-  const [skipWindowClosed, setSkipWindowClosed] = useState(
-    () => !isBrainSkipAllowed(assignment.skip_allowed_until),
+  const [declineDialogOpen, setDeclineDialogOpen] = useState(false);
+  const [releaseAction, setReleaseAction] = useState<"skip" | "decline">(
+    () => resolveBrainReleaseAction(assignment.skip_allowed_until),
   );
   const { answer, flushDraft, readAnswer, setAnswer } = useBrainAnswerDraft(
     assignment,
@@ -82,7 +86,7 @@ export function BrainAssignmentView({
       assignment.skip_allowed_until,
     );
     if (remaining <= 0) return;
-    const timer = window.setTimeout(() => setSkipWindowClosed(true), remaining);
+    const timer = window.setTimeout(() => setReleaseAction("decline"), remaining);
     return () => window.clearTimeout(timer);
   }, [assignment.skip_allowed_until]);
 
@@ -185,7 +189,16 @@ export function BrainAssignmentView({
           </p>
         ) : null}
         <div className="chat-input relative z-10 mx-auto flex min-h-14 w-full max-w-[760px] items-center justify-end gap-2 overflow-hidden rounded-[28px] border border-[var(--field-border)] bg-[var(--surface)] p-2 text-[var(--text)] shadow-[0_8px_30px_var(--input-shadow)]">
-          {skipWindowClosed ? null : (
+          {releaseAction === "decline" ? (
+            <button
+              type="button"
+              disabled={busy || autoSubmitting || deadlineExpired}
+              className="h-10 rounded-full px-4 text-sm font-medium text-[var(--danger-text)] transition-colors hover:bg-[var(--danger-background)] disabled:opacity-50"
+              onClick={() => setDeclineDialogOpen(true)}
+            >
+              辞退する
+            </button>
+          ) : (
             <button
               type="button"
               disabled={busy}
@@ -215,6 +228,17 @@ export function BrainAssignmentView({
           </button>
         </div>
       </div>
+      {declineDialogOpen ? (
+        <HumanDeclineDialog
+          busy={busy}
+          onClose={() => setDeclineDialogOpen(false)}
+          onConfirm={() => {
+            void declineClaim(assignment.claim_id).then(() => {
+              setDeclineDialogOpen(false);
+            });
+          }}
+        />
+      ) : null}
     </div>
   );
 }

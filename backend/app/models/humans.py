@@ -106,7 +106,8 @@ class HumanClaimModel(Base):
     __tablename__ = "human_claims"
     __table_args__ = (
         CheckConstraint(
-            "status IN ('active', 'answered', 'skipped', 'expired', 'cancelled')",
+            "status IN "
+            "('active', 'answered', 'skipped', 'declined', 'expired', 'cancelled')",
             name="status",
         ),
         CheckConstraint(
@@ -169,6 +170,9 @@ class HumanClaimModel(Base):
     )
     claimed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=sql_func.now()
+    )
+    skip_allowed_until: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
     )
     lease_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     draft_content: Mapped[str] = mapped_column(

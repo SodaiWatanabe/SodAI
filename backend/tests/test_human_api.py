@@ -6,6 +6,8 @@ from httpx import ASGITransport, AsyncClient
 
 from app.auth.principal import get_principal
 from app.domain.humans import (
+    BrainState,
+    BrainStatus,
     HumanAnswerDetail,
     HumanAnswerPage,
     HumanAnswerSummary,
@@ -17,6 +19,7 @@ from app.domain.threads import ActorKind
 from app.main import app
 from app.repositories.human_answers import HumanAnswerNotFoundError
 from app.repositories.humans import (
+    HumanClaimDeclineWindowNotOpenError,
     HumanClaimNotFoundError,
     HumanClaimSkipWindowClosedError,
 )
@@ -75,6 +78,18 @@ class StubHumanAnswerHistoryService:
 class StubClosedSkipWindowHumanService:
     async def skip(self, user_id: UUID, claim_id: UUID) -> None:
         raise HumanClaimSkipWindowClosedError
+
+
+class StubDeclineHumanService:
+    def __init__(self, *, not_open: bool = False) -> None:
+        self.not_open = not_open
+        self.received: tuple[UUID, UUID] | None = None
+
+    async def decline(self, user_id: UUID, claim_id: UUID) -> BrainState:
+        if self.not_open:
+            raise HumanClaimDeclineWindowNotOpenError
+        self.received = (user_id, claim_id)
+        return BrainState(BrainStatus.WAITING, 1, "Lite")
 
 
 class StubDraftHumanService:
@@ -212,6 +227,52 @@ async def test_human_skip_returns_conflict_after_the_grace_period() -> None:
 
     assert response.status_code == 409
     assert response.json() == {"detail": "Skip window has closed"}
+
+
+@pytest.mark.anyio
+async def test_human_decline_requeues_after_the_grace_period() -> None:
+    claim_id = UUID("018f96d4-7c48-7c27-a71f-591e3cb87490")
+    service = StubDeclineHumanService()
+    app.dependency_overrides[get_principal] = lambda: Principal(
+        PrincipalKind.USER,
+        USER_ID,
+    )
+    app.dependency_overrides[get_human_service] = lambda: service
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+    ) as client:
+        response = await client.post(f"/api/v1/human/claims/{claim_id}/decline")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "waiting",
+        "rank_name": "Lite",
+        "assignment": None,
+    }
+    assert service.received == (USER_ID, claim_id)
+
+
+@pytest.mark.anyio
+async def test_human_decline_returns_conflict_during_the_skip_window() -> None:
+    claim_id = UUID("018f96d4-7c48-7c27-a71f-591e3cb87490")
+    app.dependency_overrides[get_principal] = lambda: Principal(
+        PrincipalKind.USER,
+        USER_ID,
+    )
+    app.dependency_overrides[get_human_service] = lambda: StubDeclineHumanService(
+        not_open=True
+    )
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+    ) as client:
+        response = await client.post(f"/api/v1/human/claims/{claim_id}/decline")
+
+    assert response.status_code == 409
+    assert response.json() == {"detail": "Decline window has not opened"}
 
 
 @pytest.mark.anyio

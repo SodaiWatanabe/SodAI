@@ -31,6 +31,7 @@ from app.models.platform import (
 )
 from app.repositories.human_answers import HumanAnswerNotFoundError
 from app.repositories.humans import (
+    HumanClaimDeclineWindowNotOpenError,
     HumanClaimNotFoundError,
     HumanClaimSkipWindowClosedError,
     SqlAlchemyHumanRepository,
@@ -1068,10 +1069,11 @@ async def test_lease_expiry_does_not_submit_a_draft_before_the_deadline() -> Non
 
 
 @pytest.mark.anyio
-async def test_skip_is_rejected_twenty_seconds_after_assignment() -> None:
+async def test_skip_and_decline_follow_the_persisted_grace_boundary() -> None:
     owner = principal()
     performer = principal()
-    users = [owner, performer]
+    replacement = principal()
+    users = [owner, performer, replacement]
     factory = get_session_factory()
     human = HumanService(factory)
 
@@ -1098,20 +1100,47 @@ async def test_skip_is_rejected_twenty_seconds_after_assignment() -> None:
             assert assigned.assignment.skip_allowed_until == (
                 claim.claimed_at + HUMAN_SKIP_WINDOW
             )
-            claim.claimed_at = datetime.now(timezone.utc) - HUMAN_SKIP_WINDOW
+            assert claim.skip_allowed_until == assigned.assignment.skip_allowed_until
+
+        with pytest.raises(HumanClaimDeclineWindowNotOpenError):
+            await human.decline(performer.id, claim_id)
+
+        async with factory() as session:
+            claim = await session.get(HumanClaimModel, claim_id)
+            assert claim is not None
+            now = datetime.now(timezone.utc)
+            claim.skip_allowed_until = now - timedelta(seconds=1)
+            claim.draft_content = "辞退時に破棄する下書き"
+            claim.draft_revision = 1
+            claim.draft_updated_at = now
             await session.commit()
 
         with pytest.raises(HumanClaimSkipWindowClosedError):
             await human.skip(performer.id, claim_id)
 
+        declined = await human.decline(performer.id, claim_id)
+        assert declined.status.value == "waiting"
+
         async with factory() as session:
             claim = await session.get(HumanClaimModel, claim_id)
             execution = await session.get(ExecutionModel, execution_id)
-        assert claim is not None and claim.status == "active"
-        assert execution is not None and execution.status == "running"
+            assert execution is not None
+            request = await session.scalar(
+                select(ResponseRequestModel).where(
+                    ResponseRequestModel.id == execution.response_request_id
+                )
+            )
+        assert claim is not None and claim.status == "declined"
+        assert claim.finished_at is not None
+        assert claim.draft_content == ""
+        assert claim.draft_updated_at is None
+        assert execution.status == "queued"
+        assert execution.started_at is None and execution.deadline_at is None
+        assert request is not None and request.status == "queued"
 
-        answered = await human.answer(performer.id, claim_id, "猶予後も回答はできます。")
-        assert answered.status.value == "idle"
+        reassigned = await human.ready(replacement.id)
+        assert reassigned.assignment is not None
+        assert reassigned.assignment.execution_id == execution_id
     finally:
         await delete_users([item.id for item in users])
 

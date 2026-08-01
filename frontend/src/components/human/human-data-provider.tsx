@@ -28,6 +28,7 @@ type HumanDataContextValue = {
   answers: HumanAnswerSummary[];
   answersLoading: boolean;
   busy: boolean;
+  declineClaim: (claimId: string) => Promise<boolean>;
   deadlineExpired: boolean;
   error?: string;
   getAnswer: (executionId: string) => Promise<HumanAnswerDetail>;
@@ -339,6 +340,11 @@ export function HumanDataProvider({
     [humanApi, run],
   );
 
+  const declineClaim = useCallback(
+    (claimId: string) => run(() => humanApi.decline(claimId)),
+    [humanApi, run],
+  );
+
   const toggleReadiness = useCallback(
     () => run(state?.status === "waiting" ? humanApi.stop : humanApi.ready),
     [humanApi, run, state?.status],
@@ -350,6 +356,7 @@ export function HumanDataProvider({
       answers,
       answersLoading,
       busy,
+      declineClaim,
       deadlineExpired,
       error,
       getAnswer: humanApi.getAnswer,
@@ -368,6 +375,7 @@ export function HumanDataProvider({
       answers,
       answersLoading,
       busy,
+      declineClaim,
       deadlineExpired,
       error,
       humanApi,

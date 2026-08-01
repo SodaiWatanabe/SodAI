@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   isBrainSkipAllowed,
   millisecondsUntilBrainSkipCloses,
+  resolveBrainReleaseAction,
 } from "./brain-skip-window.ts";
 
 const boundary = "2026-08-01T02:00:20Z";
@@ -13,6 +14,7 @@ test("割り当てから20秒の猶予内はスキップできる", () => {
 
   assert.equal(isBrainSkipAllowed(boundary, now), true);
   assert.equal(millisecondsUntilBrainSkipCloses(boundary, now), 1);
+  assert.equal(resolveBrainReleaseAction(boundary, now), "skip");
 });
 
 test("猶予の境界以降はスキップできない", () => {
@@ -22,4 +24,5 @@ test("猶予の境界以降はスキップできない", () => {
     false,
   );
   assert.equal(millisecondsUntilBrainSkipCloses("invalid", 0), 0);
+  assert.equal(resolveBrainReleaseAction(boundary, Date.parse(boundary)), "decline");
 });

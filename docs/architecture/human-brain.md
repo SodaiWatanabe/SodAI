@@ -51,9 +51,10 @@ Humanの回答可能時間は専用列へ保存せず、マッチ成立時に共
 代用しない。どちらかが切れたClaimは`expired`へ閉じ、Executionをqueuedへ戻して別の適格Humanへ
 再割当する。期限後の回答確定は拒否する。
 
-Humanは割り当ての`claimed_at`から20秒間だけTaskをskipできる。BrainはAPIが返す
-`skip_allowed_until`に達した時点でskip操作を無効化し、APIも同じ境界以降のskipを拒否する。
-画面の再読み込みやreadiness更新ではこの猶予を延長しない。
+Humanは割り当て時にClaimへ保存した`skip_allowed_until`までTaskをskipできる。Brainはこの境界に
+達した時点で操作を辞退へ切り替え、APIも境界前の辞退と境界以降のskipを拒否する。skipと辞退は
+それぞれ`skipped`、`declined`として区別して保存するが、どちらも下書きを破棄し、Executionを
+queuedへ戻してHumanを待機列へ戻す。画面の再読み込みやreadiness更新では猶予を延長しない。
 
 ## Realtime matching
 
@@ -74,7 +75,7 @@ Brainは10秒ごとの冪等な`PUT /human/readiness`と再接続時の`GET /hum
 回答履歴はThreadへの事後的な閲覧権限ではない。`answered`状態の`human_claims`を回答者本人の
 所有証明として、`response_context_items`の凍結文脈とExecutionの確定回答だけを返す。
 元Thread ID、依頼者User ID、Claim ID、回答後に追加されたEntryは公開しない。別の回答者による
-取得と、skipped/expired/cancelled Claimからの取得は、存在しない回答と同じ404にする。
+取得と、skipped/declined/expired/cancelled Claimからの取得は、存在しない回答と同じ404にする。
 
 `GET /human/answers`は回答完了日時とExecution IDによるkeyset paginationで概要を返し、
 `GET /human/answers/{execution_id}`は読み取り専用の詳細を返す。回答概要の表示文はThread titleを
