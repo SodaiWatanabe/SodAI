@@ -176,5 +176,8 @@ Googleログインを有効にする場合のWeb application callbackは次で�
 https://app.sodai.me/api/auth/callback/google
 ```
 
-認証メールのFrom domainには`sodai.me`を使用できます。SMTP provider側でSPF、DKIMを
-設定し、`sodai.me`にDMARC policyを追加してから実配送を有効にします。
+認証メールはResendで検証した`auth.sodai.me`から
+`SodAI <no-reply@auth.sodai.me>`として送信します。SMTPは`smtp.resend.com:465`の
+implicit TLSを使用し、ユーザー名は`resend`、passwordには`auth.sodai.me`だけへ制限した
+Sending access API keyを設定します。SPF、DKIMに加え、`_dmarc.auth.sodai.me`へDMARC
+policyを設定してから実配送を有効にします。

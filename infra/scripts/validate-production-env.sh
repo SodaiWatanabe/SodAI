@@ -139,11 +139,12 @@ require_equal "$auth_env" AUTH_TRUSTED_CLIENT_IP_HEADER cf-connecting-ip
 require_equal "$auth_env" AUTH_EMAIL_DELIVERY smtp
 require_non_placeholder "$auth_env" AUTH_EMAIL_FROM
 auth_email_from="$(read_value "$auth_env" AUTH_EMAIL_FROM)"
-[[ "$auth_email_from" == *"@sodai.me"* ]] || fail "AUTH_EMAIL_FROM must use the sodai.me domain in $auth_env."
-require_non_placeholder "$auth_env" AUTH_SMTP_HOST
+[[ "$auth_email_from" == *"@auth.sodai.me"* ]] || \
+  fail "AUTH_EMAIL_FROM must use the verified auth.sodai.me domain in $auth_env."
+require_equal "$auth_env" AUTH_SMTP_HOST smtp.resend.com
 require_equal "$auth_env" AUTH_SMTP_PORT 465
 require_equal "$auth_env" AUTH_SMTP_SECURE true
-require_non_placeholder "$auth_env" AUTH_SMTP_USER
+require_equal "$auth_env" AUTH_SMTP_USER resend
 require_secret "$auth_env" AUTH_SMTP_PASSWORD 16
 
 google_client_id="$(read_value "$auth_env" GOOGLE_CLIENT_ID)"

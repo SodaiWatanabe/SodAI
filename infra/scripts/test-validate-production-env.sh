@@ -31,11 +31,11 @@ GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
 AUTH_TRUSTED_CLIENT_IP_HEADER=cf-connecting-ip
 AUTH_EMAIL_DELIVERY=smtp
-AUTH_EMAIL_FROM=SodAI <no-reply@sodai.me>
-AUTH_SMTP_HOST=smtp.sodai-mail.invalid
+AUTH_EMAIL_FROM=SodAI <no-reply@auth.sodai.me>
+AUTH_SMTP_HOST=smtp.resend.com
 AUTH_SMTP_PORT=465
 AUTH_SMTP_SECURE=true
-AUTH_SMTP_USER=smtp-user
+AUTH_SMTP_USER=resend
 AUTH_SMTP_PASSWORD=gggggggggggggggggggggggggggggggg
 EOF
 
