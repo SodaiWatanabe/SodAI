@@ -1,6 +1,6 @@
 # SodAI Inference
 
-SodAI内部だけに公開するGPU推論ワーカーです。FastAPIとはRedis Streams上のversioned contractで
+SodAI内部だけに公開するモデル別GPU推論ワーカーです。FastAPIとはRedis Streams上のversioned contractで
 通信し、PostgreSQL、認証、WebSocketへ直接アクセスしません。
 
 HinaはBuilding-SLM内部のv1 SFT成果物を出自とします。実行時にBuilding-SLMをimportしたり、
@@ -27,3 +27,16 @@ importとdeployment promotionは意図的に分離しています。更新時は
 旧artifactに固定されたExecutionを最後まで処理できます。promotion時にはコマンド自身が対象artifactの
 worker readinessをRedisで検証します。初回導入も同じ順序です。promotion後はpinned workerをそのまま
 利用でき、次回起動から`HINA_ARTIFACT_ID`を省略できます。
+
+Asuka 1はBuilding-SLM v2のRoPE SFT成果物を独立artifactとして取り込みます。
+
+```bash
+make import-asuka1 \
+  CHECKPOINT=../Building-SLM/checkpoints/v2/gpt_sft.pt \
+  TOKENIZER=../Building-SLM/tokenizer \
+  SOURCE_REPOSITORY=../Building-SLM
+make dev-inference MODEL=asuka-1 ARTIFACT_ID=<artifact-id> DEVICE=cuda:0
+make deploy-asuka1 ARTIFACT_ID=<artifact-id>
+```
+
+HinaとAsuka 1は別process・別artifact streamで稼働し、共通workerは配送と復旧だけを担当します。

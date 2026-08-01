@@ -19,8 +19,9 @@ from sodai_contracts.inference import (
 )
 
 from sodai_inference.config import Settings
-from sodai_inference.deployment import resolve_hina_artifact
-from sodai_inference.models.hina import HinaEngine
+from sodai_inference.deployment import resolve_artifact
+from sodai_inference.models.base import InferenceEngine
+from sodai_inference.models.registry import load_engine
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +53,14 @@ end
 return redis.call('DEL', KEYS[1])
 """
 
+COMPARE_AND_EXPIRE_SCRIPT = """
+if redis.call('GET', KEYS[1]) ~= ARGV[1] then
+    return 0
+end
+redis.call('EXPIRE', KEYS[1], ARGV[2])
+return 1
+"""
+
 ACK_AND_DELETE_SCRIPT = """
 local acknowledged = redis.call('XACK', KEYS[1], ARGV[1], ARGV[2])
 redis.call('XDEL', KEYS[1], ARGV[2])
@@ -65,23 +74,34 @@ class AttemptProgress:
     terminal: bool
 
 
+@dataclass(frozen=True, slots=True)
+class ResourceLease:
+    key: str
+    owner: str
+
+
 class InferenceWorker:
-    def __init__(self, settings: Settings, redis: Redis, hina: HinaEngine) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        redis: Redis,
+        engine: InferenceEngine,
+    ) -> None:
         self._settings = settings
         self._redis = redis
-        self._hina = hina
+        self._engine = engine
         self._namespace = settings.inference_keys
         self._job_stream = self._namespace.job_stream_for(
-            hina.model_name, hina.manifest.artifact_id
+            engine.model_name, engine.manifest.artifact_id
         )
         self._job_claim_cursor = "0-0"
 
     async def run(self) -> None:
         await self._ensure_group()
         await self._announce_readiness()
-        logger.info("Hina worker ready with %s", self._hina.resolved_model)
+        logger.info("Model worker ready with %s", self._engine.resolved_model)
         readiness_task = asyncio.create_task(
-            self._readiness_loop(), name="hina-readiness-lease"
+            self._readiness_loop(), name=f"{self._engine.model_name}-readiness-lease"
         )
         try:
             while True:
@@ -106,7 +126,7 @@ class InferenceWorker:
     async def _announce_readiness(self) -> None:
         await self._redis.set(
             self._namespace.worker_readiness(
-                self._hina.model_name, self._hina.manifest.artifact_id
+                self._engine.model_name, self._engine.manifest.artifact_id
             ),
             self._settings.consumer_name,
             ex=30,
@@ -161,8 +181,8 @@ class InferenceWorker:
             return
         correlation = InferenceCorrelation.from_job(job)
         if (
-            job.model != self._hina.model_name
-            or job.artifact_id != self._hina.manifest.artifact_id
+            job.model != self._engine.model_name
+            or job.artifact_id != self._engine.manifest.artifact_id
         ):
             log_inference_event(
                 logger,
@@ -205,7 +225,12 @@ class InferenceWorker:
             )
             progress = await self._read_progress(progress_key)
             if not progress.terminal and not await self._cancel_requested(job):
-                await self._generate(job, resume_after_sequence=progress.sequence)
+                lease = await self._acquire_resource(job)
+                try:
+                    await self._generate(job, resume_after_sequence=progress.sequence)
+                finally:
+                    if lease is not None:
+                        await self._release_resource(lease)
             marked_done = await self._redis.eval(
                 COMPARE_AND_SET_SCRIPT,
                 1,
@@ -260,7 +285,7 @@ class InferenceWorker:
             return
 
         try:
-            prompt_ids = self._hina.build_prompt(job)
+            prompt_ids = self._engine.build_prompt(job)
         except Exception as error:
             log_inference_event(
                 logger,
@@ -280,13 +305,13 @@ class InferenceWorker:
                 attempt_id=job.attempt_id,
                 sequence=sequence,
                 thread_id=job.thread_id,
-                resolved_model=self._hina.resolved_model,
+                resolved_model=self._engine.resolved_model,
                 input_tokens=len(prompt_ids),
             )
         )
         buffered_delta = ""
         buffered_tokens = 0
-        steps = iter(self._hina.generate(prompt_ids, job))
+        steps = iter(self._engine.generate(prompt_ids, job))
         while True:
             if await self._cancel_requested(job):
                 steps.close()
@@ -376,6 +401,46 @@ class InferenceWorker:
             )
         )
 
+    async def _acquire_resource(self, job: GenerationJob) -> ResourceLease | None:
+        if self._settings.resource_pool is None:
+            return None
+        key = (
+            f"{self._namespace.prefix}:resource-pool:"
+            f"{self._settings.resource_pool}:lock"
+        )
+        owner = f"{self._settings.consumer_name}:{job.attempt_id}"
+        attempt_lock_key = self._namespace.attempt_lock(job.attempt_id)
+        while datetime.now(timezone.utc) < job.deadline:
+            acquired = await self._redis.set(
+                key,
+                owner,
+                ex=self._settings.resource_lock_seconds,
+                nx=True,
+            )
+            if acquired:
+                return ResourceLease(key, owner)
+            if await self._cancel_requested(job):
+                return None
+            refreshed = await self._redis.eval(
+                COMPARE_AND_EXPIRE_SCRIPT,
+                1,
+                attempt_lock_key,
+                self._settings.consumer_name,
+                self._settings.run_lock_seconds,
+            )
+            if refreshed != 1:
+                raise RuntimeError("inference attempt lock was lost while waiting for GPU")
+            await asyncio.sleep(0.1)
+        return None
+
+    async def _release_resource(self, lease: ResourceLease) -> None:
+        await self._redis.eval(
+            COMPARE_AND_DELETE_SCRIPT,
+            1,
+            lease.key,
+            lease.owner,
+        )
+
     @staticmethod
     def _failed_event(job: GenerationJob, sequence: int) -> GenerationEvent:
         return GenerationEvent.create(
@@ -385,7 +450,7 @@ class InferenceWorker:
             sequence=sequence,
             thread_id=job.thread_id,
             finish_reason=FinishReason.ERROR,
-            error_code="hina_generation_failed",
+            error_code=f"{job.model.replace('-', '_')}_generation_failed",
         )
 
     async def _publish(
@@ -409,7 +474,7 @@ class InferenceWorker:
             progress_key,
             progress_key.removesuffix(":progress"),
             self._namespace.worker_readiness(
-                self._hina.model_name, self._hina.manifest.artifact_id
+                self._engine.model_name, self._engine.manifest.artifact_id
             ),
             event.to_json(),
             progress,
@@ -457,9 +522,13 @@ async def run_worker() -> None:
         password=settings.redis_password,
         decode_responses=True,
     )
-    artifact_path = resolve_hina_artifact(settings.model_root, settings.artifact_id)
-    hina = HinaEngine.load(artifact_path, settings.device)
-    worker = InferenceWorker(settings, redis, hina)
+    artifact_path = resolve_artifact(
+        settings.model_root,
+        settings.model_name,
+        settings.artifact_id,
+    )
+    engine = load_engine(settings.model_name, artifact_path, settings.device)
+    worker = InferenceWorker(settings, redis, engine)
     try:
         await worker.run()
     finally:

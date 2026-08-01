@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterator
-from dataclasses import dataclass
 from pathlib import Path
 
 import torch
@@ -11,16 +10,10 @@ from sodai_contracts.inference import FinishReason, GenerationJob
 
 from sodai_inference.architectures.absolute_position_gpt import AbsoluteGPT, GPTConfig
 from sodai_inference.artifacts import ArtifactManifest, sha256_file, sha256_tree
-from sodai_inference.models.hina.decoder import IncrementalTextDecoder
+from sodai_inference.models.base import GenerationStep
+from sodai_inference.models.decoder import IncrementalTextDecoder
+from sodai_inference.models.hina.profile import HINA_PROFILE
 from sodai_inference.models.hina.prompt import HinaPromptBuilder, load_tokenizer
-
-
-@dataclass(frozen=True, slots=True)
-class GenerationStep:
-    delta: str
-    content: str
-    output_tokens: int
-    finish_reason: FinishReason | None = None
 
 
 class HinaEngine:
@@ -53,7 +46,7 @@ class HinaEngine:
     @classmethod
     def load(cls, artifact_path: Path, device_name: str) -> HinaEngine:
         manifest = ArtifactManifest.load(artifact_path / "manifest.json")
-        manifest.validate_hina()
+        manifest.validate(HINA_PROFILE)
         weights_path = artifact_path / "model.safetensors"
         if sha256_file(weights_path) != manifest.checkpoint_sha256:
             raise ValueError("Hina artifact weights checksum does not match manifest")

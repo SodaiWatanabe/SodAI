@@ -4,7 +4,7 @@ from transformers import PreTrainedTokenizerFast
 
 
 class IncrementalTextDecoder:
-    """Emits only stable text while ByteLevel token fragments are incomplete."""
+    """Emit only stable text while ByteLevel token fragments are incomplete."""
 
     def __init__(self, tokenizer: PreTrainedTokenizerFast) -> None:
         self._tokenizer = tokenizer

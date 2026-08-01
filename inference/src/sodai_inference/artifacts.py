@@ -7,27 +7,20 @@ from pathlib import Path
 from typing import Any
 
 MANIFEST_SCHEMA_VERSION = 3
-HINA_RUNTIME_ABI = "hina-absolute-gpt-v1"
-HINA_DTYPE = "float32"
-HINA_PROMPT_TEMPLATE = "partner-self-v1"
-HINA_VOCAB_SIZE = 32_000
-HINA_SPECIAL_TOKENS = (
-    "<|pad|>",
-    "<|unk|>",
-    "<|bos|>",
-    "<|eos|>",
-    "<|self|>",
-    "<|partner|>",
-    "<|end_turn|>",
-    "<|memory|>",
-    "<|context|>",
-    "<|bot|>",
-    "<|latent|>",
-    "<|eot|>",
-    "<|tool_call|>",
-    "<|end_tool_call|>",
-    "<|tool_result|>",
-)
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactProfile:
+    model: str
+    architecture: str
+    runtime_abi: str
+    context_length: int
+    dtype: str
+    prompt_template: str
+    vocab_size: int
+    special_tokens: tuple[str, ...]
+    source_model_version: str
+    source_checkpoint_stage: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,30 +70,43 @@ class ArtifactManifest:
             },
         )
 
-    def validate_hina(self) -> None:
+    def validate(self, profile: ArtifactProfile) -> None:
         expected = {
-            "model": (self.model, "hina"),
-            "architecture": (self.architecture, "absolute_position_gpt"),
-            "runtime_abi": (self.runtime_abi, HINA_RUNTIME_ABI),
-            "context_length": (self.context_length, 512),
-            "dtype": (self.dtype, HINA_DTYPE),
-            "prompt_template": (self.prompt_template, HINA_PROMPT_TEMPLATE),
-            "source_model_version": (self.source_model_version, "v1"),
-            "source_checkpoint_stage": (self.source_checkpoint_stage, "sft"),
+            "model": (self.model, profile.model),
+            "architecture": (self.architecture, profile.architecture),
+            "runtime_abi": (self.runtime_abi, profile.runtime_abi),
+            "context_length": (self.context_length, profile.context_length),
+            "dtype": (self.dtype, profile.dtype),
+            "prompt_template": (self.prompt_template, profile.prompt_template),
+            "source_model_version": (
+                self.source_model_version,
+                profile.source_model_version,
+            ),
+            "source_checkpoint_stage": (
+                self.source_checkpoint_stage,
+                profile.source_checkpoint_stage,
+            ),
         }
         mismatches = [name for name, (actual, wanted) in expected.items() if actual != wanted]
         if mismatches:
-            raise ValueError(f"artifact is incompatible with Hina runtime: {', '.join(mismatches)}")
-        if set(self.special_token_ids) != set(HINA_SPECIAL_TOKENS):
-            raise ValueError("artifact does not define the exact Hina special token set")
+            raise ValueError(
+                f"artifact is incompatible with {profile.model} runtime: "
+                f"{', '.join(mismatches)}"
+            )
+        if set(self.special_token_ids) != set(profile.special_tokens):
+            raise ValueError(
+                f"artifact does not define the exact {profile.model} special token set"
+            )
         token_ids = tuple(self.special_token_ids.values())
         if any(
-            isinstance(token_id, bool) or not 0 <= token_id < HINA_VOCAB_SIZE
+            isinstance(token_id, bool) or not 0 <= token_id < profile.vocab_size
             for token_id in token_ids
         ):
-            raise ValueError("artifact contains a special token ID outside Hina's vocabulary")
+            raise ValueError(
+                f"artifact contains a special token ID outside {profile.model}'s vocabulary"
+            )
         if len(set(token_ids)) != len(token_ids):
-            raise ValueError("artifact contains duplicate Hina special token IDs")
+            raise ValueError(f"artifact contains duplicate {profile.model} special token IDs")
 
 
 def sha256_file(path: Path) -> str:

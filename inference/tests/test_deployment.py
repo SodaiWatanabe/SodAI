@@ -2,14 +2,9 @@ import json
 
 import pytest
 
-from sodai_inference.artifacts import (
-    HINA_RUNTIME_ABI,
-    HINA_SPECIAL_TOKENS,
-    MANIFEST_SCHEMA_VERSION,
-    sha256_file,
-    sha256_tree,
-)
+from sodai_inference.artifacts import MANIFEST_SCHEMA_VERSION, sha256_file, sha256_tree
 from sodai_inference.deployment import activate_hina_artifact, resolve_hina_artifact
+from sodai_inference.models.hina.profile import HINA_PROFILE
 
 ARTIFACT_ID = "0123456789abcdef"
 
@@ -33,7 +28,7 @@ def create_artifact(tmp_path):
                 "artifact_id": ARTIFACT_ID,
                 "model": "hina",
                 "architecture": "absolute_position_gpt",
-                "runtime_abi": HINA_RUNTIME_ABI,
+                "runtime_abi": HINA_PROFILE.runtime_abi,
                 "context_length": 512,
                 "dtype": "float32",
                 "prompt_template": "partner-self-v1",
@@ -48,7 +43,8 @@ def create_artifact(tmp_path):
                     "git_commit": None,
                 },
                 "special_token_ids": {
-                    token: token_id for token_id, token in enumerate(HINA_SPECIAL_TOKENS)
+                    token: token_id
+                    for token_id, token in enumerate(HINA_PROFILE.special_tokens)
                 },
             }
         ),

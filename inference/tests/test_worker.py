@@ -15,7 +15,7 @@ from sodai_contracts.inference import (
 )
 
 from sodai_inference.config import Settings
-from sodai_inference.models.hina.engine import GenerationStep
+from sodai_inference.models.base import GenerationStep
 from sodai_inference.worker import InferenceWorker
 
 

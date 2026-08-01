@@ -1,4 +1,4 @@
-from sodai_inference.models.hina.decoder import IncrementalTextDecoder
+from sodai_inference.models.decoder import IncrementalTextDecoder
 
 
 class StubTokenizer:

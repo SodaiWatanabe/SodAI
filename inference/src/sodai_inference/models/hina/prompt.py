@@ -3,20 +3,11 @@ from __future__ import annotations
 from sodai_contracts.inference import GenerationTurn, InferenceSpeaker
 from transformers import PreTrainedTokenizerFast
 
-from sodai_inference.artifacts import HINA_SPECIAL_TOKENS
-
-SPECIAL_TOKENS = HINA_SPECIAL_TOKENS[4:]
+from sodai_inference.tokenization import load_chat_tokenizer
 
 
 def load_tokenizer(path: str) -> PreTrainedTokenizerFast:
-    return PreTrainedTokenizerFast.from_pretrained(
-        path,
-        bos_token="<|bos|>",
-        eos_token="<|eos|>",
-        unk_token="<|unk|>",
-        pad_token="<|pad|>",
-        additional_special_tokens=list(SPECIAL_TOKENS),
-    )
+    return load_chat_tokenizer(path)
 
 
 class HinaPromptBuilder:
