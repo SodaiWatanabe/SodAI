@@ -106,6 +106,8 @@ button {
 }
 
 .ui-popover {
+  /* WebKit otherwise stretches fixed grid popovers to the viewport height. */
+  height: auto;
   pointer-events: none;
   opacity: 0;
   transform: scale(0.985);
