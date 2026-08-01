@@ -28,6 +28,7 @@ from app.models.platform import (
     ResponseRequestModel,
     ThreadModel,
 )
+from app.repositories.human_answers import HumanAnswerNotFoundError
 from app.repositories.humans import HumanClaimNotFoundError, SqlAlchemyHumanRepository
 from app.repositories.inference_operations import InferenceOperationsRepository
 from app.repositories.response_completion import complete_response
@@ -37,6 +38,7 @@ from app.repositories.threads import (
     ThreadNotFoundError,
 )
 from app.services.human import HumanService
+from app.services.human_answers import HumanAnswerHistoryService
 
 pytestmark = pytest.mark.skipif(
     os.getenv("SODAI_INTEGRATION_TESTS") != "1",
@@ -628,6 +630,23 @@ async def test_human_matching_uses_oldest_compatible_task_and_returns_answer() -
             await session.commit()
         assert switched_model is not None
         assert switched_human is None
+
+        history = HumanAnswerHistoryService(factory)
+        history_page = await history.page(junior.id)
+        assert [item.execution_id for item in history_page.items] == [
+            lite_execution_id
+        ]
+        assert history_page.items[0].prompt_preview == "Liteでも回答できるPrompt"
+        assert history_page.items[0].answerer_name == "Human Lite"
+        history_detail = await history.get(junior.id, lite_execution_id)
+        assert [entry.content for entry in history_detail.context] == [
+            "最初の質問",
+            "AIの回答",
+            "Liteでも回答できるPrompt",
+        ]
+        assert history_detail.answer == "Human Liteからの回答です。"
+        with pytest.raises(HumanAnswerNotFoundError):
+            await history.get(lite_owner.id, lite_execution_id)
 
         skipped_state = await human.skip(
             second_senior.id,

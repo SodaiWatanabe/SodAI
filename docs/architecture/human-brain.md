@@ -8,7 +8,8 @@ ChatではHuman Lite、Human Standard、Human ProへPromptを送り、Brainで�
 - `human-lite`、`human-standard`、`human-pro`は変更しない公開IDで、表示名はcatalogから変更できる。
 - Humanモデルの差は`required_human_rank`だけで表す。matcherはモデルIDで分岐しない。
 - Prompt作成者と実回答者は別のUserでなければならない。
-- 実回答者はThread memberにせず、active Claimを持つ間だけ全文脈を読める。
+- 実回答者はThread memberにせず、active Claimを持つ間だけ割り当て文脈を読める。回答後は
+  answered Claimを根拠に、回答時のsnapshotと自分の回答だけを履歴として読める。
 - Thread上の回答者はHuman Lite/Standard/ProのModel Actorとする。実回答者UserはClaimだけに記録する。
 - 回答本文は`thread_entries`、完了状態はResponseRequest/Executionを正本とし、Human用に複製しない。
 
@@ -63,6 +64,21 @@ transaction advisory lock内で、次の順に一組ずつ割り当てる。
 `response.started/completed/queued/cancelled`、Brain側へ`human.assigned`または
 `human.assignment.cancelled`を既存WebSocketで通知する。
 Brainは10秒ごとの冪等な`PUT /human/readiness`と再接続時の`GET /human/state`で状態を復元する。
+
+## 回答履歴
+
+回答履歴はThreadへの事後的な閲覧権限ではない。`answered`状態の`human_claims`を回答者本人の
+所有証明として、`response_context_items`の凍結文脈とExecutionの確定回答だけを返す。
+元Thread ID、依頼者User ID、Claim ID、回答後に追加されたEntryは公開しない。別の回答者による
+取得と、skipped/expired/cancelled Claimからの取得は、存在しない回答と同じ404にする。
+
+`GET /human/answers`は回答完了日時とExecution IDによるkeyset paginationで概要を返し、
+`GET /human/answers/{execution_id}`は読み取り専用の詳細を返す。回答概要の表示文はThread titleを
+参照せず、snapshot済みのinput Entryから生成する。履歴のための複製テーブルは作らない。
+
+BrainのreadinessとClaim leaseはページではなく共通providerが管理する。回答待ちの間は履歴を
+閲覧してもheartbeatを継続し、割り当てを受けたら回答画面へ戻る。active Claim中は下書きと
+回答期限を守るため履歴への移動を許可しない。
 
 Prompt作成者が停止した場合、同じadvisory lock内でactive Claimを`cancelled`へ閉じ、
 実回答者を待機列へ戻す。Brainは一致するClaimの取消eventを受けた時点で、入力中の回答と

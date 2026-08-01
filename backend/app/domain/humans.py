@@ -34,6 +34,31 @@ class HumanAssignment:
 
 
 @dataclass(frozen=True, slots=True)
+class HumanAnswerSummary:
+    execution_id: UUID
+    answerer_name: str
+    reasoning_effort: ReasoningEffort
+    prompt_preview: str
+    answered_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class HumanAnswerDetail:
+    execution_id: UUID
+    answerer_name: str
+    reasoning_effort: ReasoningEffort
+    answered_at: datetime
+    context: tuple[HumanContextEntry, ...]
+    answer: str
+
+
+@dataclass(frozen=True, slots=True)
+class HumanAnswerPage:
+    items: tuple[HumanAnswerSummary, ...]
+    next_cursor: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class BrainState:
     status: BrainStatus
     rank_level: int

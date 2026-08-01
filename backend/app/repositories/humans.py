@@ -355,42 +355,13 @@ class SqlAlchemyHumanRepository:
             raise RuntimeError("Human assignment references an unknown answerer")
         if execution.deadline_at is None:
             raise RuntimeError("Active Human execution is missing its deadline")
-        context_rows = (
-            await self._session.execute(
-                select(
-                    ActorModel.kind,
-                    EntryTextContentModel.content,
-                )
-                .select_from(ResponseContextItemModel)
-                .join(
-                    ThreadEntryModel,
-                    and_(
-                        ThreadEntryModel.id == ResponseContextItemModel.entry_id,
-                        ThreadEntryModel.thread_id == ResponseContextItemModel.thread_id,
-                    ),
-                )
-                .join(ActorModel, ActorModel.id == ThreadEntryModel.author_actor_id)
-                .join(
-                    EntryTextContentModel,
-                    EntryTextContentModel.entry_id == ThreadEntryModel.id,
-                )
-                .where(ResponseContextItemModel.response_request_id == request.id)
-                .order_by(ResponseContextItemModel.ordinal)
-            )
-        ).all()
         return HumanAssignment(
             claim_id=claim.id,
             execution_id=execution.id,
             answerer_name=answerer.name,
             reasoning_effort=ReasoningEffort(request.reasoning_effort),
             deadline_at=execution.deadline_at,
-            context=tuple(
-                HumanContextEntry(
-                    author_kind=ActorKind(kind),
-                    content=content,
-                )
-                for kind, content in context_rows
-            ),
+            context=await load_human_context(self._session, request.id),
         )
 
     async def _locked_claim(
@@ -577,3 +548,39 @@ class SqlAlchemyHumanRepository:
             result_entry_id=execution.result_entry_id,
             cancellation_reason=cancellation_reason,
         )
+
+
+async def load_human_context(
+    session: AsyncSession,
+    response_request_id: UUID,
+) -> tuple[HumanContextEntry, ...]:
+    rows = (
+        await session.execute(
+            select(
+                ActorModel.kind,
+                EntryTextContentModel.content,
+            )
+            .select_from(ResponseContextItemModel)
+            .join(
+                ThreadEntryModel,
+                and_(
+                    ThreadEntryModel.id == ResponseContextItemModel.entry_id,
+                    ThreadEntryModel.thread_id == ResponseContextItemModel.thread_id,
+                ),
+            )
+            .join(ActorModel, ActorModel.id == ThreadEntryModel.author_actor_id)
+            .join(
+                EntryTextContentModel,
+                EntryTextContentModel.entry_id == ThreadEntryModel.id,
+            )
+            .where(ResponseContextItemModel.response_request_id == response_request_id)
+            .order_by(ResponseContextItemModel.ordinal)
+        )
+    ).all()
+    return tuple(
+        HumanContextEntry(
+            author_kind=ActorKind(kind),
+            content=content,
+        )
+        for kind, content in rows
+    )

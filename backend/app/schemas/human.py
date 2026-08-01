@@ -39,3 +39,29 @@ class BrainStateResponse(BaseModel):
 
 class HumanAnswerRequest(BaseModel):
     content: HumanAnswerText
+
+
+class HumanAnswerSummaryResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    execution_id: UUID
+    answerer_name: str
+    reasoning_effort: ReasoningEffort
+    prompt_preview: str
+    answered_at: datetime
+
+
+class HumanAnswerListResponse(BaseModel):
+    items: list[HumanAnswerSummaryResponse]
+    next_cursor: str | None
+
+
+class HumanAnswerDetailResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    execution_id: UUID
+    answerer_name: str
+    reasoning_effort: ReasoningEffort
+    answered_at: datetime
+    context: list[HumanContextEntryResponse]
+    answer: str

@@ -1,12 +1,23 @@
+from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
 from app.auth.principal import get_principal
 from app.domain.principals import Principal, PrincipalKind
+from app.repositories.human_answers import HumanAnswerNotFoundError
 from app.repositories.humans import HumanClaimNotFoundError
-from app.schemas.human import BrainStateResponse, HumanAnswerRequest
+from app.schemas.human import (
+    BrainStateResponse,
+    HumanAnswerDetailResponse,
+    HumanAnswerListResponse,
+    HumanAnswerRequest,
+)
 from app.services.human import HumanService, get_human_service
+from app.services.human_answers import (
+    HumanAnswerHistoryService,
+    get_human_answer_history_service,
+)
 
 router = APIRouter(prefix="/human", tags=["human"])
 
@@ -28,6 +39,37 @@ async def read_brain_state(
     return BrainStateResponse.model_validate(
         await service.state(_user_id(principal)), from_attributes=True
     )
+
+
+@router.get("/answers", response_model=HumanAnswerListResponse)
+async def list_human_answers(
+    response: Response,
+    cursor: str | None = None,
+    limit: Annotated[int, Query(ge=1, le=50)] = 20,
+    principal: Principal = Depends(get_principal),
+    service: HumanAnswerHistoryService = Depends(get_human_answer_history_service),
+) -> HumanAnswerListResponse:
+    response.headers["Cache-Control"] = "private, no-store"
+    try:
+        page = await service.page(_user_id(principal), limit=limit, cursor=cursor)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    return HumanAnswerListResponse(items=list(page.items), next_cursor=page.next_cursor)
+
+
+@router.get("/answers/{execution_id}", response_model=HumanAnswerDetailResponse)
+async def read_human_answer(
+    execution_id: UUID,
+    response: Response,
+    principal: Principal = Depends(get_principal),
+    service: HumanAnswerHistoryService = Depends(get_human_answer_history_service),
+) -> HumanAnswerDetailResponse:
+    response.headers["Cache-Control"] = "private, no-store"
+    try:
+        answer = await service.get(_user_id(principal), execution_id)
+    except HumanAnswerNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Human answer not found") from exc
+    return HumanAnswerDetailResponse.model_validate(answer, from_attributes=True)
 
 
 @router.put("/readiness", response_model=BrainStateResponse)
