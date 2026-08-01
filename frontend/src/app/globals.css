@@ -29,6 +29,7 @@
   --control-background: light-dark(rgb(0 0 0 / 6%), rgb(0 0 0 / 28%));
   --overlay: light-dark(rgb(0 0 0 / 15%), rgb(0 0 0 / 45%));
   --dialog-backdrop: light-dark(rgb(0 0 0 / 24%), rgb(0 0 0 / 58%));
+  --dialog-backdrop-blur: 10px;
   --input-shadow: light-dark(rgb(0 0 0 / 5.5%), rgb(0 0 0 / 42%));
   --sidebar-shadow: light-dark(rgb(0 0 0 / 10%), rgb(0 0 0 / 48%));
   --popover-shadow: light-dark(rgb(0 0 0 / 16%), rgb(0 0 0 / 58%));
@@ -155,8 +156,8 @@ button {
 
 .ui-modal::backdrop {
   background: var(--dialog-backdrop);
-  -webkit-backdrop-filter: blur(10px);
-  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(var(--dialog-backdrop-blur));
+  backdrop-filter: blur(var(--dialog-backdrop-blur));
   animation: modal-backdrop-in 180ms ease-out;
 }
 
