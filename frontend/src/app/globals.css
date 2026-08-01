@@ -321,6 +321,7 @@ button {
   left: 0;
   height: min(68vh, 600px);
   overflow: hidden;
+  container-type: inline-size;
   pointer-events: none;
   opacity: 0;
   transition: opacity 700ms ease-out;
@@ -333,15 +334,14 @@ button {
 
 .response-glow {
   position: absolute;
+  left: 0;
   bottom: 0;
   opacity: 0;
   transform-origin: 50% var(--response-light-origin-y);
   animation-play-state: paused;
-  will-change: left, opacity, transform;
 }
 
 .response-glow-one {
-  left: 12%;
   width: clamp(400px, 60vw, 860px);
   height: 122%;
   background:
@@ -361,7 +361,6 @@ button {
 }
 
 .response-glow-two {
-  left: 50%;
   width: clamp(340px, 51vw, 740px);
   height: 116%;
   background:
@@ -381,7 +380,6 @@ button {
 }
 
 .response-glow-three {
-  left: 88%;
   width: clamp(300px, 45vw, 660px);
   height: 108%;
   background:
@@ -416,86 +414,87 @@ button {
 
 .response-ambient[data-active="true"] .response-glow {
   animation-play-state: running;
+  will-change: opacity, transform;
 }
 
 @keyframes response-glow-one {
   0%,
   100% {
-    left: -2%;
     opacity: 0.48;
-    transform: translateX(-50%) rotate(-4deg) scale(0.96, 1.04);
+    transform: translate3d(calc(-50% - 2cqw), 0, 0) rotate(-4deg)
+      scale(0.96, 1.04);
   }
 
   30% {
-    left: 16%;
     opacity: 0.78;
-    transform: translateX(-50%) rotate(4deg) scale(1.08, 0.96);
+    transform: translate3d(calc(-50% + 16cqw), 0, 0) rotate(4deg)
+      scale(1.08, 0.96);
   }
 
   58% {
-    left: 27%;
     opacity: 0.64;
-    transform: translateX(-50%) rotate(6deg) scale(1.12, 1.08);
+    transform: translate3d(calc(-50% + 27cqw), 0, 0) rotate(6deg)
+      scale(1.12, 1.08);
   }
 
   82% {
-    left: 5%;
     opacity: 0.58;
-    transform: translateX(-50%) rotate(-3deg) scale(0.98, 1.12);
+    transform: translate3d(calc(-50% + 5cqw), 0, 0) rotate(-3deg)
+      scale(0.98, 1.12);
   }
 }
 
 @keyframes response-glow-two {
   0%,
   100% {
-    left: 34%;
     opacity: 0.58;
-    transform: translateX(-50%) rotate(-2deg) scale(0.98, 1.08);
+    transform: translate3d(calc(-50% + 34cqw), 0, 0) rotate(-2deg)
+      scale(0.98, 1.08);
   }
 
   25% {
-    left: 62%;
     opacity: 0.8;
-    transform: translateX(-50%) rotate(4deg) scale(1.1, 0.98);
+    transform: translate3d(calc(-50% + 62cqw), 0, 0) rotate(4deg)
+      scale(1.1, 0.98);
   }
 
   55% {
-    left: 45%;
     opacity: 0.62;
-    transform: translateX(-50%) rotate(-4deg) scale(1, 1.14);
+    transform: translate3d(calc(-50% + 45cqw), 0, 0) rotate(-4deg)
+      scale(1, 1.14);
   }
 
   78% {
-    left: 68%;
     opacity: 0.82;
-    transform: translateX(-50%) rotate(3deg) scale(1.14, 1.06);
+    transform: translate3d(calc(-50% + 68cqw), 0, 0) rotate(3deg)
+      scale(1.14, 1.06);
   }
 }
 
 @keyframes response-glow-three {
   0%,
   100% {
-    left: 102%;
     opacity: 0.46;
-    transform: translateX(-50%) rotate(4deg) scale(0.94, 1.08);
+    transform: translate3d(calc(-50% + 102cqw), 0, 0) rotate(4deg)
+      scale(0.94, 1.08);
   }
 
   32% {
-    left: 84%;
     opacity: 0.74;
-    transform: translateX(-50%) rotate(-4deg) scale(1.1, 0.96);
+    transform: translate3d(calc(-50% + 84cqw), 0, 0) rotate(-4deg)
+      scale(1.1, 0.96);
   }
 
   60% {
-    left: 73%;
     opacity: 0.62;
-    transform: translateX(-50%) rotate(-6deg) scale(1.14, 1.1);
+    transform: translate3d(calc(-50% + 73cqw), 0, 0) rotate(-6deg)
+      scale(1.14, 1.1);
   }
 
   84% {
-    left: 95%;
     opacity: 0.58;
-    transform: translateX(-50%) rotate(3deg) scale(1, 1.14);
+    transform: translate3d(calc(-50% + 95cqw), 0, 0) rotate(3deg)
+      scale(1, 1.14);
   }
 }
 
@@ -604,8 +603,19 @@ button {
 
   .response-glow {
     opacity: 0.52;
-    transform: none;
     animation: none;
+  }
+
+  .response-glow-one {
+    transform: translate3d(12cqw, 0, 0);
+  }
+
+  .response-glow-two {
+    transform: translate3d(50cqw, 0, 0);
+  }
+
+  .response-glow-three {
+    transform: translate3d(88cqw, 0, 0);
   }
 
   .human-search-status {
