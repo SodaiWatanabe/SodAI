@@ -79,9 +79,9 @@ services:
 
 volumes:
   postgres_data:
-    name: sodai-postgres-data
+    name: ${POSTGRES_DATA_VOLUME:-sodai-postgres-data}
   redis_data:
-    name: sodai-redis-data
+    name: ${REDIS_DATA_VOLUME:-sodai-redis-data}
 
 networks:
   data:

@@ -129,6 +129,8 @@ require_value "$root_env" SODAI_IMAGE_TAG
 image_tag="$(read_value "$root_env" SODAI_IMAGE_TAG)"
 [[ "$image_tag" =~ ^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$ ]] || \
   fail "SODAI_IMAGE_TAG must be a valid container image tag in $root_env."
+require_equal "$root_env" POSTGRES_DATA_VOLUME sodai-production-postgres-data
+require_equal "$root_env" REDIS_DATA_VOLUME sodai-production-redis-data
 
 require_non_placeholder "$auth_env" AUTH_DATABASE_URL
 require_database_password_match "$auth_env" AUTH_DATABASE_URL AUTH_DATABASE_PASSWORD

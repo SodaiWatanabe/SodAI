@@ -118,6 +118,10 @@ workerはhost側のUID/GID 1000で読み取れるmodel fileを前提とします
 Cloudflare Dashboardで前述の2 routeを作成し、4つの本番環境ファイルを設定してから、
 repository rootで次を順番に実行します。
 
+本番root環境では`POSTGRES_DATA_VOLUME=sodai-production-postgres-data`と
+`REDIS_DATA_VOLUME=sodai-production-redis-data`を使用します。開発用volumeを残したまま
+空の本番データ領域を初期化でき、開発データやRedis queueが公開環境へ混入しません。
+
 ```bash
 # 例: rollback可能なimmutable tagを使う
 git rev-parse --short=12 HEAD

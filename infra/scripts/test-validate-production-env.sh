@@ -15,6 +15,8 @@ write_valid_fixtures() {
   cat >"$root_env" <<'EOF'
 SODAI_PUBLIC_ORIGIN=https://app.sodai.me
 SODAI_IMAGE_TAG=2026.08.01-test
+POSTGRES_DATA_VOLUME=sodai-production-postgres-data
+REDIS_DATA_VOLUME=sodai-production-redis-data
 POSTGRES_ADMIN_PASSWORD=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 AUTH_DATABASE_PASSWORD=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 APP_DATABASE_PASSWORD=cccccccccccccccccccccccccccccccc
@@ -105,5 +107,13 @@ expect_failure "SMTP placeholder"
 write_valid_fixtures
 sed -i 's/SODAI_IMAGE_TAG=2026.08.01-test/SODAI_IMAGE_TAG=invalid tag/' "$root_env"
 expect_failure "invalid container image tag"
+
+write_valid_fixtures
+sed -i 's/POSTGRES_DATA_VOLUME=sodai-production-postgres-data/POSTGRES_DATA_VOLUME=sodai-postgres-data/' "$root_env"
+expect_failure "development PostgreSQL volume used in production"
+
+write_valid_fixtures
+sed -i 's/REDIS_DATA_VOLUME=sodai-production-redis-data/REDIS_DATA_VOLUME=sodai-redis-data/' "$root_env"
+expect_failure "development Redis volume used in production"
 
 printf 'Production environment validation tests passed.\n'
