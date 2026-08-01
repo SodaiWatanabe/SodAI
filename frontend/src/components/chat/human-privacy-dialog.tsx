@@ -34,6 +34,7 @@ export function HumanPrivacyDialog({ onClose, scope }: HumanPrivacyDialogProps) 
       aria-describedby={descriptionId}
       aria-labelledby={titleId}
       className="w-[calc(100%-2rem)] max-w-[420px] overflow-hidden"
+      initialFocus="dialog"
       onClose={onClose}
     >
       <div className="relative">
@@ -68,7 +69,6 @@ export function HumanPrivacyDialog({ onClose, scope }: HumanPrivacyDialogProps) 
         </p>
         <button
           type="button"
-          autoFocus
           className="mt-6 h-11 w-full rounded-full bg-[var(--primary)] px-5 text-sm font-medium text-[var(--on-primary)] transition-colors hover:bg-[var(--primary-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--surface)]"
           onClick={closeDialog}
         >

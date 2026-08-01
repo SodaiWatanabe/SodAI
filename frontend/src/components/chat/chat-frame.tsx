@@ -662,7 +662,7 @@ export function ChatFrame({
         aria-modal={mobileOpen}
         inert={!mobileOpen}
         tabIndex={-1}
-        className={`fixed inset-y-0 left-0 z-40 flex w-[256px] flex-col overflow-hidden bg-[var(--sidebar)] shadow-[12px_0_32px_var(--sidebar-shadow)] transition-transform duration-300 lg:hidden ${
+        className={`fixed inset-y-0 left-0 z-40 flex w-[256px] flex-col overflow-hidden bg-[var(--sidebar)] shadow-[12px_0_32px_var(--sidebar-shadow)] outline-none transition-transform duration-300 lg:hidden ${
           mobileOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >
