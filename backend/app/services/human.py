@@ -8,8 +8,14 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.db.session import get_session_factory
+from app.domain.human_ranks import (
+    HUMAN_RANK_POLICY,
+    HumanRankPolicy,
+    HumanRankTrigger,
+)
 from app.domain.humans import BrainState
 from app.domain.principals import Principal, PrincipalKind
+from app.repositories.human_ranks import SqlAlchemyHumanRankRepository
 from app.repositories.humans import HumanProjection, SqlAlchemyHumanRepository
 from app.services.human_credits import HumanCreditService
 from app.services.realtime import realtime_hub
@@ -18,8 +24,14 @@ logger = logging.getLogger(__name__)
 
 
 class HumanService:
-    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
+    def __init__(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        *,
+        rank_policy: HumanRankPolicy = HUMAN_RANK_POLICY,
+    ) -> None:
         self._session_factory = session_factory
+        self._rank_policy = rank_policy
 
     async def state(self, user_id: UUID) -> BrainState:
         async with self._session_factory() as session:
@@ -34,7 +46,10 @@ class HumanService:
 
     async def set_rank(self, user_id: UUID, rank_level: int) -> BrainState:
         async with self._session_factory() as session:
-            await SqlAlchemyHumanRepository(session).set_rank(user_id, rank_level)
+            await SqlAlchemyHumanRankRepository(
+                session,
+                policy=self._rank_policy,
+            ).set_manual_rank(user_id, rank_level)
             await session.commit()
         await self.match_available_best_effort()
         return await self.state(user_id)
@@ -95,6 +110,14 @@ class HumanService:
                 projection.execution_id,
                 user_id,
             )
+            await SqlAlchemyHumanRankRepository(
+                session,
+                policy=self._rank_policy,
+            ).recalculate(
+                user_id,
+                HumanRankTrigger.ANSWER_COMPLETED,
+                trigger_execution_id=projection.execution_id,
+            )
             await session.commit()
         await self._publish_owner(
             projection,
@@ -121,6 +144,10 @@ class HumanService:
             async with self._session_factory() as session:
                 result = await SqlAlchemyHumanRepository(session).match_once()
                 credit_service = HumanCreditService(session)
+                rank_repository = SqlAlchemyHumanRankRepository(
+                    session,
+                    policy=self._rank_policy,
+                )
                 for auto_answer in result.auto_answered:
                     performer_user_id = auto_answer.projection.performer_user_id
                     if performer_user_id is None:
@@ -128,6 +155,19 @@ class HumanService:
                     await credit_service.settle_answer(
                         auto_answer.projection.execution_id,
                         performer_user_id,
+                    )
+                    await rank_repository.recalculate(
+                        performer_user_id,
+                        HumanRankTrigger.ANSWER_COMPLETED,
+                        trigger_execution_id=auto_answer.projection.execution_id,
+                    )
+                for projection in result.expired:
+                    if projection.performer_user_id is None:
+                        continue
+                    await rank_repository.recalculate(
+                        projection.performer_user_id,
+                        HumanRankTrigger.ANSWER_EXPIRED,
+                        trigger_execution_id=projection.execution_id,
                     )
                 await session.commit()
             for auto_answer in result.auto_answered:

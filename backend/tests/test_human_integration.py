@@ -11,14 +11,21 @@ from sqlalchemy.exc import IntegrityError
 from app.db.session import dispose_engine, get_session_factory
 from app.domain.answerers import AnswererId, get_answerer
 from app.domain.execution_events import EventDisposition
+from app.domain.human_ranks import (
+    HumanRankPolicy,
+    HumanRankPromotionRequirement,
+    HumanRankRetentionRequirement,
+)
 from app.domain.humans import HUMAN_SKIP_WINDOW
 from app.domain.principals import Principal, PrincipalKind
 from app.domain.reasoning import ReasoningEffort
+from app.domain.responses import ResponseEvaluationValue
 from app.domain.threads import ActorKind
 from app.models.account import UserModel
 from app.models.humans import (
     HumanClaimModel,
     HumanProfileModel,
+    HumanRankEventModel,
     HumanTaskModel,
     HumanWaitEntryModel,
 )
@@ -43,6 +50,7 @@ from app.repositories.threads import (
     SqlAlchemyThreadRepository,
     ThreadNotFoundError,
 )
+from app.services.evaluations import ResponseEvaluationService
 from app.services.human import HumanService
 from app.services.human_answers import HumanAnswerHistoryService
 
@@ -210,6 +218,136 @@ async def delete_users(user_ids: list[UUID]) -> None:
         for actor in actors:
             await session.delete(actor)
         await session.commit()
+
+
+@pytest.mark.anyio
+async def test_human_rank_promotes_and_demotes_from_tier_specific_quality() -> None:
+    owner = principal()
+    performer = principal()
+    users = [owner, performer]
+    factory = get_session_factory()
+    policy = HumanRankPolicy(
+        revision="test-v1",
+        promotion_requirements={
+            1: HumanRankPromotionRequirement(
+                completed_answers=1,
+                recent_attempts=1,
+                recent_rated_answers=1,
+                positive_rate_basis_points=10_000,
+                completion_rate_basis_points=10_000,
+            ),
+        },
+        retention_requirements={
+            2: HumanRankRetentionRequirement(
+                recent_attempts=1,
+                recent_rated_answers=1,
+                minimum_positive_rate_basis_points=10_000,
+                minimum_completion_rate_basis_points=10_000,
+            ),
+        },
+        recent_attempt_limit=5,
+        recent_rating_limit=5,
+    )
+    human = HumanService(factory, rank_policy=policy)
+    evaluations = ResponseEvaluationService(factory, rank_policy=policy)
+
+    async with factory() as session:
+        session.add_all(
+            UserModel(id=item.id, display_name=f"user-{index}") for index, item in enumerate(users)
+        )
+        await session.commit()
+
+    try:
+        _, lite_execution_id = await create_task(
+            owner,
+            AnswererId.HUMAN_LITE,
+            "Liteの昇格判定",
+        )
+        lite_assignment = await human.ready(performer.id)
+        assert lite_assignment.assignment is not None
+        await human.answer(
+            performer.id,
+            lite_assignment.assignment.claim_id,
+            "高評価されるLite回答",
+        )
+        assert (await human.ready(performer.id)).status.value == "waiting"
+
+        await evaluations.set(
+            owner,
+            lite_execution_id,
+            ResponseEvaluationValue.POSITIVE,
+        )
+        promoted = await human.state(performer.id)
+        assert promoted.rank_level == 2
+        assert promoted.rank_name == "Human Standard"
+        assert promoted.status.value == "waiting"
+
+        async with factory() as session:
+            waiting = await session.scalar(
+                select(HumanWaitEntryModel).where(
+                    HumanWaitEntryModel.performer_user_id == performer.id,
+                    HumanWaitEntryModel.status == "waiting",
+                )
+            )
+            events = (
+                await session.scalars(
+                    select(HumanRankEventModel)
+                    .where(HumanRankEventModel.performer_user_id == performer.id)
+                    .order_by(HumanRankEventModel.created_at)
+                )
+            ).all()
+        assert waiting is not None and waiting.rank_level == 2
+        assert [(event.previous_rank_level, event.rank_level) for event in events] == [(1, 2)]
+        assert events[0].policy_revision == "test-v1"
+        assert events[0].evidence["recent_positive_answers"] == 1
+
+        _, standard_execution_id = await create_task(
+            owner,
+            AnswererId.HUMAN_STANDARD,
+            "Standardの降格判定",
+        )
+        standard_assignment = await human.ready(performer.id)
+        assert standard_assignment.assignment is not None
+        assert standard_assignment.assignment.execution_id == standard_execution_id
+        await human.answer(
+            performer.id,
+            standard_assignment.assignment.claim_id,
+            "低評価されるStandard回答",
+        )
+        assert (await human.ready(performer.id)).status.value == "waiting"
+
+        await evaluations.set(
+            owner,
+            standard_execution_id,
+            ResponseEvaluationValue.NEGATIVE,
+        )
+        demoted = await human.state(performer.id)
+        assert demoted.rank_level == 1
+        assert demoted.rank_name == "Human Lite"
+        assert demoted.status.value == "waiting"
+
+        async with factory() as session:
+            waiting = await session.scalar(
+                select(HumanWaitEntryModel).where(
+                    HumanWaitEntryModel.performer_user_id == performer.id,
+                    HumanWaitEntryModel.status == "waiting",
+                )
+            )
+            events = (
+                await session.scalars(
+                    select(HumanRankEventModel)
+                    .where(HumanRankEventModel.performer_user_id == performer.id)
+                    .order_by(HumanRankEventModel.created_at)
+                )
+            ).all()
+        assert waiting is not None and waiting.rank_level == 1
+        assert [(event.previous_rank_level, event.rank_level) for event in events] == [
+            (1, 2),
+            (2, 1),
+        ]
+        assert events[-1].reason == "quality"
+    finally:
+        await delete_users([item.id for item in users])
 
 
 @pytest.mark.anyio

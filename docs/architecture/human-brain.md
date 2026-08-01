@@ -15,18 +15,41 @@ ChatではHuman Lite、Human Standard、Human ProへPromptを送り、Brainで�
 
 ## 最小データ
 
-- `human_profiles`: Userの現在rank。
+- `human_profiles`: Userの現在rankとrank変更時刻。
+- `human_rank_events`: 昇降格時のpolicy revisionと判定根拠を保存する監査履歴。
 - `human_tasks`: Human Executionの必要rankとFIFO時刻。
 - `human_wait_entries`: 準備OKになったHumanのFIFO待機とreadiness lease。
 - `human_claims`: Taskと実回答者の一時割当、skip/answer/expire履歴。
 
-rankはLiteを1、Standardを2、Proを3とする。MVPのrank変更は
-`make human-rank USER_ID=<uuid> RANK=2`で行う。評価による自動昇降は後から
-同じprofile更新境界へ接続する。現在の回答評価はAI/Human共通のExecutionへ保存するだけで、
-rank、クレジット消費、回答者報酬には影響しない。
+rankはLiteを1、Standardを2、Proを3とする。`make human-rank`は運営による
+明示的な上書きとして残すが、通常のrankは回答実績から自動判定する。
 
 Response作成時にHuman TaskはThreadの全Entryを既存`response_context_items`へsnapshotする。
 AI生成用のturn/byte上限は適用しない。Human回答はAI回答と同じ完了関数でThreadEntryへ確定する。
+
+## Human rank policy
+
+昇降格条件はDBではなく`domain/human_ranks.py`のapplication policyに定義する。
+DBは判定材料と現在rankだけを保持し、統計値の複製tableや条件設定tableは作らない。
+判定は現在rankと同じrequested answererのClaimだけを対象にする。ProがLite価格で
+回答した実績は、Pro価格の品質証明に使わない。
+
+| 遷移 | 条件 |
+| --- | --- |
+| Lite → Standard | Lite回答20件、評価10件以上、高評価率80%以上、完了率90%以上 |
+| Standard → Lite | 評価10件以上で高評価率65%未満、または15試行以上で完了率75%未満 |
+| Standard → Pro | Standard回答50件、評価20件以上、高評価率90%以上、完了率95%以上 |
+| Pro → Standard | 評価10件以上で高評価率75%未満、または15試行以上で完了率80%未満 |
+
+完了率の分母は`answered + expired`とし、正当なskip、decline、依頼者cancelは除外する。
+完了率は直近最大30試行、高評価率は直近最大20評価から計算し、評価のない回答は
+高評価率の分母に入れない。昇格基準と降格基準の間はrankを維持し、
+一回の判定で動くのは一段階だけとする。rank変更後は新しい価格帯の実績を改めて蓄積する。
+
+回答完了、回答期限切れ、評価の設定・変更・解除時に、matcherと同じadvisory lock内で
+profileを再判定する。待機中であればwait entryのrankも同じtransactionで更新する。
+既に開始済みのClaimは開始時のモデル、料金、報酬を維持し、新しいrankは次のマッチから適用する。
+評価はrankにのみ影響し、確定済み・将来の回答報酬額には影響しない。
 
 ## 思考の深さと実行期限
 
@@ -99,4 +122,4 @@ event fan-outとticket storeを共有brokerへ移すが、DB matcherとClaimの�
 将来のSodAIモデルも同じ`reasoning_effort`からcompute budget、生成上限、Tool利用枠、料金を
 application policyとして導出する。画像生成などのToolもTask requirementとAssignment payloadを
 追加し、matcherへ能力条件を一つ足す。テキスト回答の正本やThread参加モデルは変えない。
-評価をrankへ反映する集計、評価ボーナス、需要表示はMVPの外に置く。
+評価ボーナスと需要表示は現在の範囲の外に置く。

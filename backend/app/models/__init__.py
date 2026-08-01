@@ -13,6 +13,7 @@ from app.models.credits import (
 from app.models.humans import (
     HumanClaimModel,
     HumanProfileModel,
+    HumanRankEventModel,
     HumanTaskModel,
     HumanWaitEntryModel,
 )
@@ -47,6 +48,7 @@ __all__ = [
     "GuestSessionModel",
     "HumanClaimModel",
     "HumanProfileModel",
+    "HumanRankEventModel",
     "HumanTaskModel",
     "HumanWaitEntryModel",
     "InferenceBillingIntentModel",

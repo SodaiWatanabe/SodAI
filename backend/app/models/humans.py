@@ -16,7 +16,7 @@ from sqlalchemy import (
     UniqueConstraint,
     text,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func as sql_func
 
@@ -25,7 +25,7 @@ from app.db.base import APPLICATION_SCHEMA, Base
 
 class HumanProfileModel(Base):
     __tablename__ = "human_profiles"
-    __table_args__ = (CheckConstraint("rank_level >= 1", name="rank_level"),)
+    __table_args__ = (CheckConstraint("rank_level BETWEEN 1 AND 3", name="rank_level"),)
 
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -33,6 +33,9 @@ class HumanProfileModel(Base):
         primary_key=True,
     )
     rank_level: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    rank_changed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=sql_func.now()
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=sql_func.now()
     )
@@ -41,9 +44,55 @@ class HumanProfileModel(Base):
     )
 
 
+class HumanRankEventModel(Base):
+    __tablename__ = "human_rank_events"
+    __table_args__ = (
+        CheckConstraint("previous_rank_level BETWEEN 1 AND 3", name="previous_rank_level"),
+        CheckConstraint("rank_level BETWEEN 1 AND 3", name="rank_level"),
+        CheckConstraint("previous_rank_level != rank_level", name="rank_changed"),
+        CheckConstraint(
+            "trigger_kind IN "
+            "('answer_completed', 'answer_expired', 'evaluation_set', "
+            "'evaluation_cleared', 'manual')",
+            name="trigger_kind",
+        ),
+        CheckConstraint(
+            "reason IN ('promotion', 'quality', 'reliability', 'manual')",
+            name="reason",
+        ),
+        Index(
+            "ix_human_rank_events_performer_created",
+            "performer_user_id",
+            "created_at",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    performer_user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey(f"{APPLICATION_SCHEMA}.users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    previous_rank_level: Mapped[int] = mapped_column(Integer, nullable=False)
+    rank_level: Mapped[int] = mapped_column(Integer, nullable=False)
+    policy_revision: Mapped[str] = mapped_column(String(32), nullable=False)
+    trigger_kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    trigger_execution_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey(f"{APPLICATION_SCHEMA}.executions.id", ondelete="SET NULL"),
+    )
+    reason: Mapped[str] = mapped_column(String(32), nullable=False)
+    evidence: Mapped[dict[str, int | None]] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=sql_func.now()
+    )
+
+
 class HumanTaskModel(Base):
     __tablename__ = "human_tasks"
-    __table_args__ = (CheckConstraint("required_rank_level >= 1", name="required_rank_level"),)
+    __table_args__ = (
+        CheckConstraint("required_rank_level BETWEEN 1 AND 3", name="required_rank_level"),
+    )
 
     execution_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -61,7 +110,7 @@ class HumanTaskModel(Base):
 class HumanWaitEntryModel(Base):
     __tablename__ = "human_wait_entries"
     __table_args__ = (
-        CheckConstraint("rank_level >= 1", name="rank_level"),
+        CheckConstraint("rank_level BETWEEN 1 AND 3", name="rank_level"),
         CheckConstraint("status IN ('waiting', 'matched', 'stopped', 'stale')", name="status"),
         CheckConstraint(
             "(status = 'waiting' AND ended_at IS NULL) OR "

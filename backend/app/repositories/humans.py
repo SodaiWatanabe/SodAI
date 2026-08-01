@@ -129,29 +129,6 @@ class SqlAlchemyHumanRepository:
             await self._ensure_wait_entry(user_id, now)
         await self._session.flush()
 
-    async def set_rank(self, user_id: UUID, rank_level: int) -> None:
-        if rank_level < 1:
-            raise ValueError("Human rank must be positive")
-        await self._lock_matching()
-        now = datetime.now(timezone.utc)
-        await self._session.execute(
-            pg_insert(HumanProfileModel)
-            .values(user_id=user_id, rank_level=rank_level, updated_at=now)
-            .on_conflict_do_update(
-                index_elements=[HumanProfileModel.user_id],
-                set_={"rank_level": rank_level, "updated_at": now},
-            )
-        )
-        await self._session.execute(
-            update(HumanWaitEntryModel)
-            .where(
-                HumanWaitEntryModel.performer_user_id == user_id,
-                HumanWaitEntryModel.status == "waiting",
-            )
-            .values(rank_level=rank_level)
-        )
-        await self._session.flush()
-
     async def stop(self, user_id: UUID) -> BrainState:
         await self._lock_matching()
         now = datetime.now(timezone.utc)
