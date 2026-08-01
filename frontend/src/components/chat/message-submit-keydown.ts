@@ -4,14 +4,22 @@ import {
   matchesKeyboardShortcut,
   type KeyboardShortcut,
 } from "@/lib/preferences/keyboard-shortcuts";
+import { shouldSubmitMessageFromKeyboard } from "@/components/chat/message-submit-keydown-policy";
+
+function hasCoarsePrimaryPointer() {
+  return (
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(pointer: coarse)").matches
+  );
+}
 
 export function handleMessageSubmitKeyDown(
   event: KeyboardEvent<HTMLTextAreaElement>,
   shortcut: KeyboardShortcut,
   enabled = true,
 ) {
-  if (!enabled) return;
-  const shouldSubmit = matchesKeyboardShortcut(
+  const shortcutMatches = matchesKeyboardShortcut(
     {
       altKey: event.altKey,
       ctrlKey: event.ctrlKey,
@@ -23,6 +31,11 @@ export function handleMessageSubmitKeyDown(
     },
     shortcut,
   );
+  const shouldSubmit = shouldSubmitMessageFromKeyboard({
+    coarsePrimaryPointer: hasCoarsePrimaryPointer(),
+    enabled,
+    shortcutMatches,
+  });
   if (!shouldSubmit) return;
 
   event.preventDefault();
