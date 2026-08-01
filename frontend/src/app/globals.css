@@ -334,7 +334,7 @@ button {
 
 .response-glow-one {
   left: 12%;
-  width: clamp(780px, 90%, 1880px);
+  width: clamp(400px, 60vw, 860px);
   height: 122%;
   background:
     radial-gradient(
@@ -354,7 +354,7 @@ button {
 
 .response-glow-two {
   left: 50%;
-  width: clamp(700px, 81%, 1700px);
+  width: clamp(340px, 51vw, 740px);
   height: 116%;
   background:
     radial-gradient(
@@ -374,7 +374,7 @@ button {
 
 .response-glow-three {
   left: 88%;
-  width: clamp(640px, 72%, 1520px);
+  width: clamp(300px, 45vw, 660px);
   height: 108%;
   background:
     radial-gradient(
@@ -390,6 +390,20 @@ button {
     );
   filter: blur(50px) saturate(1.18) brightness(1.18);
   animation: response-glow-three 7.8s linear -4.5s infinite;
+}
+
+@media (min-width: 64rem) {
+  .response-glow-one {
+    width: clamp(780px, 90%, 1880px);
+  }
+
+  .response-glow-two {
+    width: clamp(700px, 81%, 1700px);
+  }
+
+  .response-glow-three {
+    width: clamp(640px, 72%, 1520px);
+  }
 }
 
 .response-ambient[data-active="true"] .response-glow {
