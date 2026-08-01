@@ -139,6 +139,9 @@ make db-restore BACKUP=/absolute/path/to/sodai-20260101T000000Z.dump
 
 Cloudflare Tunnelは任意profileとして分離されています。Cloudflareでremotely-managed tunnelを作成し、tokenだけを`.env`へ設定します。
 
+SodAIの本番canonical originは`https://app.sodai.me`です。`sodai.me`は将来の
+apexサイト用に予約し、アプリへのredirectや認証のtrusted originにはまだ追加しません。
+
 ```dotenv
 CLOUDFLARE_TUNNEL_TOKEN=<secret tunnel token>
 ```
@@ -147,7 +150,15 @@ CLOUDFLARE_TUNNEL_TOKEN=<secret tunnel token>
 make tunnel-up
 ```
 
-公開hostnameのoriginはCloudflare側で設定します。コンテナ本番構成では、Next.js、Authサービス、FastAPIを`sodai-edge` networkへ接続します。Authは`AUTH_HOST=0.0.0.0`でコンテナ内を待ち受けますが、host portは公開せず内部networkからだけ到達可能にします。`/api/auth/*`はNext.jsの実行時proxyを通す構成と、CloudflareからAuthへ直接振り分ける構成のどちらか一方に統一し、同一originを維持します。後者では`/api/v1/*`をFastAPI、それ以外をNext.jsへ振り分けます。いずれも迂回できる別の公開originを作らず、PostgreSQLやRedisを公開hostnameへ登録してはいけません。
+公開hostnameのoriginはCloudflare側で設定します。コンテナ本番構成では、Next.jsとFastAPIを
+`sodai-edge` networkへ接続し、`app.sodai.me`のpath正規表現`^/api/v1(/.*)?$`をFastAPIへ、それ以外を
+Next.jsへ送ります。Cloudflareのpublished application routeはhostnameにpath情報を指定できます。
+より限定的なpath ruleをcatch-allより先に設定します。
+
+`/api/auth/*`は常にNext.jsの実行時proxyを通します。Authは`AUTH_HOST=0.0.0.0`で
+コンテナ内を待ち受けますが、host portや公開hostnameを持たず、内部networkからだけ到達可能にします。
+FastAPIにも別の`api.sodai.me`を作らず、PostgreSQLやRedisを公開hostnameへ登録してはいけません。
+詳細なroute値と環境変数は[本番環境契約](production-environment.md)に固定します。
 
 現在のようにアプリをホストプロセスとして起動する開発時は、ホストへインストールした`cloudflared`から`127.0.0.1`へ接続する方が安全です。Compose内のTunnelからホストへ接続するためにアプリを`0.0.0.0`へ無制限公開する運用は避けます。
 

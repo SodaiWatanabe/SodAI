@@ -53,7 +53,7 @@ Google Cloud ConsoleでWeb applicationのOAuth clientを作成し、公開origin
 
 ```text
 http://localhost:13200/api/auth/callback/google
-https://platform.sodai.me/api/auth/callback/google
+https://app.sodai.me/api/auth/callback/google
 ```
 
 `GOOGLE_CLIENT_ID`と`GOOGLE_CLIENT_SECRET`は必ず両方設定します。未設定時はメール認証だけを提供し、`GET /api/auth/capabilities`もその状態を返します。

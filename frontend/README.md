@@ -34,6 +34,11 @@ Googleログインの有効状態はAuthサービスの`GET /api/auth/capabiliti
 - `SODAI_API_BASE_URL`: Server ComponentからFastAPIへ到達する内部URL
 - `AUTH_SERVICE_URL`: Next.jsからHonoへ到達する内部URL
 
+本番のcanonical originは`https://app.sodai.me`です。ブラウザ向けAPIも
+`NEXT_PUBLIC_API_BASE_URL=https://app.sodai.me`として同一originを維持し、Cloudflare
+Tunnelが`/api/v1/*`だけをFastAPIへ振り分けます。`SODAI_API_BASE_URL`と
+`AUTH_SERVICE_URL`には、公開hostnameではなく内部サービス名を設定します。
+
 ## 確認
 
 ```bash

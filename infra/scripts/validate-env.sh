@@ -49,7 +49,7 @@ for key in "${required[@]}"; do
     exit 1
   fi
 
-  if [[ "$value" == change-me-* || ${#value} -lt 24 ]]; then
+  if [[ "$value" == change-me-* || "$value" == replace-with-* || ${#value} -lt 24 ]]; then
     printf '%s must be replaced with a random value of at least 24 characters.\n' "$key" >&2
     exit 1
   fi
@@ -64,7 +64,7 @@ done
 
 if [[ "$require_tunnel" == true ]]; then
   tunnel_token="$(read_value CLOUDFLARE_TUNNEL_TOKEN)"
-  if [[ -z "$tunnel_token" || "$tunnel_token" == change-me-* ]]; then
+  if [[ -z "$tunnel_token" || "$tunnel_token" == change-me-* || "$tunnel_token" == replace-with-* ]]; then
     printf 'CLOUDFLARE_TUNNEL_TOKEN must be set before starting the tunnel.\n' >&2
     exit 1
   fi

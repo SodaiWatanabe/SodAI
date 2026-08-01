@@ -4,6 +4,10 @@ BACKEND_PYTHON := $(BACKEND_VENV)/bin/python
 INFERENCE_VENV := inference/.venv
 INFERENCE_PYTHON := $(INFERENCE_VENV)/bin/python
 ENV_FILE ?= .env
+PRODUCTION_ENV_FILE ?= .env.production
+PRODUCTION_AUTH_ENV_FILE ?= auth/.env.production
+PRODUCTION_BACKEND_ENV_FILE ?= backend/.env.production
+PRODUCTION_FRONTEND_ENV_FILE ?= frontend/.env.production
 COMPOSE ?= docker compose
 COMPOSE_BASE = $(COMPOSE) --env-file $(ENV_FILE) -f compose.yaml
 COMPOSE_DEV = $(COMPOSE_BASE) -f compose.dev.yaml
@@ -19,7 +23,7 @@ DEV_BACKEND_PORT ?= 13202
 	deploy-hina deploy-asuka1 \
 	inference-status credits-grant credits-expire credits-audit human-rank test-inference-e2e \
 	test-asuka1-e2e \
-	infra-check-env infra-config infra-up infra-up-internal infra-down infra-logs infra-ps \
+	infra-check-env infra-config production-config infra-up infra-up-internal infra-down infra-logs infra-ps \
 	tunnel-up tunnel-down db-shell redis-cli db-backup db-restore \
 	migrate migrate-auth migrate-app reinitialize-app-schema \
 	test test-integration lint build check
@@ -133,6 +137,14 @@ infra-check-env:
 infra-config: infra-check-env
 	$(COMPOSE_DEV) config --quiet
 
+production-config:
+	@./infra/scripts/validate-production-env.sh \
+		"$(PRODUCTION_ENV_FILE)" \
+		"$(PRODUCTION_AUTH_ENV_FILE)" \
+		"$(PRODUCTION_BACKEND_ENV_FILE)" \
+		"$(PRODUCTION_FRONTEND_ENV_FILE)"
+	$(COMPOSE) --env-file "$(PRODUCTION_ENV_FILE)" -f compose.yaml config --quiet
+
 # Host上で動くFastAPI/Next.jsから利用する開発構成。データポートは127.0.0.1限定。
 infra-up: infra-check-env
 	$(COMPOSE_DEV) up -d --wait postgres redis mailpit
@@ -183,6 +195,7 @@ reinitialize-app-schema: infra-check-env
 	$(MAKE) migrate-app
 
 test:
+	./infra/scripts/test-validate-production-env.sh
 	cd auth && npm test
 	$(BACKEND_PYTHON) -m pytest packages/contracts/tests
 	cd backend && .venv/bin/pytest

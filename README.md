@@ -15,6 +15,10 @@ Internet ── Cloudflare Tunnel ── 自宅環境
                                       └─ SodAI GPU worker
 ```
 
+本番アプリのcanonical originは`https://app.sodai.me`です。`sodai.me`は将来の
+apexサイト用に予約し、認証のissuer、audience、Cookie、ブラウザAPIは
+`app.sodai.me`へ統一します。
+
 認証プロバイダーのユーザーIDをサービス全体の主キーにせず、SodAI内部の不変UUIDと`(issuer, subject)`の対応として扱います。これによりBetter Authを自前運用しながら、将来Cognitoなどへ段階移行できます。詳細は[認証・アカウント境界](docs/architecture/authentication.md)を参照してください。
 
 作業文脈はSpaceとThreadとしてHTTPで永続化し、Hina／Asukaの生成差分をWebSocketで配信します。匿名利用、再読込後の復元、イベント再同期、応答主体の権限境界は[Space・Thread・リアルタイム基盤](docs/architecture/spaces-threads-realtime.md)、モデル成果物とGPU実行の境界は[推論基盤](docs/architecture/inference.md)にまとめています。複式簿記、期限付きLot、推論予約、将来の購入・報酬との接続は[クレジット基盤](docs/architecture/credits.md)を参照してください。
@@ -144,7 +148,7 @@ make db-backup
 make infra-down
 ```
 
-`infra-down`はコンテナとネットワークだけを停止し、永続volumeを削除しません。バックアップ・復元、Cloudflare Tunnel、秘密情報のローテーションは[セルフホスト運用](docs/operations/self-hosting.md)にまとめています。
+`infra-down`はコンテナとネットワークだけを停止し、永続volumeを削除しません。バックアップ・復元、Cloudflare Tunnel、秘密情報のローテーションは[セルフホスト運用](docs/operations/self-hosting.md)にまとめています。`app.sodai.me`向けのURL、環境変数、Tunnel経路は[本番環境契約](docs/operations/production-environment.md)を参照してください。
 
 ## 検証
 
