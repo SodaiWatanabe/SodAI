@@ -133,6 +133,7 @@ export type RealtimeEvent = {
     | "response.failed"
     | "response.cancelled"
     | "human.assigned"
+    | "human.answer.auto_submitted"
     | "human.assignment.cancelled"
     | "sync.required";
   space_id: string;

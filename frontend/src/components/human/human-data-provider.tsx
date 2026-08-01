@@ -14,7 +14,7 @@ import {
 
 import { useChatData } from "@/components/chat/chat-data-provider";
 import { resolveChatFrameRoute } from "@/components/chat/chat-frame-route";
-import { removeCancelledAssignment } from "@/components/human/brain-assignment-state";
+import { removeResolvedAssignment } from "@/components/human/brain-assignment-state";
 import { useToast } from "@/components/ui/toast-provider";
 import type {
   BrainState,
@@ -36,6 +36,11 @@ type HumanDataContextValue = {
   notice?: string;
   refreshAnswers: () => void;
   refreshState: () => Promise<void>;
+  saveClaimDraft: (
+    claimId: string,
+    content: string,
+    revision: number,
+  ) => Promise<number>;
   skipClaim: (claimId: string) => Promise<boolean>;
   state?: BrainState;
   toggleReadiness: () => Promise<boolean>;
@@ -66,6 +71,7 @@ export function HumanDataProvider({
   const [deadlineExpired, setDeadlineExpired] = useState(false);
   const busyRef = useRef(false);
   const claimIdRef = useRef<string | undefined>(undefined);
+  const deadlineReconciliationClaimRef = useRef<string | undefined>(undefined);
   const stateGenerationRef = useRef(0);
   const answersGenerationRef = useRef(0);
   const brainActive = state?.status === "waiting" || state?.status === "assigned";
@@ -75,6 +81,7 @@ export function HumanDataProvider({
     if (claimIdRef.current !== nextClaimId) {
       setError(undefined);
       setDeadlineExpired(false);
+      deadlineReconciliationClaimRef.current = undefined;
       if (nextClaimId) setNotice(undefined);
     }
     claimIdRef.current = nextClaimId;
@@ -140,11 +147,27 @@ export function HumanDataProvider({
     const initialRefresh = window.setTimeout(() => void refreshState(), 0);
     const unsubscribe = subscribeRealtime((event) => {
       if (event.type === "human.assigned") void refreshState();
-      const cancelledClaimId = event.data.claim_id;
+      const resolvedClaimId = event.data.claim_id;
+      if (
+        event.type === "human.answer.auto_submitted" &&
+        resolvedClaimId &&
+        resolvedClaimId === claimIdRef.current
+      ) {
+        claimIdRef.current = undefined;
+        setError(undefined);
+        setDeadlineExpired(false);
+        setNotice("入力中の回答を自動送信しました。");
+        setState((current) =>
+          removeResolvedAssignment(current, resolvedClaimId, "idle"),
+        );
+        refreshAnswers();
+        void requestState(humanApi.state);
+        return;
+      }
       if (
         event.type === "human.assignment.cancelled" &&
-        cancelledClaimId &&
-        cancelledClaimId === claimIdRef.current
+        resolvedClaimId &&
+        resolvedClaimId === claimIdRef.current
       ) {
         claimIdRef.current = undefined;
         setError(undefined);
@@ -157,7 +180,11 @@ export function HumanDataProvider({
               : "依頼者がこの依頼を取り消しました。",
         );
         setState((current) =>
-          removeCancelledAssignment(current, cancelledClaimId),
+          removeResolvedAssignment(
+            current,
+            resolvedClaimId,
+            event.data.reason === "requester_cancelled" ? "waiting" : "idle",
+          ),
         );
         void requestState(humanApi.state);
       }
@@ -166,7 +193,14 @@ export function HumanDataProvider({
       window.clearTimeout(initialRefresh);
       unsubscribe();
     };
-  }, [authenticated, humanApi, refreshState, requestState, subscribeRealtime]);
+  }, [
+    authenticated,
+    humanApi,
+    refreshAnswers,
+    refreshState,
+    requestState,
+    subscribeRealtime,
+  ]);
 
   useEffect(() => {
     if (!authenticated || !brainVisible || !brainActive) return;
@@ -182,19 +216,44 @@ export function HumanDataProvider({
   }, [authenticated, brainVisible, realtimeReadyRevision, refreshState]);
 
   useEffect(() => {
+    if (!authenticated || !brainVisible || state || !error) return;
+    const timer = window.setInterval(() => void refreshState(), 5_000);
+    return () => window.clearInterval(timer);
+  }, [authenticated, brainVisible, error, refreshState, state]);
+
+  useEffect(() => {
     const deadlineAt = state?.assignment?.deadline_at;
     if (!deadlineAt || !brainVisible) return;
     const remaining = Date.parse(deadlineAt) - Date.now();
     const timer = window.setTimeout(
       () => {
         setDeadlineExpired(true);
-        setNotice("回答時間が終了しました。");
-        void requestState(humanApi.ready);
+        setNotice("入力中の回答を送信しています。");
       },
       Math.max(0, remaining) + 100,
     );
     return () => window.clearTimeout(timer);
-  }, [brainVisible, humanApi, requestState, state?.assignment?.deadline_at]);
+  }, [brainVisible, state?.assignment?.deadline_at]);
+
+  useEffect(() => {
+    const claimId = state?.assignment?.claim_id;
+    if (!brainVisible || !deadlineExpired || busy || !claimId) return;
+    if (deadlineReconciliationClaimRef.current === claimId) return;
+    deadlineReconciliationClaimRef.current = claimId;
+    void requestState(
+      humanApi.ready,
+      "入力中の回答を確定できませんでした。もう一度お試しください。",
+    ).then((reconciled) => {
+      if (!reconciled) deadlineReconciliationClaimRef.current = undefined;
+    });
+  }, [
+    brainVisible,
+    busy,
+    deadlineExpired,
+    humanApi,
+    requestState,
+    state?.assignment?.claim_id,
+  ]);
 
   useEffect(() => {
     if (!authenticated || !brainVisible) return;
@@ -260,13 +319,34 @@ export function HumanDataProvider({
     showToast,
   ]);
 
+  const answerClaim = useCallback(
+    async (claimId: string, content: string) => {
+      const answered = await run(() => humanApi.answer(claimId, content));
+      if (answered) refreshAnswers();
+      return answered;
+    },
+    [humanApi, refreshAnswers, run],
+  );
+
+  const saveClaimDraft = useCallback(
+    (claimId: string, content: string, revision: number) =>
+      humanApi.saveDraft(claimId, content, revision),
+    [humanApi],
+  );
+
+  const skipClaim = useCallback(
+    (claimId: string) => run(() => humanApi.skip(claimId)),
+    [humanApi, run],
+  );
+
+  const toggleReadiness = useCallback(
+    () => run(state?.status === "waiting" ? humanApi.stop : humanApi.ready),
+    [humanApi, run, state?.status],
+  );
+
   const value = useMemo<HumanDataContextValue>(
     () => ({
-      answerClaim: async (claimId, content) => {
-        const answered = await run(() => humanApi.answer(claimId, content));
-        if (answered) refreshAnswers();
-        return answered;
-      },
+      answerClaim,
       answers,
       answersLoading,
       busy,
@@ -278,12 +358,13 @@ export function HumanDataProvider({
       notice,
       refreshAnswers,
       refreshState,
-      skipClaim: (claimId) => run(() => humanApi.skip(claimId)),
+      saveClaimDraft,
+      skipClaim,
       state,
-      toggleReadiness: () =>
-        run(state?.status === "waiting" ? humanApi.stop : humanApi.ready),
+      toggleReadiness,
     }),
     [
+      answerClaim,
       answers,
       answersLoading,
       busy,
@@ -295,8 +376,10 @@ export function HumanDataProvider({
       notice,
       refreshAnswers,
       refreshState,
-      run,
+      saveClaimDraft,
+      skipClaim,
       state,
+      toggleReadiness,
     ],
   );
 

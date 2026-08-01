@@ -12,6 +12,8 @@ export type HumanAssignment = {
   reasoning_effort: ReasoningEffort;
   skip_allowed_until: string;
   deadline_at: string;
+  draft_content: string;
+  draft_revision: number;
   context: HumanContextEntry[];
 };
 

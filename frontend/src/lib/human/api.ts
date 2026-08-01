@@ -45,6 +45,19 @@ export function createHumanApi(accessToken: ApiAccessTokenSource) {
     return (await response.json()) as BrainState;
   }
 
+  async function saveDraft(
+    claimId: string,
+    content: string,
+    revision: number,
+  ): Promise<number> {
+    const response = await apiFetch(`/api/v1/human/claims/${claimId}/draft`, {
+      method: "PUT",
+      body: JSON.stringify({ content, revision }),
+    });
+    const payload = (await response.json()) as { revision: number };
+    return payload.revision;
+  }
+
   async function listAnswers(cursor?: string): Promise<HumanAnswerList> {
     const query = new URLSearchParams({ limit: "20" });
     if (cursor) query.set("cursor", cursor);
@@ -59,7 +72,16 @@ export function createHumanApi(accessToken: ApiAccessTokenSource) {
     return (await response.json()) as HumanAnswerDetail;
   }
 
-  return { answer, getAnswer, listAnswers, ready, skip, state, stop };
+  return {
+    answer,
+    getAnswer,
+    listAnswers,
+    ready,
+    saveDraft,
+    skip,
+    state,
+    stop,
+  };
 }
 
 export type HumanApi = ReturnType<typeof createHumanApi>;
