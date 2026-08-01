@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 from uuid import UUID
 
@@ -9,6 +9,7 @@ from app.domain.reasoning import ReasoningEffort
 from app.domain.threads import ActorKind
 
 HUMAN_MATCH_LOCK_KEY = 0x534F44414903
+HUMAN_SKIP_WINDOW = timedelta(seconds=20)
 
 
 class BrainStatus(str, Enum):
@@ -29,6 +30,7 @@ class HumanAssignment:
     execution_id: UUID
     answerer_name: str
     reasoning_effort: ReasoningEffort
+    skip_allowed_until: datetime
     deadline_at: datetime
     context: tuple[HumanContextEntry, ...]
 

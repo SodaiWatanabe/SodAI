@@ -6,7 +6,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from app.auth.principal import get_principal
 from app.domain.principals import Principal, PrincipalKind
 from app.repositories.human_answers import HumanAnswerNotFoundError
-from app.repositories.humans import HumanClaimNotFoundError
+from app.repositories.humans import (
+    HumanClaimNotFoundError,
+    HumanClaimSkipWindowClosedError,
+)
 from app.schemas.human import (
     BrainStateResponse,
     HumanAnswerDetailResponse,
@@ -100,6 +103,8 @@ async def skip_claim(
 ) -> BrainStateResponse:
     try:
         state = await service.skip(_user_id(principal), claim_id)
+    except HumanClaimSkipWindowClosedError as exc:
+        raise HTTPException(status_code=409, detail="Skip window has closed") from exc
     except HumanClaimNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Active assignment not found") from exc
     return BrainStateResponse.model_validate(state, from_attributes=True)

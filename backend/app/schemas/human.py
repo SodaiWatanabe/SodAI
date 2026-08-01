@@ -25,6 +25,7 @@ class HumanAssignmentResponse(BaseModel):
     claim_id: UUID
     answerer_name: str
     reasoning_effort: ReasoningEffort
+    skip_allowed_until: datetime
     deadline_at: datetime
     context: list[HumanContextEntryResponse]
 

@@ -10,6 +10,7 @@ export type HumanAssignment = {
   claim_id: string;
   answerer_name: string;
   reasoning_effort: ReasoningEffort;
+  skip_allowed_until: string;
   deadline_at: string;
   context: HumanContextEntry[];
 };

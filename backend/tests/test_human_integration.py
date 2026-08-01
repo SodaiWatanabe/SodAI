@@ -11,6 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from app.db.session import dispose_engine, get_session_factory
 from app.domain.answerers import AnswererId, get_answerer
 from app.domain.execution_events import EventDisposition
+from app.domain.humans import HUMAN_SKIP_WINDOW
 from app.domain.principals import Principal, PrincipalKind
 from app.domain.reasoning import ReasoningEffort
 from app.domain.threads import ActorKind
@@ -29,7 +30,11 @@ from app.models.platform import (
     ThreadModel,
 )
 from app.repositories.human_answers import HumanAnswerNotFoundError
-from app.repositories.humans import HumanClaimNotFoundError, SqlAlchemyHumanRepository
+from app.repositories.humans import (
+    HumanClaimNotFoundError,
+    HumanClaimSkipWindowClosedError,
+    SqlAlchemyHumanRepository,
+)
 from app.repositories.inference_operations import InferenceOperationsRepository
 from app.repositories.response_completion import complete_response
 from app.repositories.threads import (
@@ -778,6 +783,55 @@ async def test_reasoning_deadline_expires_claim_and_requeues_task() -> None:
             )
         assert expired_claim is not None
         assert expired_claim.status == "expired"
+    finally:
+        await delete_users([item.id for item in users])
+
+
+@pytest.mark.anyio
+async def test_skip_is_rejected_twenty_seconds_after_assignment() -> None:
+    owner = principal()
+    performer = principal()
+    users = [owner, performer]
+    factory = get_session_factory()
+    human = HumanService(factory)
+
+    async with factory() as session:
+        session.add_all(
+            UserModel(id=item.id, display_name=f"user-{index}")
+            for index, item in enumerate(users)
+        )
+        await session.commit()
+
+    try:
+        _, execution_id = await create_task(
+            owner,
+            AnswererId.HUMAN_LITE,
+            "スキップ猶予を検証するPrompt",
+        )
+        assigned = await human.ready(performer.id)
+        assert assigned.assignment is not None
+        claim_id = assigned.assignment.claim_id
+
+        async with factory() as session:
+            claim = await session.get(HumanClaimModel, claim_id)
+            assert claim is not None
+            assert assigned.assignment.skip_allowed_until == (
+                claim.claimed_at + HUMAN_SKIP_WINDOW
+            )
+            claim.claimed_at = datetime.now(timezone.utc) - HUMAN_SKIP_WINDOW
+            await session.commit()
+
+        with pytest.raises(HumanClaimSkipWindowClosedError):
+            await human.skip(performer.id, claim_id)
+
+        async with factory() as session:
+            claim = await session.get(HumanClaimModel, claim_id)
+            execution = await session.get(ExecutionModel, execution_id)
+        assert claim is not None and claim.status == "active"
+        assert execution is not None and execution.status == "running"
+
+        answered = await human.answer(performer.id, claim_id, "猶予後も回答はできます。")
+        assert answered.status.value == "waiting"
     finally:
         await delete_users([item.id for item in users])
 

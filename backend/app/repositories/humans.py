@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.domain.answerers import AnswererId, get_answerer, get_human_rank_name
 from app.domain.humans import (
     HUMAN_MATCH_LOCK_KEY,
+    HUMAN_SKIP_WINDOW,
     BrainState,
     BrainStatus,
     HumanAssignment,
@@ -42,6 +43,10 @@ CLAIM_LEASE = timedelta(seconds=60)
 
 
 class HumanClaimNotFoundError(Exception):
+    pass
+
+
+class HumanClaimSkipWindowClosedError(Exception):
     pass
 
 
@@ -262,6 +267,8 @@ class SqlAlchemyHumanRepository:
         row = await self._locked_claim(user_id, claim_id)
         claim, execution, request, thread, space = row
         now = datetime.now(timezone.utc)
+        if now >= claim.claimed_at + HUMAN_SKIP_WINDOW:
+            raise HumanClaimSkipWindowClosedError
         claim.status = "skipped"
         claim.finished_at = now
         execution.status = ResponseStatus.QUEUED.value
@@ -360,6 +367,7 @@ class SqlAlchemyHumanRepository:
             execution_id=execution.id,
             answerer_name=answerer.name,
             reasoning_effort=ReasoningEffort(request.reasoning_effort),
+            skip_allowed_until=claim.claimed_at + HUMAN_SKIP_WINDOW,
             deadline_at=execution.deadline_at,
             context=await load_human_context(self._session, request.id),
         )

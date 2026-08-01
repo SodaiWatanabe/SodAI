@@ -16,6 +16,8 @@ from app.domain.reasoning import ReasoningEffort
 from app.domain.threads import ActorKind
 from app.main import app
 from app.repositories.human_answers import HumanAnswerNotFoundError
+from app.repositories.humans import HumanClaimSkipWindowClosedError
+from app.services.human import get_human_service
 from app.services.human_answers import get_human_answer_history_service
 
 USER_ID = UUID("018f96d4-7c48-7c27-a71f-591e3cb8748a")
@@ -65,6 +67,11 @@ class StubHumanAnswerHistoryService:
             (HumanContextEntry(ActorKind.HUMAN, "回答履歴のPrompt"),),
             "回答履歴の回答",
         )
+
+
+class StubClosedSkipWindowHumanService:
+    async def skip(self, user_id: UUID, claim_id: UUID) -> None:
+        raise HumanClaimSkipWindowClosedError
 
 
 @pytest.fixture
@@ -165,3 +172,22 @@ async def test_human_answer_history_requires_a_user_principal() -> None:
 
     assert response.status_code == 401
     assert service.page_received is None
+
+
+@pytest.mark.anyio
+async def test_human_skip_returns_conflict_after_the_grace_period() -> None:
+    claim_id = UUID("018f96d4-7c48-7c27-a71f-591e3cb87490")
+    app.dependency_overrides[get_principal] = lambda: Principal(
+        PrincipalKind.USER,
+        USER_ID,
+    )
+    app.dependency_overrides[get_human_service] = StubClosedSkipWindowHumanService
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+    ) as client:
+        response = await client.post(f"/api/v1/human/claims/{claim_id}/skip")
+
+    assert response.status_code == 409
+    assert response.json() == {"detail": "Skip window has closed"}

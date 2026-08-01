@@ -11,6 +11,7 @@ const assigned: BrainState = {
     claim_id: "claim",
     answerer_name: "Human Lite",
     reasoning_effort: "medium",
+    skip_allowed_until: "2026-07-30T12:00:20Z",
     deadline_at: "2026-07-30T12:05:00Z",
     context: [],
   },

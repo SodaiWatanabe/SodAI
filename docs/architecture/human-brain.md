@@ -51,6 +51,10 @@ Humanの回答可能時間は専用列へ保存せず、マッチ成立時に共
 代用しない。どちらかが切れたClaimは`expired`へ閉じ、Executionをqueuedへ戻して別の適格Humanへ
 再割当する。期限後の回答確定は拒否する。
 
+Humanは割り当ての`claimed_at`から20秒間だけTaskをskipできる。BrainはAPIが返す
+`skip_allowed_until`に達した時点でskip操作を無効化し、APIも同じ境界以降のskipを拒否する。
+画面の再読み込みやreadiness更新ではこの猶予を延長しない。
+
 ## Realtime matching
 
 Task作成、readiness更新、skip、answerの後に同じmatcherを起動する。matcherはPostgreSQLの

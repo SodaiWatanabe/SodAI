@@ -14,6 +14,10 @@ import { useCreditBalance } from "@/components/credits/credit-balance-provider";
 import { BrainAssignmentDeadline } from "@/components/human/brain-assignment-deadline";
 import { BrainConversation } from "@/components/human/brain-conversation";
 import { BrainLobby } from "@/components/human/brain-lobby";
+import {
+  isBrainSkipAllowed,
+  millisecondsUntilBrainSkipCloses,
+} from "@/components/human/brain-skip-window";
 import { useHumanData } from "@/components/human/human-data-provider";
 import { IOSSpinner } from "@/components/ui/ios-spinner";
 import { useTextareaAutosize } from "@/components/ui/use-textarea-autosize";
@@ -39,7 +43,17 @@ export function BrainShell() {
   const turnSpacerRef = useRef<HTMLDivElement>(null);
   const alignedClaimIdRef = useRef<string | undefined>(undefined);
   const previousClaimIdRef = useRef<string | undefined>(undefined);
+  const [skipWindowClosedClaimId, setSkipWindowClosedClaimId] = useState<
+    string | undefined
+  >(undefined);
   const activeClaimId = state?.assignment?.claim_id;
+  const skipAllowedUntil = state?.assignment?.skip_allowed_until;
+  const skipWindowClosed = Boolean(
+    activeClaimId &&
+      skipAllowedUntil &&
+      (skipWindowClosedClaimId === activeClaimId ||
+        !isBrainSkipAllowed(skipAllowedUntil)),
+  );
 
   useTextareaAutosize(answerRef, answer, activeClaimId);
 
@@ -47,6 +61,17 @@ export function BrainShell() {
     if (previousClaimIdRef.current !== activeClaimId) setAnswer("");
     previousClaimIdRef.current = activeClaimId;
   }, [activeClaimId]);
+
+  useEffect(() => {
+    if (!activeClaimId || !skipAllowedUntil) return;
+    const remaining = millisecondsUntilBrainSkipCloses(skipAllowedUntil);
+    if (remaining <= 0) return;
+    const timer = window.setTimeout(
+      () => setSkipWindowClosedClaimId(activeClaimId),
+      remaining,
+    );
+    return () => window.clearTimeout(timer);
+  }, [activeClaimId, skipAllowedUntil]);
 
   useLayoutEffect(() => {
     const assignedView = assignedViewRef.current;
@@ -177,14 +202,20 @@ export function BrainShell() {
             </p>
           ) : null}
           <div className="chat-input relative z-10 mx-auto flex min-h-14 w-full max-w-[760px] items-center justify-end gap-2 overflow-hidden rounded-[28px] border border-[var(--field-border)] bg-[var(--surface)] p-2 text-[var(--text)] shadow-[0_8px_30px_var(--input-shadow)]">
-            <button
-              type="button"
-              disabled={busy}
-              className="h-10 rounded-full px-4 text-sm font-medium text-[var(--muted)] transition-colors hover:bg-[var(--hover)] disabled:opacity-50"
-              onClick={() => void skipClaim(assignment.claim_id)}
-            >
-              スキップ
-            </button>
+            {skipWindowClosed ? null : (
+              <button
+                type="button"
+                disabled={busy}
+                className="h-10 rounded-full px-4 text-sm font-medium text-[var(--muted)] transition-colors hover:bg-[var(--hover)] disabled:opacity-50"
+                onClick={() => {
+                  if (isBrainSkipAllowed(assignment.skip_allowed_until)) {
+                    void skipClaim(assignment.claim_id);
+                  }
+                }}
+              >
+                スキップ
+              </button>
+            )}
             <button
               type="submit"
               form="brain-answer-form"
