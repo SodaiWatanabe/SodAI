@@ -2,7 +2,12 @@
 
 import { X } from "lucide-react";
 import Image from "next/image";
-import { useEffect, useId, useRef } from "react";
+import { useId, useRef } from "react";
+
+import {
+  ModalDialog,
+  type ModalDialogHandle,
+} from "@/components/ui/modal-dialog";
 
 type HumanPrivacyDialogProps = {
   onClose: () => void;
@@ -10,7 +15,7 @@ type HumanPrivacyDialogProps = {
 };
 
 export function HumanPrivacyDialog({ onClose, scope }: HumanPrivacyDialogProps) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
+  const dialogRef = useRef<ModalDialogHandle>(null);
   const titleId = useId();
   const descriptionId = useId();
   const title = scope === "thread" ? "会話が共有されます" : "Humanへの送信";
@@ -19,29 +24,16 @@ export function HumanPrivacyDialog({ onClose, scope }: HumanPrivacyDialogProps) 
       ? "このスレッド内の全メッセージが第三者のユーザーに送信されます。個人情報と機密情報は含めないようにしてください。"
       : "プロンプトは第三者のユーザーに送信されます。個人情報と機密情報は含めないようにしてください。";
 
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) return;
-    if (!dialog.open) dialog.showModal();
-  }, []);
-
   function closeDialog() {
     dialogRef.current?.close();
   }
 
   return (
-    <dialog
+    <ModalDialog
       ref={dialogRef}
       aria-describedby={descriptionId}
       aria-labelledby={titleId}
-      className="human-privacy-dialog m-auto w-[calc(100%-2rem)] max-w-[420px] overflow-hidden rounded-[28px] border border-[var(--divider)] bg-[var(--surface)] p-0 text-[var(--text)] shadow-[0_28px_80px_var(--dialog-shadow)] outline-none"
-      onCancel={(event) => {
-        event.preventDefault();
-        closeDialog();
-      }}
-      onClick={(event) => {
-        if (event.target === dialogRef.current) closeDialog();
-      }}
+      className="w-[calc(100%-2rem)] max-w-[420px] overflow-hidden"
       onClose={onClose}
     >
       <div className="relative">
@@ -83,6 +75,6 @@ export function HumanPrivacyDialog({ onClose, scope }: HumanPrivacyDialogProps) 
           確認しました
         </button>
       </div>
-    </dialog>
+    </ModalDialog>
   );
 }

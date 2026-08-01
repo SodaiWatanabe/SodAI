@@ -1,6 +1,11 @@
 "use client";
 
-import { useEffect, useId, useRef } from "react";
+import { useId, useRef } from "react";
+
+import {
+  ModalDialog,
+  type ModalDialogHandle,
+} from "@/components/ui/modal-dialog";
 
 type HumanDeclineDialogProps = {
   busy: boolean;
@@ -13,32 +18,21 @@ export function HumanDeclineDialog({
   onClose,
   onConfirm,
 }: HumanDeclineDialogProps) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
+  const dialogRef = useRef<ModalDialogHandle>(null);
   const titleId = useId();
   const descriptionId = useId();
-
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (dialog && !dialog.open) dialog.showModal();
-  }, []);
 
   function closeDialog() {
     if (!busy) dialogRef.current?.close();
   }
 
   return (
-    <dialog
+    <ModalDialog
       ref={dialogRef}
       aria-describedby={descriptionId}
       aria-labelledby={titleId}
-      className="human-decline-dialog m-auto w-[calc(100%-2rem)] max-w-[420px] overflow-hidden rounded-[28px] border border-[var(--divider)] bg-[var(--surface)] p-0 text-[var(--text)] shadow-[0_28px_80px_var(--dialog-shadow)] outline-none"
-      onCancel={(event) => {
-        event.preventDefault();
-        closeDialog();
-      }}
-      onClick={(event) => {
-        if (event.target === dialogRef.current) closeDialog();
-      }}
+      className="w-[calc(100%-2rem)] max-w-[420px] overflow-hidden"
+      dismissible={!busy}
       onClose={onClose}
     >
       <div className="px-6 pb-6 pt-6 sm:px-7">
@@ -71,6 +65,6 @@ export function HumanDeclineDialog({
           </button>
         </div>
       </div>
-    </dialog>
+    </ModalDialog>
   );
 }

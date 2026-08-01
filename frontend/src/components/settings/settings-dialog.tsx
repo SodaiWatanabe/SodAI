@@ -11,6 +11,10 @@ import {
   SettingsRouteLink,
   type SettingsSection,
 } from "@/components/settings/settings-navigation";
+import {
+  ModalDialog,
+  type ModalDialogHandle,
+} from "@/components/ui/modal-dialog";
 
 function getSection(pathname: string): SettingsSection {
   if (pathname.endsWith("/account")) return "account";
@@ -44,7 +48,7 @@ export function SettingsDialog({
   const pathname = usePathname();
   const router = useRouter();
   const { settingsAccessible } = useChatAuth();
-  const dialogRef = useRef<HTMLDialogElement>(null);
+  const dialogRef = useRef<ModalDialogHandle>(null);
   const titleId = useId();
   const section = getSection(pathname);
   const panel =
@@ -59,19 +63,7 @@ export function SettingsDialog({
   useEffect(() => {
     if (!settingsAccessible) {
       router.replace("/");
-      return;
     }
-
-    const dialog = dialogRef.current;
-    if (!dialog) return;
-    if (!dialog.open) {
-      dialog.showModal();
-      dialog.focus({ preventScroll: true });
-    }
-
-    return () => {
-      if (dialog.open) dialog.close();
-    };
   }, [router, settingsAccessible]);
 
   function closeDialog() {
@@ -86,18 +78,12 @@ export function SettingsDialog({
   if (!settingsAccessible) return null;
 
   return (
-    <dialog
+    <ModalDialog
       ref={dialogRef}
-      tabIndex={-1}
       aria-labelledby={titleId}
-      className="settings-dialog m-auto h-[calc(100dvh-1rem)] w-[calc(100%-1rem)] max-w-[620px] overflow-hidden rounded-[28px] border border-[var(--divider)] bg-[var(--surface)] p-0 text-[var(--text)] shadow-[0_28px_80px_var(--dialog-shadow)] outline-none sm:h-[min(520px,calc(100dvh-2rem))] sm:w-[calc(100%-2rem)]"
-      onCancel={(event) => {
-        event.preventDefault();
-        closeDialog();
-      }}
-      onClick={(event) => {
-        if (event.target === dialogRef.current) closeDialog();
-      }}
+      className="h-[calc(100dvh-1rem)] w-[calc(100%-1rem)] max-w-[620px] overflow-hidden sm:h-[min(520px,calc(100dvh-2rem))] sm:w-[calc(100%-2rem)]"
+      initialFocus="dialog"
+      onRequestClose={closeDialog}
     >
       <div className="flex h-full min-h-0 pb-[env(safe-area-inset-bottom)] sm:pb-0">
         <aside className="hidden w-44 shrink-0 border-r border-[var(--separator)] bg-[var(--sidebar)] px-1.5 pt-3 sm:block">
@@ -154,6 +140,6 @@ export function SettingsDialog({
           </div>
         </section>
       </div>
-    </dialog>
+    </ModalDialog>
   );
 }

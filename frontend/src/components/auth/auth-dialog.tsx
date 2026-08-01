@@ -17,6 +17,10 @@ import {
 } from "@/components/auth/auth-flow";
 import { IOSSpinner } from "@/components/ui/ios-spinner";
 import {
+  ModalDialog,
+  type ModalDialogHandle,
+} from "@/components/ui/modal-dialog";
+import {
   getCurrentAccount,
   setCurrentAccountDisplayName,
 } from "@/lib/account/api";
@@ -81,7 +85,7 @@ export function AuthDialog({
   resumeProfile = false,
 }: AuthDialogProps) {
   const router = useRouter();
-  const dialogRef = useRef<HTMLDialogElement>(null);
+  const dialogRef = useRef<ModalDialogHandle>(null);
   const emailInputRef = useRef<HTMLInputElement>(null);
   const mountedRef = useRef(true);
   const otpInputRef = useRef<HTMLInputElement>(null);
@@ -105,16 +109,9 @@ export function AuthDialog({
 
   useEffect(() => {
     mountedRef.current = true;
-    const dialog = dialogRef.current;
-    if (!dialog) return;
-
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    if (!dialog.open) dialog.showModal();
 
     return () => {
       mountedRef.current = false;
-      document.body.style.overflow = previousOverflow;
     };
   }, []);
 
@@ -288,18 +285,13 @@ export function AuthDialog({
           : "SodAIアカウントを準備しています。";
 
   return (
-    <dialog
+    <ModalDialog
       ref={dialogRef}
       aria-labelledby={titleId}
       aria-describedby={descriptionId}
-      className="auth-dialog m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-[420px] overflow-y-auto overscroll-contain rounded-[28px] border border-[var(--divider)] bg-[var(--surface)] p-0 text-[var(--text)] shadow-[0_28px_80px_var(--dialog-shadow)]"
-      onCancel={(event) => {
-        event.preventDefault();
-        closeDialog();
-      }}
-      onClick={(event) => {
-        if (event.target === dialogRef.current) closeDialog();
-      }}
+      className="max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-[420px] overflow-y-auto overscroll-contain"
+      dismissible={!pending}
+      onRequestClose={closeDialog}
       onClose={onClose}
     >
       <div className="relative px-6 pb-7 pt-6 sm:px-8 sm:pb-8 sm:pt-7">
@@ -512,6 +504,6 @@ export function AuthDialog({
           </form>
         ) : null}
       </div>
-    </dialog>
+    </ModalDialog>
   );
 }

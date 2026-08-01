@@ -5,6 +5,10 @@ import { useEffect, useId, useRef, useState } from "react";
 
 import { SearchHighlight } from "@/components/chat/search-highlight";
 import { IOSSpinner } from "@/components/ui/ios-spinner";
+import {
+  ModalDialog,
+  type ModalDialogHandle,
+} from "@/components/ui/modal-dialog";
 import type { ThreadSearchHit } from "@/lib/chat/types";
 import { useChatApi } from "@/lib/chat/use-chat-api";
 
@@ -31,7 +35,7 @@ export function ThreadSearchDialog({
   onSelect,
 }: ThreadSearchDialogProps) {
   const { searchThreads } = useChatApi();
-  const dialogRef = useRef<HTMLDialogElement>(null);
+  const dialogRef = useRef<ModalDialogHandle>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const titleId = useId();
   const inputId = useId();
@@ -43,9 +47,6 @@ export function ThreadSearchDialog({
   const normalizedQuery = query.trim();
 
   useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) return;
-    if (!dialog.open) dialog.showModal();
     const frame = requestAnimationFrame(() => inputRef.current?.focus());
     return () => cancelAnimationFrame(frame);
   }, []);
@@ -94,17 +95,10 @@ export function ThreadSearchDialog({
   }
 
   return (
-    <dialog
+    <ModalDialog
       ref={dialogRef}
       aria-labelledby={titleId}
-      className="thread-search-dialog m-auto h-[calc(100dvh-1rem)] w-[calc(100%-1rem)] max-w-[620px] flex-col overflow-hidden rounded-[28px] border border-[var(--divider)] bg-[var(--surface)] p-0 text-[var(--text)] shadow-[0_28px_80px_var(--dialog-shadow)] outline-none open:flex sm:h-[min(520px,calc(100dvh-2rem))] sm:w-[calc(100%-2rem)]"
-      onCancel={(event) => {
-        event.preventDefault();
-        closeDialog();
-      }}
-      onClick={(event) => {
-        if (event.target === dialogRef.current) closeDialog();
-      }}
+      className="h-[calc(100dvh-1rem)] w-[calc(100%-1rem)] max-w-[620px] flex-col overflow-hidden open:flex sm:h-[min(520px,calc(100dvh-2rem))] sm:w-[calc(100%-2rem)]"
       onClose={onClose}
     >
       <header className="relative shrink-0 border-b border-[var(--separator)] px-5 pb-4 pt-5 sm:px-6">
@@ -226,6 +220,6 @@ export function ThreadSearchDialog({
               : ""}
         </span>
       </div>
-    </dialog>
+    </ModalDialog>
   );
 }
