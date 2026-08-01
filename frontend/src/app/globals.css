@@ -2,6 +2,10 @@
 
 :root {
   color-scheme: light dark;
+  --safe-area-inset-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-area-inset-left: env(safe-area-inset-left, 0px);
+  --safe-area-inset-right: env(safe-area-inset-right, 0px);
+  --safe-area-inset-top: env(safe-area-inset-top, 0px);
   --canvas: light-dark(#ffffff, #000000);
   --sidebar: light-dark(#f5f5f7, #1c1c1e);
   --surface: light-dark(#ffffff, #1c1c1e);
@@ -111,6 +115,10 @@ button {
     transform 140ms cubic-bezier(0.22, 1, 0.36, 1),
     display 140ms allow-discrete,
     overlay 140ms allow-discrete;
+}
+
+.ui-popover[data-positioned="false"] {
+  visibility: hidden;
 }
 
 :root[data-theme="dark"] :is(.ui-popover, .chat-input) {

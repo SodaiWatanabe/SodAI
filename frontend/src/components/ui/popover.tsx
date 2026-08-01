@@ -16,15 +16,22 @@ import {
   useState,
 } from "react";
 
-export type PopoverPlacement =
-  | "bottom-end"
-  | "bottom-start"
-  | "left-end"
-  | "left-start"
-  | "right-end"
-  | "right-start"
-  | "top-end"
-  | "top-start";
+import {
+  availablePopoverSize,
+  insetPopoverBoundary,
+  type PopoverInsets,
+  type PopoverPlacement,
+  resolvePopoverPosition,
+} from "@/components/ui/popover-position";
+
+export type { PopoverPlacement } from "@/components/ui/popover-position";
+
+const SAFE_AREA_PROPERTIES = {
+  bottom: "--safe-area-inset-bottom",
+  left: "--safe-area-inset-left",
+  right: "--safe-area-inset-right",
+  top: "--safe-area-inset-top",
+} as const;
 
 type PopoverContextValue = {
   contentId: string;
@@ -65,6 +72,35 @@ function assignRef<T>(ref: ForwardedRef<T>, value: T | null) {
   }
 }
 
+function readCssPixels(style: CSSStyleDeclaration, property: string) {
+  const value = Number.parseFloat(style.getPropertyValue(property));
+  return Number.isFinite(value) ? value : 0;
+}
+
+function readSafeArea(): PopoverInsets {
+  const style = window.getComputedStyle(document.documentElement);
+  return {
+    bottom: readCssPixels(style, SAFE_AREA_PROPERTIES.bottom),
+    left: readCssPixels(style, SAFE_AREA_PROPERTIES.left),
+    right: readCssPixels(style, SAFE_AREA_PROPERTIES.right),
+    top: readCssPixels(style, SAFE_AREA_PROPERTIES.top),
+  };
+}
+
+function visualViewportBoundary() {
+  const viewport = window.visualViewport;
+  const left = viewport?.offsetLeft ?? 0;
+  const top = viewport?.offsetTop ?? 0;
+  const width = viewport?.width ?? document.documentElement.clientWidth;
+  const height = viewport?.height ?? document.documentElement.clientHeight;
+  return {
+    bottom: top + height,
+    left,
+    right: left + width,
+    top,
+  };
+}
+
 export function Popover({
   children,
   collisionPadding = 12,
@@ -76,6 +112,7 @@ export function Popover({
   const contentId = `popover-${useId()}`;
   const contentRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const positionFrameRef = useRef<number | null>(null);
   const [open, setOpenState] = useState(false);
 
   const setOpen = useCallback(
@@ -94,73 +131,55 @@ export function Popover({
       return;
     }
 
+    if (!content.matches(":popover-open")) return;
+
     const triggerRect = trigger.getBoundingClientRect();
-    const viewportWidth = document.documentElement.clientWidth;
-    const viewportHeight = document.documentElement.clientHeight;
+    const boundary = insetPopoverBoundary(
+      visualViewportBoundary(),
+      readSafeArea(),
+      collisionPadding,
+    );
+    const availableSize = availablePopoverSize(boundary);
     const style = content.style;
 
     for (const property of ["top", "right", "bottom", "left"]) {
       style.removeProperty(property);
     }
 
+    style.maxHeight = `${availableSize.height}px`;
+    style.maxWidth = `${availableSize.width}px`;
+
     if (matchTriggerWidth) {
-      style.width = `${triggerRect.width}px`;
+      style.width = `${Math.min(triggerRect.width, availableSize.width)}px`;
     } else {
       style.removeProperty("width");
     }
 
-    if (placement.startsWith("top")) {
-      style.bottom = `${viewportHeight - triggerRect.top + gutter}px`;
-    } else if (placement.startsWith("bottom")) {
-      style.top = `${triggerRect.bottom + gutter}px`;
-    } else if (placement.startsWith("right")) {
-      style.left = `${triggerRect.right + gutter}px`;
-    } else {
-      style.right = `${viewportWidth - triggerRect.left + gutter}px`;
-    }
-
-    if (placement.endsWith("start")) {
-      if (placement.startsWith("top") || placement.startsWith("bottom")) {
-        style.left = `${triggerRect.left}px`;
-      } else {
-        style.top = `${triggerRect.top}px`;
-      }
-    } else if (
-      placement.startsWith("top") ||
-      placement.startsWith("bottom")
-    ) {
-      style.right = `${viewportWidth - triggerRect.right}px`;
-    } else {
-      style.bottom = `${viewportHeight - triggerRect.bottom}px`;
-    }
-
-    if (!content.matches(":popover-open")) {
-      return;
-    }
-
-    const contentRect = content.getBoundingClientRect();
-    const left = Math.min(
-      Math.max(contentRect.left, collisionPadding),
-      Math.max(
-        collisionPadding,
-        viewportWidth - collisionPadding - contentRect.width,
-      ),
-    );
-    const top = Math.min(
-      Math.max(contentRect.top, collisionPadding),
-      Math.max(
-        collisionPadding,
-        viewportHeight - collisionPadding - contentRect.height,
-      ),
-    );
-
-    if (left !== contentRect.left || top !== contentRect.top) {
-      style.removeProperty("right");
-      style.removeProperty("bottom");
-      style.left = `${left}px`;
-      style.top = `${top}px`;
-    }
+    style.left = `${boundary.left}px`;
+    style.top = `${boundary.top}px`;
+    const position = resolvePopoverPosition({
+      boundary,
+      content: {
+        height: content.offsetHeight,
+        width: content.offsetWidth,
+      },
+      gutter,
+      placement,
+      trigger: triggerRect,
+    });
+    content.dataset.placement = position.placement;
+    style.left = `${position.left}px`;
+    style.top = `${position.top}px`;
+    content.dataset.positioned = "true";
   }, [collisionPadding, gutter, matchTriggerWidth, placement]);
+
+  const schedulePosition = useCallback(() => {
+    if (positionFrameRef.current !== null) return;
+    positionFrameRef.current = window.requestAnimationFrame(() => {
+      positionFrameRef.current = null;
+      positionContent();
+    });
+  }, [positionContent]);
 
   useEffect(() => {
     if (!open) {
@@ -176,15 +195,24 @@ export function Popover({
     positionContent();
     const resizeObserver = new ResizeObserver(positionContent);
     resizeObserver.observe(trigger);
-    window.addEventListener("resize", positionContent);
-    window.addEventListener("scroll", positionContent, true);
+    resizeObserver.observe(content);
+    window.addEventListener("resize", schedulePosition);
+    window.addEventListener("scroll", schedulePosition, true);
+    window.visualViewport?.addEventListener("resize", schedulePosition);
+    window.visualViewport?.addEventListener("scroll", schedulePosition);
 
     return () => {
       resizeObserver.disconnect();
-      window.removeEventListener("resize", positionContent);
-      window.removeEventListener("scroll", positionContent, true);
+      window.removeEventListener("resize", schedulePosition);
+      window.removeEventListener("scroll", schedulePosition, true);
+      window.visualViewport?.removeEventListener("resize", schedulePosition);
+      window.visualViewport?.removeEventListener("scroll", schedulePosition);
+      if (positionFrameRef.current !== null) {
+        window.cancelAnimationFrame(positionFrameRef.current);
+        positionFrameRef.current = null;
+      }
     };
-  }, [open, positionContent]);
+  }, [open, positionContent, schedulePosition]);
 
   const context = useMemo(
     () => ({
@@ -258,12 +286,17 @@ export const PopoverContent = forwardRef<
       onBeforeToggle={(event) => {
         if (event.target !== event.currentTarget) return;
         if (event.newState === "open") {
-          positionContent();
+          event.currentTarget.dataset.positioned = "false";
         }
         onBeforeToggle?.(event);
       }}
       onToggle={(event) => {
         if (event.target !== event.currentTarget) return;
+        if (event.newState === "open") {
+          positionContent();
+        } else {
+          event.currentTarget.dataset.positioned = "false";
+        }
         setOpen(event.newState === "open");
         onToggle?.(event);
       }}
