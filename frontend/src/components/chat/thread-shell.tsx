@@ -47,14 +47,13 @@ import type {
   ResponseEvaluationValue,
   Thread,
 } from "@/lib/chat/types";
-import { isApiErrorStatus } from "@/lib/api/api-error";
+import { resolveChatMutationFailure } from "@/lib/chat/mutation-error";
 import { resolveReasoningEffort } from "@/lib/chat/reasoning-effort";
 import {
   responseEvaluation,
   withResponseEvaluation,
 } from "@/lib/chat/response-evaluation";
 import { useChatApi } from "@/lib/chat/use-chat-api";
-import { INSUFFICIENT_CREDITS_MESSAGE } from "@/lib/credits/error";
 
 type ThreadShellProps = {
   threadId: string;
@@ -335,13 +334,13 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
     } catch (error) {
       if (!mountedRef.current) return;
       setOperation(IDLE_RESPONSE_OPERATION);
-      const insufficientCredits = isApiErrorStatus(error, 402);
+      const failure = resolveChatMutationFailure(
+        error,
+        "回答を再生成できませんでした。もう一度お試しください。",
+      );
       showToast({
         id: "response-regenerate",
-        message: insufficientCredits
-          ? INSUFFICIENT_CREDITS_MESSAGE
-          : "回答を再生成できませんでした。もう一度お試しください。",
-        tone: insufficientCredits ? "warning" : "error",
+        ...failure,
       });
     }
   }
@@ -691,13 +690,13 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
       if (!mountedRef.current) return;
       setMessage((current) => (current.trim() ? current : input));
       setOperation(IDLE_RESPONSE_OPERATION);
-      const insufficientCredits = isApiErrorStatus(error, 402);
+      const failure = resolveChatMutationFailure(
+        error,
+        "送信できませんでした。もう一度お試しください。",
+      );
       showToast({
         id: "message-send",
-        message: insufficientCredits
-          ? INSUFFICIENT_CREDITS_MESSAGE
-          : "送信できませんでした。もう一度お試しください。",
-        tone: insufficientCredits ? "warning" : "error",
+        ...failure,
       });
     }
   }

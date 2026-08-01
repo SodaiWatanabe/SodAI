@@ -80,6 +80,30 @@ env \
     --profile gpu \
     --profile tunnel \
     config --quiet
+env \
+  PRODUCTION_AUTH_ENV_FILE="$auth_env" \
+  PRODUCTION_BACKEND_ENV_FILE="$backend_env" \
+  PRODUCTION_FRONTEND_ENV_FILE="$frontend_env" \
+  docker compose \
+    --env-file "$root_env" \
+    -f "$repository_root/compose.yaml" \
+    -f "$repository_root/compose.production.yaml" \
+    --profile operations \
+    --profile gpu \
+    --profile tunnel \
+    config --format json | python3 -c '
+import json
+import sys
+
+config = json.load(sys.stdin)
+mounts = [
+    mount
+    for mount in config["services"]["backend"].get("volumes", [])
+    if mount.get("target") == "/models"
+]
+if len(mounts) != 1 or mounts[0].get("type") != "bind" or mounts[0].get("read_only") is not True:
+    raise SystemExit("backend must mount /models from the host as read-only")
+'
 
 sed -i 's#BETTER_AUTH_URL=https://app.sodai.me#BETTER_AUTH_URL=https://sodai.me#' "$auth_env"
 expect_failure "apex domain used as the auth origin"

@@ -19,14 +19,13 @@ import {
 } from "@/components/chat/response-operation";
 import { useKeyboardShortcuts } from "@/components/preferences/keyboard-shortcuts-provider";
 import { useToast } from "@/components/ui/toast-provider";
-import { isApiErrorStatus } from "@/lib/api/api-error";
+import { resolveChatMutationFailure } from "@/lib/chat/mutation-error";
 import { resolveReasoningEffort } from "@/lib/chat/reasoning-effort";
 import type {
   AvailableAnswerer,
   ReasoningEffort,
 } from "@/lib/chat/types";
 import { useChatApi } from "@/lib/chat/use-chat-api";
-import { INSUFFICIENT_CREDITS_MESSAGE } from "@/lib/credits/error";
 
 type ChatShellProps = {
   greeting: string;
@@ -107,13 +106,13 @@ export function ChatShell(props: ChatShellProps) {
     } catch (error) {
       if (!mountedRef.current) return;
       setOperation(IDLE_RESPONSE_OPERATION);
-      const insufficientCredits = isApiErrorStatus(error, 402);
+      const failure = resolveChatMutationFailure(
+        error,
+        "会話を始められませんでした。APIの接続を確認してください。",
+      );
       showToast({
         id: "thread-create",
-        message: insufficientCredits
-          ? INSUFFICIENT_CREDITS_MESSAGE
-          : "会話を始められませんでした。APIの接続を確認してください。",
-        tone: insufficientCredits ? "warning" : "error",
+        ...failure,
       });
       requestAnimationFrame(() => inputRef.current?.focus());
       return;
