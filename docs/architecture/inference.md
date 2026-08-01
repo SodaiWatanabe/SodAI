@@ -15,7 +15,7 @@ FastAPI ── PostgreSQL
   ▼
 Redis Streams
   ├─ Hina worker ── var/models/hina/<artifact-id>
-  └─ Asuka pseudo worker
+  └─ Asuka 1 worker ── var/models/asuka-1/<artifact-id>
 ```
 
 - FastAPIは所有権、応答要求、実行状態、確定Entry、公開イベントを管理します。
@@ -63,9 +63,9 @@ Projectorはeventを適用、重複、gap保留、破棄へ分類します。gap
 内部stream名とconsumer groupはcontract v2で分離しています。旧payloadを誤って処理せず、
 後方互換層を持ちません。
 
-jobは直近32 Entry、本文合計64KiBまでです。Hinaではguest・modelごとのactive Executionを1件、
-modelごとの合計を既定32件までに制限します。複数modelが同じGPU poolを共有する段階では
-resource pool単位の上限を別契約として追加します。Cookie再作成を含むIP単位の濫用対策は
+jobは直近32 Entry、本文合計64KiBまでです。guest・modelごとのactive Executionを1件、
+modelごとの合計を既定32件までに制限します。同じGPUを共有するworkerはresource pool名を
+共通化し、Redis leaseで生成を1件ずつ直列化します。Cookie再作成を含むIP単位の濫用対策は
 公開edgeのrate limit、DBのadvisory lockをGPU queueの最終防衛線とします。
 
 ## 障害復旧
@@ -124,15 +124,29 @@ adapter境界であり、APIの`assistant/user`関係ではありません。512
 
 ## Asuka 1
 
-現在のAsuka 1は、製品のストリーミング経路を検証する決定的な疑似runtimeです。immutableな
-runtime revisionは`pseudo-v1`、resolved modelは`asuka-1@pseudo-v1`です。FastAPI内で直接本文を
-DBへ書かず、専用workerとしてHinaと同じGenerationJobを消費し、同じGenerationEventを返します。
-eventとattempt progressも同じく一つのRedis scriptで保存するため、再claim時は記録済みsequenceの
-次から再開します。このためUI、再読込、失敗収束、Entry確定の挙動がruntimeごとに分岐しません。
+Asuka 1はBuilding-SLM v2のstep 250 SFT成果物を出自とするRoPEモデルです。公開IDは
+`asuka-1`、resolved modelは`asuka-1@<artifact-id>`です。Hinaとはarchitecture、prompt builder、
+artifact profile、engineを分離し、Redis配送とprojectorだけを共有します。
 
-Building-SLMの`v2`はAsukaの基盤モデルとして学習中です。SFTと評価を終えた成果物をHinaと同じ
-import、hash、deployment工程へ通した後、疑似runtimeを実モデルadapterへ交換します。公開ID、
-Actor、ResponseRequest、Execution、Frontend契約はその交換で変わりません。
+```text
+公開answerer ID  asuka-1
+runtime model     asuka-1
+学習上の出自      Building-SLM v2 / gpt_sft.pt / step 250
+architecture      rope_gpt
+context length    512
+runtime dtype     float16
+prompt template   asuka1-dialogue-v1
+resolved model    asuka-1@<artifact-id>
+```
+
+入力はSFTと同じく改行を挿入せず、現在ターンを
+`<|bos|><|partner|>...<|end_turn|><|self|><|bot|>`として構築します。過去のself発話は
+`<|self|><|bot|><|eot|>...<|end_turn|>`として再構築し、過去thinkingは入力しません。
+512 tokenのうち標準で256 tokenを出力へ予約し、古いpartner/selfペアから除外します。
+
+生成中は`<|eot|>`までをworker内だけに保持し、PostgreSQLとWebSocketへ出しません。
+`<|eot|>`以降だけを回答として配信し、`<|end_turn|>`またはEOSで停止します。KV cache、FP16、
+temperature 0.85、top-p 0.9、top-k 40、repetition penalty 1.05を使用します。
 
 ## 運用状態と検証
 
@@ -143,5 +157,5 @@ Execution、Redis consumer group、current／pinned-active artifact、worker lea
 DB revision不一致、consumer group欠落、worker lease消失はunavailableと判定します。
 
 `make test-inference-e2e`はlocal PostgreSQL／Redisだけを許可し、runごとの専用DBとRedis namespaceを
-作ります。CUDA deviceを事前検証して実Hina workerを一時起動し、HTTP作成、Outbox dispatch、GPU生成、
+作ります。CUDA deviceを事前検証して実モデルworkerを一時起動し、HTTP作成、Outbox dispatch、GPU生成、
 stream投影、WebSocketイベント、再読込復元、terminal event冪等性を検証後に全資源を削除します。

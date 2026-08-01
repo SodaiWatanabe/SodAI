@@ -9,7 +9,7 @@ Browser
   ├─ Next.js ── /api/auth/* ── Hono / Better Auth ── PostgreSQL auth schema
   └─ FastAPI ─────────────────────────────────────── PostgreSQL app schema / inference outbox
                                                              │
-                                                             └─ Redis Streams ── Hina GPU worker
+                                                             └─ Redis Streams ── Hina / Asuka 1 GPU workers
 
 Internet ── Cloudflare Tunnel ── 自宅環境
                                       └─ SodAI GPU worker
@@ -26,7 +26,7 @@ SodAI/
 ├── backend/                 # FastAPI、app schema、認証トークン検証
 ├── auth/                    # Hono、Better Auth、auth schema、認証メール
 ├── frontend/                # Next.js、UI、Auth/APIクライアント
-├── inference/               # HinaのGPU推論worker
+├── inference/               # Hina／Asuka 1のモデル別GPU推論worker
 ├── packages/contracts/      # APIとworkerのversioned内部契約
 ├── var/models/              # Git管理外のimmutableモデル成果物
 ├── infra/
@@ -94,6 +94,17 @@ make deploy-hina ARTIFACT_ID=<importで表示されたartifact-id>
 
 初回導入でも更新時でも、`deploy-hina`より先に対象artifactのworkerを起動します。promotion後は
 そのpinned workerを動かし続けて構いません。次回起動からは`HINA_ARTIFACT_ID`を省略できます。
+
+Asuka 1はBuilding-SLM v2のSFT成果物から取り込み、Hinaとは別workerで起動します。
+
+```bash
+make import-asuka1 \
+  CHECKPOINT=../Building-SLM/checkpoints/v2/gpt_sft.pt \
+  TOKENIZER=../Building-SLM/tokenizer \
+  SOURCE_REPOSITORY=../Building-SLM
+make dev-inference MODEL=asuka-1 ARTIFACT_ID=<artifact-id> DEVICE=cuda:0
+make deploy-asuka1 ARTIFACT_ID=<artifact-id>
+```
 
 開発用overrideはPostgreSQLとRedisを`127.0.0.1`だけへ公開します。`compose.yaml`単体では両者をホストへ一切公開しません。
 

@@ -5,6 +5,19 @@ repository_root=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
 cd "$repository_root"
 
 env_file=${ENV_FILE:-.env}
+model=${MODEL:-hina}
+case "$model" in
+  hina)
+    test_file=backend/tests/test_hina_gpu_e2e.py
+    ;;
+  asuka-1)
+    test_file=backend/tests/test_asuka1_gpu_e2e.py
+    ;;
+  *)
+    echo "unsupported E2E model: $model" >&2
+    exit 1
+    ;;
+esac
 test -f "$env_file" || {
   echo "$env_file がありません。" >&2
   exit 1
@@ -45,7 +58,7 @@ print(url.render_as_string(hide_password=False))
 PY
 )
 
-device=${HINA_E2E_DEVICE:-cuda:0}
+device=${SODAI_E2E_DEVICE:-${HINA_E2E_DEVICE:-cuda:0}}
 inference/.venv/bin/python - "$device" <<'PY'
 import sys
 
@@ -53,14 +66,14 @@ import torch
 
 device = torch.device(sys.argv[1])
 if device.type != "cuda" or not torch.cuda.is_available():
-    raise SystemExit("Hina GPU E2E requires an available CUDA device")
+    raise SystemExit("Model GPU E2E requires an available CUDA device")
 index = device.index if device.index is not None else torch.cuda.current_device()
 if index < 0 or index >= torch.cuda.device_count():
     raise SystemExit(f"CUDA device index is unavailable: {index}")
-print(f"Hina GPU E2E device: cuda:{index} ({torch.cuda.get_device_name(index)})")
+print(f"Model GPU E2E device: cuda:{index} ({torch.cuda.get_device_name(index)})")
 PY
 
-worker_log=$(mktemp -t sodai-hina-e2e.XXXXXX.log)
+worker_log=$(mktemp -t sodai-model-e2e.XXXXXX.log)
 worker_pid=""
 
 cleanup() {
@@ -107,7 +120,7 @@ DROP DATABASE IF EXISTS :"db_name";
 SQL
     ' >/dev/null 2>&1 || true
   if test "$exit_code" -ne 0; then
-    echo "Hina E2E worker log:" >&2
+    echo "Model E2E worker log:" >&2
     tail -n 120 "$worker_log" >&2 || true
   fi
   rm -f "$worker_log"
@@ -135,7 +148,7 @@ SQL
 
 (cd backend && DATABASE_URL="$database_url" .venv/bin/alembic upgrade head)
 
-artifact_id=$(backend/.venv/bin/python <<'PY'
+artifact_id=$(backend/.venv/bin/python - "$model" <<'PY'
 import sys
 
 sys.path.insert(0, "backend")
@@ -143,18 +156,20 @@ from app.core.config import get_settings
 from app.services.inference.deployment import ModelDeploymentRegistry
 
 settings = get_settings()
-print(ModelDeploymentRegistry(settings.model_root).resolve("hina").artifact_id)
+print(ModelDeploymentRegistry(settings.model_root).resolve(sys.argv[1]).artifact_id)
 PY
 )
 
 INFERENCE_NAMESPACE="$namespace" \
-HINA_ARTIFACT_ID="$artifact_id" \
-HINA_DEVICE="$device" \
+SODAI_INFERENCE_MODEL="$model" \
+SODAI_INFERENCE_ARTIFACT_ID="$artifact_id" \
+SODAI_INFERENCE_DEVICE="$device" \
 INFERENCE_CONSUMER_NAME="e2e-$run_id" \
 inference/.venv/bin/sodai-inference >"$worker_log" 2>&1 &
 worker_pid=$!
 
-INFERENCE_NAMESPACE="$namespace" HINA_ARTIFACT_ID="$artifact_id" \
+INFERENCE_NAMESPACE="$namespace" SODAI_INFERENCE_MODEL="$model" \
+SODAI_INFERENCE_ARTIFACT_ID="$artifact_id" \
 inference/.venv/bin/python - "$worker_pid" <<'PY'
 import asyncio
 import os
@@ -172,18 +187,20 @@ async def wait_until_ready() -> None:
         decode_responses=True,
     )
     namespace = InferenceNamespace(os.environ["INFERENCE_NAMESPACE"])
-    readiness_key = namespace.worker_readiness("hina", os.environ["HINA_ARTIFACT_ID"])
+    model = os.environ["SODAI_INFERENCE_MODEL"]
+    artifact_id = os.environ["SODAI_INFERENCE_ARTIFACT_ID"]
+    readiness_key = namespace.worker_readiness(model, artifact_id)
     worker_pid = sys.argv[1]
     try:
         for _ in range(600):
             if await redis.exists(readiness_key):
                 return
             if not Path(f"/proc/{worker_pid}").exists():
-                raise SystemExit(f"Hina E2E worker {worker_pid} exited before readiness")
+                raise SystemExit(f"Model E2E worker {worker_pid} exited before readiness")
             await asyncio.sleep(0.25)
     finally:
         await redis.aclose()
-    raise SystemExit(f"Hina E2E worker {worker_pid} did not become ready")
+    raise SystemExit(f"Model E2E worker {worker_pid} did not become ready")
 
 
 asyncio.run(wait_until_ready())
@@ -191,6 +208,7 @@ PY
 
 DATABASE_URL="$database_url" \
 INFERENCE_NAMESPACE="$namespace" \
-HINA_E2E_DEVICE_USED="$device" \
+SODAI_E2E_DEVICE_USED="$device" \
+SODAI_GPU_E2E_MODEL="$model" \
 SODAI_GPU_E2E=1 \
-backend/.venv/bin/pytest -q backend/tests/test_hina_gpu_e2e.py
+backend/.venv/bin/pytest -q "$test_file"

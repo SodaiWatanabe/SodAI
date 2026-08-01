@@ -15,8 +15,10 @@ DEV_BACKEND_HOST ?= 127.0.0.1
 DEV_BACKEND_PORT ?= 13202
 
 .PHONY: install install-contracts install-auth install-backend install-frontend install-inference \
-	dev-auth dev-backend dev-frontend dev-inference import-hina deploy-hina \
+	dev-auth dev-backend dev-frontend dev-inference import-hina import-asuka1 \
+	deploy-hina deploy-asuka1 \
 	inference-status credits-grant credits-expire credits-audit human-rank test-inference-e2e \
+	test-asuka1-e2e \
 	infra-check-env infra-config infra-up infra-up-internal infra-down infra-logs infra-ps \
 	tunnel-up tunnel-down db-shell redis-cli db-backup db-restore \
 	migrate migrate-auth migrate-app reinitialize-app-schema \
@@ -61,6 +63,9 @@ dev-frontend:
 
 dev-inference: infra-check-env
 	set -a; . ./$(ENV_FILE); set +a; exec env \
+		$(if $(MODEL),SODAI_INFERENCE_MODEL="$(MODEL)") \
+		$(if $(ARTIFACT_ID),SODAI_INFERENCE_ARTIFACT_ID="$(ARTIFACT_ID)") \
+		$(if $(DEVICE),SODAI_INFERENCE_DEVICE="$(DEVICE)") \
 		$(if $(HINA_ARTIFACT_ID),HINA_ARTIFACT_ID="$(HINA_ARTIFACT_ID)") \
 		$(INFERENCE_VENV)/bin/sodai-inference
 
@@ -72,9 +77,21 @@ import-hina: infra-check-env
 		--tokenizer "$(TOKENIZER)" \
 		$(if $(SOURCE_REPOSITORY),--source-repository "$(SOURCE_REPOSITORY)")
 
+import-asuka1: infra-check-env
+	@test -n "$(CHECKPOINT)" || { echo 'CHECKPOINT=/path/to/gpt_sft.pt を指定してください。' >&2; exit 1; }
+	@test -n "$(TOKENIZER)" || { echo 'TOKENIZER=/path/to/tokenizer を指定してください。' >&2; exit 1; }
+	set -a; . ./$(ENV_FILE); set +a; exec $(INFERENCE_VENV)/bin/sodai-import-asuka1 \
+		--checkpoint "$(CHECKPOINT)" \
+		--tokenizer "$(TOKENIZER)" \
+		$(if $(SOURCE_REPOSITORY),--source-repository "$(SOURCE_REPOSITORY)")
+
 deploy-hina: infra-check-env
 	@test -n "$(ARTIFACT_ID)" || { echo 'ARTIFACT_ID=<artifact-id> を指定してください。' >&2; exit 1; }
 	set -a; . ./$(ENV_FILE); set +a; exec $(INFERENCE_VENV)/bin/sodai-deploy-hina "$(ARTIFACT_ID)"
+
+deploy-asuka1: infra-check-env
+	@test -n "$(ARTIFACT_ID)" || { echo 'ARTIFACT_ID=<artifact-id> を指定してください。' >&2; exit 1; }
+	set -a; . ./$(ENV_FILE); set +a; exec $(INFERENCE_VENV)/bin/sodai-deploy-asuka1 "$(ARTIFACT_ID)"
 
 inference-status:
 	cd backend && .venv/bin/python -m app.cli.inference_status
@@ -102,6 +119,9 @@ human-rank:
 
 test-inference-e2e: infra-check-env
 	ENV_FILE="$(ENV_FILE)" ./infra/scripts/test-inference-e2e.sh
+
+test-asuka1-e2e: infra-check-env
+	MODEL=asuka-1 ENV_FILE="$(ENV_FILE)" ./infra/scripts/test-inference-e2e.sh
 
 infra-check-env:
 	@test -f "$(ENV_FILE)" || { \
