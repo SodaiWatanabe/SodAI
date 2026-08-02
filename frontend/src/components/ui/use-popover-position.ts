@@ -15,6 +15,7 @@ import {
   type PopoverPlacement,
   resolvePopoverPosition,
 } from "@/components/ui/popover-position";
+import { readVisualViewportFrame } from "@/components/ui/visual-viewport";
 
 const SAFE_AREA_PROPERTIES = {
   bottom: "--safe-area-inset-bottom",
@@ -39,26 +40,12 @@ function readSafeArea(): PopoverInsets {
   };
 }
 
-function visualViewportBoundary() {
-  const viewport = window.visualViewport;
-  const left = viewport?.offsetLeft ?? 0;
-  const top = viewport?.offsetTop ?? 0;
-  const width = viewport?.width ?? document.documentElement.clientWidth;
-  const height = viewport?.height ?? document.documentElement.clientHeight;
-  return {
-    bottom: top + height,
-    left,
-    right: left + width,
-    top,
-  };
-}
-
 function collisionBoundary(
   trigger: HTMLButtonElement,
   collisionPadding: number,
 ) {
   const viewport = insetPopoverBoundary(
-    visualViewportBoundary(),
+    readVisualViewportFrame(),
     readSafeArea(),
     collisionPadding,
   );
