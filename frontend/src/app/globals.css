@@ -253,6 +253,20 @@ button {
   mask-image: linear-gradient(to top, black 0%, transparent 100%);
 }
 
+.brain-conversation-viewport {
+  container-type: size;
+}
+
+.brain-answer-input {
+  --brain-answer-available-height: max(5rem, calc(100cqh - 2rem));
+
+  min-height: min(
+    var(--brain-answer-available-height),
+    max(8rem, calc(var(--brain-visual-viewport-height, 100dvh) - 16rem))
+  );
+  max-height: var(--brain-answer-available-height);
+}
+
 .thread-composer::before,
 .thread-composer::after {
   content: "";

@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  type CSSProperties,
   type FormEvent,
   useEffect,
   useLayoutEffect,
@@ -22,7 +23,26 @@ import { HumanDeclineDialog } from "@/components/human/human-decline-dialog";
 import { useBrainAnswerDraft } from "@/components/human/use-brain-answer-draft";
 import { useHumanData } from "@/components/human/human-data-provider";
 import { useTextareaAutosize } from "@/components/ui/use-textarea-autosize";
+import { useVisualViewport } from "@/components/ui/use-visual-viewport";
 import type { HumanAssignment } from "@/lib/human/types";
+
+const FOCUSED_ANSWER_VIEWPORT_PADDING = 16;
+
+function keepAnswerVisible(
+  viewport: HTMLElement,
+  answer: HTMLTextAreaElement,
+) {
+  const viewportRect = viewport.getBoundingClientRect();
+  const answerRect = answer.getBoundingClientRect();
+  const visibleTop = viewportRect.top + FOCUSED_ANSWER_VIEWPORT_PADDING;
+  const visibleBottom = viewportRect.bottom - FOCUSED_ANSWER_VIEWPORT_PADDING;
+
+  if (answerRect.bottom > visibleBottom) {
+    viewport.scrollTop += answerRect.bottom - visibleBottom;
+  } else if (answerRect.top < visibleTop) {
+    viewport.scrollTop -= visibleTop - answerRect.top;
+  }
+}
 
 export function BrainAssignmentView({
   assignment,
@@ -39,7 +59,7 @@ export function BrainAssignmentView({
     saveClaimDraft,
     skipClaim,
   } = useHumanData();
-  const assignedViewRef = useRef<HTMLDivElement>(null);
+  const conversationViewportRef = useRef<HTMLElement>(null);
   const answerRef = useRef<HTMLTextAreaElement>(null);
   const turnAnchorRef = useRef<HTMLElement>(null);
   const turnSpacerRef = useRef<HTMLDivElement>(null);
@@ -53,6 +73,19 @@ export function BrainAssignmentView({
     assignment,
     saveClaimDraft,
   );
+  const visualViewport = useVisualViewport();
+  const useVisualViewportLayout =
+    visualViewport && Math.abs(visualViewport.scale - 1) < 0.01;
+  const viewportStyle = useVisualViewportLayout
+    ? ({
+        "--brain-visual-viewport-height": `${visualViewport.height}px`,
+        flex: "0 0 auto",
+        height: `${visualViewport.height}px`,
+        marginTop: `${visualViewport.top}px`,
+      } satisfies CSSProperties & {
+        "--brain-visual-viewport-height": string;
+      })
+    : undefined;
 
   useTextareaAutosize(answerRef, answer, assignment.claim_id);
 
@@ -91,23 +124,24 @@ export function BrainAssignmentView({
   }, [assignment.skip_allowed_until]);
 
   useLayoutEffect(() => {
-    const assignedView = assignedViewRef.current;
+    const conversationViewport = conversationViewportRef.current;
     const turnAnchor = turnAnchorRef.current;
     const turnSpacer = turnSpacerRef.current;
-    if (!assignedView || !turnAnchor || !turnSpacer) return;
+    if (!conversationViewport || !turnAnchor || !turnSpacer) return;
 
     const currentSpacerHeight = turnSpacer.getBoundingClientRect().height;
-    const assignedViewRect = assignedView.getBoundingClientRect();
+    const conversationViewportRect =
+      conversationViewport.getBoundingClientRect();
     const turnAnchorRect = turnAnchor.getBoundingClientRect();
     const parsedScrollMarginTop = Number.parseFloat(
       window.getComputedStyle(turnAnchor).scrollMarginTop,
     );
     const layout = calculateTurnScrollLayout({
-      containerHeight: assignedView.clientHeight,
-      containerScrollTop: assignedView.scrollTop,
-      containerTop: assignedViewRect.top,
+      containerHeight: conversationViewport.clientHeight,
+      containerScrollTop: conversationViewport.scrollTop,
+      containerTop: conversationViewportRect.top,
       entryTop: turnAnchorRect.top,
-      scrollHeight: assignedView.scrollHeight,
+      scrollHeight: conversationViewport.scrollHeight,
       scrollMarginTop: Number.isFinite(parsedScrollMarginTop)
         ? parsedScrollMarginTop
         : 0,
@@ -116,10 +150,27 @@ export function BrainAssignmentView({
 
     turnSpacer.style.height = `${Math.ceil(layout.spacerHeight)}px`;
     if (!alignedRef.current) {
-      assignedView.scrollTop = layout.scrollTop;
+      conversationViewport.scrollTop = layout.scrollTop;
       alignedRef.current = true;
     }
-  }, [answer]);
+  }, [answer, visualViewport?.height]);
+
+  useLayoutEffect(() => {
+    const conversationViewport = conversationViewportRef.current;
+    const answerInput = answerRef.current;
+    if (
+      !conversationViewport ||
+      !answerInput ||
+      document.activeElement !== answerInput
+    ) {
+      return;
+    }
+
+    const animationFrameId = window.requestAnimationFrame(() => {
+      keepAnswerVisible(conversationViewport, answerInput);
+    });
+    return () => window.cancelAnimationFrame(animationFrameId);
+  }, [answer, visualViewport?.height, visualViewport?.top]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -142,10 +193,10 @@ export function BrainAssignmentView({
 
   return (
     <div
-      ref={assignedViewRef}
-      className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain [overflow-anchor:none]"
+      className="flex min-h-0 flex-1 flex-col overflow-hidden"
+      style={viewportStyle}
     >
-      <header className="sticky top-0 z-10 h-12 shrink-0 border-b border-[var(--separator)] bg-[var(--canvas)]">
+      <header className="relative z-10 h-12 shrink-0 border-b border-[var(--separator)] bg-[var(--canvas)]">
         <div className="mx-auto flex h-full w-full max-w-[760px] items-center justify-between pl-12 pr-2 sm:pl-12 sm:pr-5 lg:mx-0 lg:max-w-none lg:px-1.5">
           <p className="truncate rounded-xl px-2.5 py-2 text-sm font-medium text-[var(--text)]">
             <span className="text-[var(--muted)]">You are</span>{" "}
@@ -155,7 +206,11 @@ export function BrainAssignmentView({
         </div>
       </header>
 
-      <section aria-label="会話" className="relative isolate flex-1">
+      <section
+        ref={conversationViewportRef}
+        aria-label="会話"
+        className="brain-conversation-viewport relative isolate min-h-0 flex-1 overflow-y-auto overscroll-contain [overflow-anchor:none]"
+      >
         <div className="relative z-10 mx-auto w-full max-w-[760px] px-5 pb-[max(2rem,env(safe-area-inset-bottom))] pt-10 sm:px-8">
           <BrainConversation
             context={assignment.context}
@@ -173,7 +228,7 @@ export function BrainAssignmentView({
                 maxLength={32000}
                 placeholder="回答を書く"
                 readOnly={autoSubmitting || deadlineExpired}
-                className="block min-h-[max(14rem,calc(100dvh-16rem))] w-full resize-none overflow-y-hidden border-0 bg-transparent p-0 text-[16px] leading-7 text-[var(--text)] outline-none placeholder:text-[var(--muted)]"
+                className="brain-answer-input block w-full resize-none overflow-y-hidden overscroll-contain border-0 bg-transparent p-0 text-[16px] leading-7 text-[var(--text)] outline-none placeholder:text-[var(--muted)]"
                 onChange={(event) => setAnswer(event.target.value)}
               />
             </form>
@@ -182,7 +237,7 @@ export function BrainAssignmentView({
         </div>
       </section>
 
-      <div className="thread-composer sticky bottom-0 z-20 shrink-0 px-5 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 sm:px-8">
+      <div className="thread-composer relative z-20 shrink-0 px-5 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 sm:px-8">
         {error ? (
           <p className="relative z-10 mx-auto mb-2 max-w-[760px] text-center text-xs text-[var(--danger-text)]">
             {error}

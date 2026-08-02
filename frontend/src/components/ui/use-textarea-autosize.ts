@@ -21,7 +21,11 @@ export function useTextareaAutosize(
     const borderHeight =
       Number.parseFloat(styles.borderTopWidth) +
       Number.parseFloat(styles.borderBottomWidth);
-    textarea.style.height = `${textarea.scrollHeight + borderHeight}px`;
+    const contentHeight = textarea.scrollHeight + borderHeight;
+    textarea.style.height = `${contentHeight}px`;
+    const renderedHeight = textarea.getBoundingClientRect().height;
+    textarea.style.overflowY =
+      contentHeight > renderedHeight + 1 ? "auto" : "hidden";
   }, [ref]);
 
   useLayoutEffect(resize, [mountKey, resize, value]);
@@ -32,19 +36,30 @@ export function useTextareaAutosize(
 
     let width = textarea.clientWidth;
     const viewport = window.visualViewport;
+    let animationFrameId: number | null = null;
+    const scheduleResize = () => {
+      if (animationFrameId !== null) return;
+      animationFrameId = window.requestAnimationFrame(() => {
+        animationFrameId = null;
+        resize();
+      });
+    };
     const observer = new ResizeObserver(() => {
       const nextWidth = textarea.clientWidth;
       if (Math.abs(nextWidth - width) < 1) return;
       width = nextWidth;
-      resize();
+      scheduleResize();
     });
     observer.observe(textarea);
-    window.addEventListener("resize", resize);
-    viewport?.addEventListener("resize", resize);
+    window.addEventListener("resize", scheduleResize);
+    viewport?.addEventListener("resize", scheduleResize);
     return () => {
       observer.disconnect();
-      window.removeEventListener("resize", resize);
-      viewport?.removeEventListener("resize", resize);
+      window.removeEventListener("resize", scheduleResize);
+      viewport?.removeEventListener("resize", scheduleResize);
+      if (animationFrameId !== null) {
+        window.cancelAnimationFrame(animationFrameId);
+      }
     };
   }, [mountKey, ref, resize]);
 }
