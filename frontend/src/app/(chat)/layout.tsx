@@ -9,6 +9,10 @@ import { ToastProvider } from "@/components/ui/toast-provider";
 import { getCurrentAccount } from "@/lib/account/server";
 import { getAuthCapabilities, getCurrentSession } from "@/lib/auth/session";
 import {
+  PREFERRED_ANSWERER_COOKIE_NAME,
+  parsePreferredAnswerer,
+} from "@/lib/preferences/answerer";
+import {
   DESKTOP_SIDEBAR_COOKIE_NAME,
   parseDesktopSidebarPreference,
 } from "@/lib/preferences/sidebar";
@@ -28,6 +32,9 @@ export default async function ChatLayout({
   const sidebarPreference = parseDesktopSidebarPreference(
     cookieStore.get(DESKTOP_SIDEBAR_COOKIE_NAME)?.value,
   );
+  const preferredAnswerer = parsePreferredAnswerer(
+    cookieStore.get(PREFERRED_ANSWERER_COOKIE_NAME)?.value,
+  );
   const account = session ? await getCurrentAccount() : null;
   const user = session?.user
     ? {
@@ -42,7 +49,7 @@ export default async function ChatLayout({
     <ToastProvider>
       <ApiAccessTokenProvider key={ownerKey} authenticated={Boolean(session)}>
         <CreditBalanceProvider>
-          <ChatDataProvider>
+          <ChatDataProvider initialPreferredAnswerer={preferredAnswerer}>
             <HumanDataProvider authenticated={Boolean(session)}>
               <ChatFrame
                 googleAuthEnabled={authCapabilities.google}

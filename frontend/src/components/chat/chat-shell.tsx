@@ -26,6 +26,7 @@ import type {
   ReasoningEffort,
 } from "@/lib/chat/types";
 import { useChatApi } from "@/lib/chat/use-chat-api";
+import { resolvePreferredAnswerer } from "@/lib/preferences/answerer";
 
 type ChatShellProps = {
   greeting: string;
@@ -34,14 +35,17 @@ type ChatShellProps = {
 export function ChatShell(props: ChatShellProps) {
   const router = useRouter();
   const { cancelExecution, createThread } = useChatApi();
-  const { answerers, upsertThread } = useChatData();
+  const {
+    answerers,
+    preferredAnswerer,
+    rememberAnswerer,
+    upsertThread,
+  } = useChatData();
   const { dismissToast, showToast } = useToast();
   const { shortcuts } = useKeyboardShortcuts();
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const mountedRef = useRef(true);
   const [message, setMessage] = useState("");
-  const [requestedAnswerer, setRequestedAnswerer] =
-    useState<AvailableAnswerer["id"]>();
   const [requestedReasoningEffort, setRequestedReasoningEffort] =
     useState<ReasoningEffort>();
   const [humanPrivacyDialogOpen, setHumanPrivacyDialogOpen] = useState(false);
@@ -49,10 +53,7 @@ export function ChatShell(props: ChatShellProps) {
   const [operation, setOperationState] = useState<ResponseOperation>(
     IDLE_RESPONSE_OPERATION,
   );
-  const answerer =
-    requestedAnswerer ??
-    answerers.find((availableAnswerer) => availableAnswerer.is_default)?.id ??
-    answerers[0]?.id;
+  const answerer = resolvePreferredAnswerer(answerers, preferredAnswerer);
   const selectedAnswerer = answerers.find((option) => option.id === answerer);
   const reasoningEffort = resolveReasoningEffort(
     selectedAnswerer,
@@ -72,7 +73,7 @@ export function ChatShell(props: ChatShellProps) {
     const nextSelectedAnswerer = answerers.find(
       (option) => option.id === nextAnswerer,
     );
-    setRequestedAnswerer(nextAnswerer);
+    rememberAnswerer(nextAnswerer);
     if (shouldShowHumanPrivacyDialog(selectedAnswerer, nextSelectedAnswerer)) {
       setHumanPrivacyDialogOpen(true);
     }

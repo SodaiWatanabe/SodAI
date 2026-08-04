@@ -19,6 +19,7 @@ import type {
   ThreadSummary,
 } from "@/lib/chat/types";
 import { useChatApi } from "@/lib/chat/use-chat-api";
+import { savePreferredAnswerer } from "@/lib/preferences/answerer";
 
 type ThreadPatch = Partial<
   Pick<
@@ -31,8 +32,10 @@ type ChatDataContextValue = {
   answerers: AvailableAnswerer[];
   archiveThread: (id: string) => Promise<void>;
   patchThread: (id: string, patch: ThreadPatch) => void;
+  preferredAnswerer?: AvailableAnswerer["id"];
   realtimeReadyRevision: number;
   refresh: () => void;
+  rememberAnswerer: (answerer: AvailableAnswerer["id"]) => void;
   renameThread: (id: string, title: string) => Promise<ThreadSummary>;
   subscribeRealtime: (listener: RealtimeListener) => () => void;
   threads: ThreadSummary[];
@@ -47,11 +50,20 @@ function byLatestActivity(left: ThreadSummary, right: ThreadSummary) {
   return Date.parse(right.last_activity_at) - Date.parse(left.last_activity_at);
 }
 
-export function ChatDataProvider({ children }: { children: ReactNode }) {
+export function ChatDataProvider({
+  children,
+  initialPreferredAnswerer,
+}: {
+  children: ReactNode;
+  initialPreferredAnswerer?: AvailableAnswerer["id"];
+}) {
   const chatApi = useChatApi();
   const { dismissToast, showToast } = useToast();
   const [threads, setThreads] = useState<ThreadSummary[]>([]);
   const [answerers, setAnswerers] = useState<AvailableAnswerer[]>([]);
+  const [preferredAnswerer, setPreferredAnswerer] = useState(
+    initialPreferredAnswerer,
+  );
   const [loadVersion, setLoadVersion] = useState(0);
   const [realtimeReadyRevision, setRealtimeReadyRevision] = useState(0);
   const realtimeListenersRef = useRef(new Set<RealtimeListener>());
@@ -60,6 +72,14 @@ export function ChatDataProvider({ children }: { children: ReactNode }) {
   const refresh = useCallback(() => {
     setLoadVersion((version) => version + 1);
   }, []);
+
+  const rememberAnswerer = useCallback(
+    (answerer: AvailableAnswerer["id"]) => {
+      setPreferredAnswerer(answerer);
+      savePreferredAnswerer(answerer);
+    },
+    [],
+  );
 
   const patchThread = useCallback((id: string, patch: ThreadPatch) => {
     threadMutationVersionRef.current += 1;
@@ -205,8 +225,10 @@ export function ChatDataProvider({ children }: { children: ReactNode }) {
         removeThread(id);
       },
       patchThread,
+      preferredAnswerer,
       realtimeReadyRevision,
       refresh,
+      rememberAnswerer,
       renameThread: async (id, title) => {
         const thread = await chatApi.updateThread(id, title);
         patchThread(id, thread);
@@ -220,9 +242,11 @@ export function ChatDataProvider({ children }: { children: ReactNode }) {
       answerers,
       chatApi,
       patchThread,
+      preferredAnswerer,
       realtimeReadyRevision,
       refresh,
       removeThread,
+      rememberAnswerer,
       subscribeRealtime,
       threads,
       upsertThread,

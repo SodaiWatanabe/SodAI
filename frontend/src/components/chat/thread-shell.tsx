@@ -83,6 +83,7 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
   const {
     answerers,
     patchThread,
+    rememberAnswerer,
     realtimeReadyRevision,
     subscribeRealtime,
   } = useChatData();
@@ -180,6 +181,7 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
       (option) => option.id === nextAnswerer,
     );
     setAnswerer(nextAnswerer);
+    rememberAnswerer(nextAnswerer);
     if (shouldShowHumanPrivacyDialog(selectedAnswerer, nextSelectedAnswerer)) {
       setHumanPrivacyDialogOpen(true);
     }
