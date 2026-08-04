@@ -154,7 +154,7 @@ HUMAN_CREDIT_TERMS = {
     (
         AnswererId.HUMAN_PRO,
         ReasoningEffort.XHIGH,
-    ): HumanCreditTerms.from_customer_charge(12 * CREDIT_SCALE),
+    ): HumanCreditTerms.from_customer_charge(8 * CREDIT_SCALE),
 }
 
 ASUKA_1_TARIFF = InferenceTariff(

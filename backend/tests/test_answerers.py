@@ -163,9 +163,9 @@ def test_answerer_catalog_is_the_single_ui_source() -> None:
         (
             AnswererId.HUMAN_PRO,
             ReasoningEffort.XHIGH,
-            12_000_000,
-            10_800_000,
-            1_200_000,
+            8_000_000,
+            7_200_000,
+            800_000,
         ),
     ],
 )
