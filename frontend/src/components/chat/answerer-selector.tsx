@@ -5,6 +5,7 @@ import Image from "next/image";
 import { useRef, useState } from "react";
 
 import { useChatAuth } from "@/components/chat/chat-auth-context";
+import { GuestAuthAction } from "@/components/chat/guest-auth-action";
 import {
   Popover,
   PopoverClose,
@@ -248,18 +249,22 @@ export function AnswererSelector({
                 ログインすると、より性能の高いモデルにアクセスできます。
               </p>
               <div className="mt-5 flex gap-2">
-                <PopoverClose
-                  className="h-9 rounded-full bg-[var(--primary)] px-4 text-xs font-medium text-[var(--on-primary)] transition-colors hover:bg-[var(--primary-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)]"
+                <GuestAuthAction
+                  className="inline-flex"
+                  closePopover
                   onClick={openAuth}
+                  tone="primary"
                 >
                   ログイン
-                </PopoverClose>
-                <PopoverClose
-                  className="h-9 rounded-full border border-[var(--border)] bg-[var(--button-background)] px-4 text-xs font-medium text-[var(--text)] transition-colors hover:bg-[var(--button-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)]"
+                </GuestAuthAction>
+                <GuestAuthAction
+                  className="inline-flex"
+                  closePopover
                   onClick={openAuth}
+                  tone="secondary"
                 >
                   アカウントを作成
-                </PopoverClose>
+                </GuestAuthAction>
               </div>
             </div>
           </div>

@@ -41,8 +41,6 @@ import type { HumanAnswerSummary } from "@/lib/human/types";
 import { matchesKeyboardShortcut } from "@/lib/preferences/keyboard-shortcuts";
 import { saveDesktopSidebarPreference } from "@/lib/preferences/sidebar";
 
-const SIDEBAR_TRANSITION_DURATION = 300;
-
 export type ChatFrameProps = {
   children: ReactNode;
   googleAuthEnabled: boolean;
@@ -65,10 +63,8 @@ type SidebarProps = {
   nextAnswersCursor: string | null;
   product: SodaiProduct;
   threads: ThreadSummary[];
-  guestActionsVisible: boolean;
   onClose: () => void;
   onArchiveThread: (id: string) => void;
-  onOpenAuth: () => void;
   onOpenCredits: () => void;
   onOpenSearch: () => void;
   onOpenSettings: () => void;
@@ -93,11 +89,9 @@ function Sidebar({
   nextAnswersCursor,
   product,
   threads,
-  guestActionsVisible,
   historyDisabled,
   onClose,
   onArchiveThread,
-  onOpenAuth,
   onOpenCredits,
   onOpenSearch,
   onOpenSettings,
@@ -271,8 +265,8 @@ function Sidebar({
         )}
       </nav>
 
-      <div className="px-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom))] pt-1.5">
-        {user ? (
+      {user ? (
+        <div className="px-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom))] pt-1.5">
           <SidebarAccount
             compact={compact}
             contentVisible={contentVisible}
@@ -282,25 +276,8 @@ function Sidebar({
             signingOut={signingOut}
             user={user}
           />
-        ) : guestActionsVisible ? (
-          <div className="space-y-1.5">
-            <button
-              type="button"
-              className="h-10 w-full rounded-full border border-[var(--border)] bg-[var(--button-background)] text-sm font-medium transition-colors hover:bg-[var(--button-hover)]"
-              onClick={onOpenAuth}
-            >
-              ログイン
-            </button>
-            <button
-              type="button"
-              className="h-10 w-full rounded-full border border-[var(--border)] bg-[var(--button-background)] text-sm font-medium transition-colors hover:bg-[var(--button-hover)]"
-              onClick={onOpenAuth}
-            >
-              アカウントを作成
-            </button>
-          </div>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
     </>
   );
 }
@@ -334,11 +311,7 @@ export function ChatFrame({
   const [desktopCollapsed, setDesktopCollapsed] = useState(
     initialDesktopSidebarCollapsed,
   );
-  const [desktopGuestActionsVisible, setDesktopGuestActionsVisible] = useState(
-    !initialDesktopSidebarCollapsed,
-  );
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [mobileGuestActionsVisible, setMobileGuestActionsVisible] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchNavigationTarget, setSearchNavigationTarget] =
     useState<ThreadSearchNavigationTarget | null>(null);
@@ -352,11 +325,9 @@ export function ChatFrame({
   const humanAnswerActive = humanState?.status === "assigned";
   const openAuth = useCallback(() => setAuthOpen(true), []);
   const openMobileSidebar = useCallback(() => {
-    setMobileGuestActionsVisible(false);
     setMobileOpen(true);
   }, []);
   const closeMobileSidebar = useCallback(() => {
-    setMobileGuestActionsVisible(false);
     setMobileOpen(false);
   }, []);
   const openSearch = useCallback(() => {
@@ -408,24 +379,6 @@ export function ChatFrame({
     product,
     router,
   ]);
-
-  useEffect(() => {
-    if (desktopCollapsed || desktopGuestActionsVisible) return;
-    const timer = setTimeout(
-      () => setDesktopGuestActionsVisible(true),
-      SIDEBAR_TRANSITION_DURATION,
-    );
-    return () => clearTimeout(timer);
-  }, [desktopCollapsed, desktopGuestActionsVisible]);
-
-  useEffect(() => {
-    if (!mobileOpen || mobileGuestActionsVisible) return;
-    const timer = setTimeout(
-      () => setMobileGuestActionsVisible(true),
-      SIDEBAR_TRANSITION_DURATION,
-    );
-    return () => clearTimeout(timer);
-  }, [mobileGuestActionsVisible, mobileOpen]);
 
   useEffect(() => {
     if (!mobileOpen) return;
@@ -572,7 +525,6 @@ export function ChatFrame({
 
   function toggleDesktop() {
     const next = !desktopCollapsed;
-    if (next) setDesktopGuestActionsVisible(false);
     setDesktopCollapsed(next);
     saveDesktopSidebarPreference(next ? "collapsed" : "expanded");
   }
@@ -588,7 +540,6 @@ export function ChatFrame({
   const sidebar = (
     compact: boolean,
     contentVisible: boolean,
-    guestActionsVisible: boolean,
     onClose: () => void,
   ) => (
     <Sidebar
@@ -602,11 +553,9 @@ export function ChatFrame({
       newChatActive={frameRoute.newChatActive}
       product={product}
       threads={threads}
-      guestActionsVisible={guestActionsVisible}
       historyDisabled={humanAnswerActive}
       onClose={onClose}
       onArchiveThread={leaveArchivedThread}
-      onOpenAuth={openAuth}
       onOpenCredits={navigateToCredits}
       onOpenSearch={openSearch}
       onOpenSettings={navigateToSettings}
@@ -641,7 +590,6 @@ export function ChatFrame({
         {sidebar(
           desktopCollapsed,
           !desktopCollapsed,
-          desktopGuestActionsVisible,
           toggleDesktop,
         )}
       </aside>
@@ -666,7 +614,7 @@ export function ChatFrame({
           mobileOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >
-        {sidebar(false, true, mobileGuestActionsVisible, closeMobileSidebar)}
+        {sidebar(false, true, closeMobileSidebar)}
       </aside>
 
       <main
