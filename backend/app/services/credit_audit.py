@@ -11,6 +11,7 @@ from app.domain.credits import (
     REVENUE_ACCOUNT_ID,
     CreditReservationStatus,
     CreditSourceKind,
+    HumanCreditTerms,
     earned_credit_expiration,
 )
 from app.domain.reasoning import ReasoningEffort
@@ -107,7 +108,7 @@ class CreditAuditService:
             ) in rows:
                 prefix = f"execution={reservation.execution_reference_id}"
                 try:
-                    terms = get_human_credit_terms(
+                    get_human_credit_terms(
                         AnswererId(requested_answerer),
                         ReasoningEffort(reasoning_effort),
                     )
@@ -116,8 +117,6 @@ class CreditAuditService:
                     continue
                 if reservation_owner_user_id != requester_user_id:
                     issues.append(f"{prefix}: reservation owner differs from requester")
-                if reservation.reserved_amount != terms.customer_charge:
-                    issues.append(f"{prefix}: reservation differs from application price")
 
                 if reservation.status == CreditReservationStatus.HELD.value:
                     if execution_status in {
@@ -136,18 +135,23 @@ class CreditAuditService:
                     continue
                 if execution_status != ResponseStatus.COMPLETED.value:
                     issues.append(f"{prefix}: reward settled before Human completion")
-                if reservation.settled_amount != terms.customer_charge:
-                    issues.append(f"{prefix}: settled charge differs from application price")
                 if reservation.final_transaction_id is None:
                     issues.append(f"{prefix}: settled reservation has no transaction")
+                    continue
+                try:
+                    settled_terms = HumanCreditTerms.from_customer_charge(
+                        reservation.settled_amount
+                    )
+                except ValueError:
+                    issues.append(f"{prefix}: settled charge cannot split at 10 percent")
                     continue
 
                 await self._audit_reward(
                     session,
                     reservation.execution_reference_id,
                     reservation.final_transaction_id,
-                    terms.performer_reward,
-                    terms.platform_revenue,
+                    settled_terms.performer_reward,
+                    settled_terms.platform_revenue,
                     issues,
                 )
             return CreditAuditReport(len(earned_lots), len(rows), tuple(issues))

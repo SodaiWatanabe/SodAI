@@ -32,6 +32,7 @@ from app.domain.credits import (
     CreditSourceKind,
     CreditTransactionKind,
     FreeCreditAllowancePolicy,
+    HumanCreditTerms,
     InferenceTariff,
     InsufficientCreditsError,
     earned_credit_expiration,
@@ -2849,6 +2850,36 @@ async def test_cancelled_human_request_releases_the_full_reservation() -> None:
         assert reservation.status == CreditReservationStatus.RELEASED.value
         assert reservation.reserved_amount == terms.customer_charge
         assert reservation.settled_amount == 0
+
+
+@pytest.mark.anyio
+async def test_credit_audit_keeps_released_human_reservations_at_their_historical_price(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    requester = await create_user()
+    settings = get_settings()
+    factory = get_session_factory()
+    threads = ThreadService(
+        factory,
+        ModelDeploymentRegistry(settings.model_root),
+        settings,
+    )
+
+    creation = await threads.create(
+        requester,
+        "旧料金で取り消すHuman依頼",
+        AnswererId.HUMAN_LITE,
+        ReasoningEffort.LOW,
+    )
+    await threads.cancel(requester, creation.response.execution.id)
+
+    monkeypatch.setattr(
+        "app.services.credit_audit.get_human_credit_terms",
+        lambda _answerer, _effort: HumanCreditTerms.from_customer_charge(CREDIT_SCALE),
+    )
+    audit = await CreditAuditService(factory).audit()
+
+    assert audit.issues == ()
 
 
 @pytest.mark.anyio
