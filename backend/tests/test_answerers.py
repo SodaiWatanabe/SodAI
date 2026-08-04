@@ -91,15 +91,15 @@ def test_answerer_catalog_is_the_single_ui_source() -> None:
             AnswererId.HUMAN_PRO,
         )
     } == {
-        AnswererId.HUMAN_LITE: [(ReasoningEffort.LOW, 120)],
+        AnswererId.HUMAN_LITE: [(ReasoningEffort.LOW, 180)],
         AnswererId.HUMAN_STANDARD: [
-            (ReasoningEffort.LOW, 120),
-            (ReasoningEffort.MEDIUM, 300),
+            (ReasoningEffort.LOW, 180),
+            (ReasoningEffort.MEDIUM, 480),
             (ReasoningEffort.HIGH, 1200),
         ],
         AnswererId.HUMAN_PRO: [
-            (ReasoningEffort.LOW, 120),
-            (ReasoningEffort.MEDIUM, 300),
+            (ReasoningEffort.LOW, 180),
+            (ReasoningEffort.MEDIUM, 480),
             (ReasoningEffort.HIGH, 1200),
             (ReasoningEffort.XHIGH, 3600),
         ],

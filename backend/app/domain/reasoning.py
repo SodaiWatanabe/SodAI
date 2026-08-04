@@ -28,8 +28,8 @@ class ReasoningEffortDefinition:
 
 REASONING_EFFORT_CATALOG = (
     ReasoningEffortDefinition(ReasoningEffort.NONE, "なし", None),
-    ReasoningEffortDefinition(ReasoningEffort.LOW, "軽い", timedelta(minutes=2)),
-    ReasoningEffortDefinition(ReasoningEffort.MEDIUM, "中程度", timedelta(minutes=5)),
+    ReasoningEffortDefinition(ReasoningEffort.LOW, "軽い", timedelta(minutes=3)),
+    ReasoningEffortDefinition(ReasoningEffort.MEDIUM, "中程度", timedelta(minutes=8)),
     ReasoningEffortDefinition(ReasoningEffort.HIGH, "深い", timedelta(minutes=20)),
     ReasoningEffortDefinition(ReasoningEffort.XHIGH, "非常に深い", timedelta(hours=1)),
 )

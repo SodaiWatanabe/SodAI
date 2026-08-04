@@ -18,21 +18,21 @@ const human = {
     {
       id: "low",
       name: "軽い",
-      execution_time_limit_seconds: 120,
+      execution_time_limit_seconds: 180,
       customer_charge: 500_000,
       performer_reward: 450_000,
     },
     {
       id: "medium",
       name: "中程度",
-      execution_time_limit_seconds: 300,
+      execution_time_limit_seconds: 480,
       customer_charge: 1_500_000,
       performer_reward: 1_350_000,
     },
     {
       id: "high",
       name: "深い",
-      execution_time_limit_seconds: 600,
+      execution_time_limit_seconds: 1200,
       customer_charge: 3_000_000,
       performer_reward: 2_700_000,
     },
@@ -60,7 +60,8 @@ test("Human Standardで未開放の非常に深いは既定値へ解決する", 
 });
 
 test("思考時間の上限を分または時間単位で表示する", () => {
-  assert.equal(formatReasoningTimeLimit(120), "最大2分間");
+  assert.equal(formatReasoningTimeLimit(180), "最大3分間");
+  assert.equal(formatReasoningTimeLimit(480), "最大8分間");
   assert.equal(formatReasoningTimeLimit(1200), "最大20分間");
   assert.equal(formatReasoningTimeLimit(3600), "最大1時間");
 });

@@ -116,8 +116,8 @@ async def test_reasoning_effort_sets_human_deadline_when_matching_starts() -> No
         await session.commit()
 
     expected_seconds = {
-        ReasoningEffort.LOW: 120,
-        ReasoningEffort.MEDIUM: 300,
+        ReasoningEffort.LOW: 180,
+        ReasoningEffort.MEDIUM: 480,
         ReasoningEffort.HIGH: 1200,
         ReasoningEffort.XHIGH: 3600,
     }

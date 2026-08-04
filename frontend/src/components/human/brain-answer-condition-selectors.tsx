@@ -229,9 +229,9 @@ export function BrainAnswerConditionSelectors({
             </p>
             <dl className="mt-2 grid grid-cols-[1fr_auto] gap-x-4 text-[var(--text)]">
               <dt>軽い</dt>
-              <dd>2分</dd>
+              <dd>3分</dd>
               <dt>中程度</dt>
-              <dd>5分</dd>
+              <dd>8分</dd>
               <dt>深い</dt>
               <dd>20分</dd>
               <dt>非常に深い</dt>

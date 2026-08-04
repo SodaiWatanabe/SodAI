@@ -84,8 +84,8 @@ Humanの回答可能時間は専用列へ保存せず、マッチ成立時に共
 
 | reasoning_effort | 表示名 | Human回答時間 | 利用可能モデル |
 | --- | --- | --- | --- |
-| `low` | 軽い | 2分 | Human Lite以上 |
-| `medium` | 中程度 | 5分 | Human Standard以上 |
+| `low` | 軽い | 3分 | Human Lite以上 |
+| `medium` | 中程度 | 8分 | Human Standard以上 |
 | `high` | 深い | 20分 | Human Standard以上 |
 | `xhigh` | 非常に深い | 1時間 | Human Pro |
 
