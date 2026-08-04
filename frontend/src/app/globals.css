@@ -526,7 +526,6 @@ button {
 }
 
 .brain-deadline-time-breathing {
-  will-change: opacity;
   animation: brain-deadline-breathe 1.8s ease-in-out infinite;
 }
 
@@ -552,11 +551,11 @@ button {
 @keyframes brain-deadline-breathe {
   0%,
   100% {
-    opacity: 1;
+    color: var(--text);
   }
 
   50% {
-    opacity: 0.24;
+    color: color-mix(in srgb, var(--text) 24%, transparent);
   }
 }
 
