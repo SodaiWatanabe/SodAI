@@ -529,7 +529,7 @@ button {
   animation: brain-deadline-breathe 1.8s ease-in-out infinite;
 }
 
-.human-search-status {
+.response-status-shimmer {
   display: inline-block;
   color: transparent;
   background-image: linear-gradient(
@@ -545,7 +545,7 @@ button {
   background-clip: text;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
-  animation: human-search-status-color-flow 1.8s linear infinite;
+  animation: response-status-color-flow 1.8s linear infinite;
 }
 
 @keyframes brain-deadline-breathe {
@@ -559,7 +559,7 @@ button {
   }
 }
 
-@keyframes human-search-status-color-flow {
+@keyframes response-status-color-flow {
   from {
     background-position: 100% 50%;
   }
@@ -631,7 +631,7 @@ button {
     transform: translate3d(88cqw, 0, 0);
   }
 
-  .human-search-status {
+  .response-status-shimmer {
     color: var(--muted);
     background: none;
     -webkit-text-fill-color: currentcolor;

@@ -16,6 +16,7 @@ export type Actor = {
 };
 
 export type ReasoningEffort = "none" | "low" | "medium" | "high" | "xhigh";
+export type GenerationPhase = "thinking" | "answering";
 export type ResponseEvaluationValue = "positive" | "negative";
 
 export type ThreadEntry = {
@@ -44,6 +45,7 @@ export type Execution = {
   attempt_id: string;
   partial_output: string;
   resolved_model: string | null;
+  generation_phase: GenerationPhase | null;
   error_code: string | null;
   created_at: string;
   evaluation: ResponseEvaluationValue | null;
@@ -128,6 +130,7 @@ export type RealtimeEvent = {
     | "entry.created"
     | "response.queued"
     | "response.started"
+    | "response.phase"
     | "response.delta"
     | "response.completed"
     | "response.failed"
@@ -151,6 +154,7 @@ export type RealtimeEvent = {
     title?: string;
     answerer?: string;
     resolved_model?: string;
+    phase?: GenerationPhase;
     error_code?: string;
     created_at?: string;
     updated_at?: string;

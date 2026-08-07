@@ -53,6 +53,7 @@ const thread: Thread = {
       attempt_id: "attempt",
       partial_output: "回答",
       resolved_model: "hina@test",
+      generation_phase: null,
       error_code: null,
       created_at: "2026-07-31T00:00:00Z",
       evaluation: null,

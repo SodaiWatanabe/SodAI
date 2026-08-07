@@ -11,7 +11,7 @@ const thread: Thread = {
   id: "thread",
   space_id: "space",
   title: "会話",
-  answerer: "hina",
+  answerer: "asuka-1",
   revision: 3,
   created_at: "2026-07-13T00:00:00Z",
   updated_at: "2026-07-13T00:00:00Z",
@@ -21,9 +21,9 @@ const thread: Thread = {
     id: "request",
     thread_id: "thread",
     input_entry_id: "entry",
-    requested_answerer: "hina",
+    requested_answerer: "asuka-1",
     reasoning_effort: "none",
-    target_actor: { id: "hina", kind: "model", name: "Hina" },
+    target_actor: { id: "asuka-1", kind: "model", name: "Asuka 1" },
     status: "running",
     created_at: "2026-07-13T00:00:00Z",
     execution: {
@@ -31,13 +31,14 @@ const thread: Thread = {
       response_request_id: "request",
       thread_id: "thread",
       result_entry_id: null,
-      answerer: "hina",
-      target: "local:hina",
+      answerer: "asuka-1",
+      target: "local:asuka-1",
       status: "running",
       attempt_no: 2,
       attempt_id: "attempt-2",
       partial_output: "途中",
-      resolved_model: "hina@artifact",
+      resolved_model: "asuka-1@artifact",
+      generation_phase: "thinking",
       error_code: null,
       created_at: "2026-07-13T00:00:00Z",
       evaluation: null,
@@ -89,6 +90,46 @@ test("現在Executionの累積本文を置換する", () => {
   );
   assert.equal(decision.shouldSync, false);
   assert.equal(decision.next?.latest_response?.execution.partial_output, "途中までの本文");
+  assert.equal(
+    decision.next?.latest_response?.execution.generation_phase,
+    "answering",
+  );
+});
+
+test("phase eventは本文を変えずに回答状態へ単調遷移する", () => {
+  const decision = reduceThreadRealtime(
+    thread,
+    event("response.phase", { data: { phase: "answering" } }),
+  );
+
+  assert.equal(decision.shouldSync, false);
+  assert.equal(decision.next?.latest_response?.execution.partial_output, "途中");
+  assert.equal(
+    decision.next?.latest_response?.execution.generation_phase,
+    "answering",
+  );
+});
+
+test("phase eventでthinkingへ逆戻りしない", () => {
+  const answering: Thread = {
+    ...thread,
+    latest_response: {
+      ...thread.latest_response!,
+      execution: {
+        ...thread.latest_response!.execution,
+        generation_phase: "answering",
+      },
+    },
+  };
+  const decision = reduceThreadRealtime(
+    answering,
+    event("response.phase", { data: { phase: "thinking" } }),
+  );
+
+  assert.equal(
+    decision.next?.latest_response?.execution.generation_phase,
+    "answering",
+  );
 });
 
 test("terminal eventを反映したあと確定EntryをHTTP同期する", () => {
@@ -100,6 +141,7 @@ test("terminal eventを反映したあと確定EntryをHTTP同期する", () => 
   );
   assert.equal(decision.next?.latest_response?.status, "completed");
   assert.equal(decision.next?.latest_response?.execution.result_entry_id, "result");
+  assert.equal(decision.next?.latest_response?.execution.generation_phase, null);
   assert.equal(decision.shouldSync, true);
 });
 

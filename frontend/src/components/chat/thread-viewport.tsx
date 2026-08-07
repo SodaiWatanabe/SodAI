@@ -6,6 +6,10 @@ import { SearchHighlight } from "@/components/chat/search-highlight";
 import { MessageActions } from "@/components/chat/message-actions";
 import { resolveMessageBrain } from "@/components/chat/message-brain";
 import {
+  resolveResponseActivity,
+  responseActivityLabel,
+} from "@/components/chat/response-activity";
+import {
   appendStreamedText,
   createStreamedTextState,
   settleStreamedText,
@@ -262,13 +266,14 @@ export function ThreadViewport({
     : entries;
   const turnAnchorStartsThread =
     visibleEntries[0]?.id === turnAnchorEntryId;
-  const searchingForHuman =
-    humanResponse && thread?.latest_response?.status !== "running";
-  const responseStatusText = humanResponse
-    ? searchingForHuman
-      ? "利用可能な脳を探しています"
-      : "思考中"
-    : "SodAIが応答しています";
+  const responseActivity = resolveResponseActivity(
+    thread,
+    responding,
+    humanResponse,
+  );
+  const responseStatusText = responseActivity
+    ? responseActivityLabel(responseActivity)
+    : "";
   const latestRegenerableResponse =
     thread?.latest_response &&
     (thread.latest_response.status === "completed" ||
@@ -277,78 +282,85 @@ export function ThreadViewport({
       : undefined;
 
   return (
-    <section
-      aria-label="会話"
-      aria-busy={loading || responding}
-      className="relative isolate flex flex-1 flex-col"
-    >
+    <>
       {responding ? (
-        <span role="status" className="sr-only">
+        <span
+          role="status"
+          aria-atomic="true"
+          aria-live="polite"
+          className="sr-only"
+        >
           {responseStatusText}
         </span>
       ) : null}
 
-      {thread ? (
-        <div
-          className={`relative z-10 mx-auto w-full max-w-[760px] px-5 pb-12 sm:px-8 ${turnAnchorStartsThread ? "pt-4" : "pt-10"}`}
-        >
-          <div ref={messageListRef} className="space-y-8">
-            {visibleEntries.map((entry) => (
-              <ThreadMessage
-                key={entry.renderKey}
-                answerers={answerers}
-                entry={entry}
-                entryRef={
-                  entry.id === turnAnchorEntryId ? turnAnchorRef : undefined
-                }
-                searchQuery={targetSearchQuery}
-                searchAnchor={entry.id === targetEntryId}
-                turnAnchor={entry.id === turnAnchorEntryId}
-                regenerateResponseRequestId={
-                  entry.execution_id ===
-                  latestRegenerableResponse?.execution.id
-                    ? latestRegenerableResponse.id
-                    : undefined
-                }
-                regenerating={
-                  regeneratingResponseRequestId ===
-                  latestRegenerableResponse?.id
-                }
-                onEvaluationChange={onEvaluationChange}
-                onRegenerate={onRegenerate}
-              />
-            ))}
-            {waitingForFirstToken ? (
-              <article
+      <section
+        aria-label="会話"
+        aria-busy={loading || responding}
+        className="relative isolate flex flex-1 flex-col"
+      >
+        {thread ? (
+          <div
+            className={`relative z-10 mx-auto w-full max-w-[760px] px-5 pb-12 sm:px-8 ${turnAnchorStartsThread ? "pt-4" : "pt-10"}`}
+          >
+            <div ref={messageListRef} className="space-y-8">
+              {visibleEntries.map((entry) => (
+                <ThreadMessage
+                  key={entry.renderKey}
+                  answerers={answerers}
+                  entry={entry}
+                  entryRef={
+                    entry.id === turnAnchorEntryId ? turnAnchorRef : undefined
+                  }
+                  searchQuery={targetSearchQuery}
+                  searchAnchor={entry.id === targetEntryId}
+                  turnAnchor={entry.id === turnAnchorEntryId}
+                  regenerateResponseRequestId={
+                    entry.execution_id ===
+                    latestRegenerableResponse?.execution.id
+                      ? latestRegenerableResponse.id
+                      : undefined
+                  }
+                  regenerating={
+                    regeneratingResponseRequestId ===
+                    latestRegenerableResponse?.id
+                  }
+                  onEvaluationChange={onEvaluationChange}
+                  onRegenerate={onRegenerate}
+                />
+              ))}
+              {waitingForFirstToken ? (
+                <article
+                  aria-hidden="true"
+                  className="flex h-7 items-center justify-start text-[15px] leading-7 text-[var(--muted)]"
+                >
+                  {responseActivity !== "waiting" ? (
+                    <span className="response-status-shimmer">
+                      {responseStatusText}
+                    </span>
+                  ) : (
+                    <span className="response-waiting-dot" />
+                  )}
+                </article>
+              ) : null}
+            </div>
+            {turnAnchorEntryId &&
+            visibleEntries.some((entry) => entry.id === turnAnchorEntryId) ? (
+              <div
+                ref={turnSpacerRef}
                 aria-hidden="true"
-                className="flex h-7 items-center justify-start text-[15px] leading-7 text-[var(--muted)]"
-              >
-                {humanResponse ? (
-                  <span className="human-search-status">
-                    {responseStatusText}
-                  </span>
-                ) : (
-                  <span className="response-waiting-dot" />
-                )}
-              </article>
+                className="h-0 shrink-0"
+              />
             ) : null}
           </div>
-          {turnAnchorEntryId &&
-          visibleEntries.some((entry) => entry.id === turnAnchorEntryId) ? (
-            <div
-              ref={turnSpacerRef}
-              aria-hidden="true"
-              className="h-0 shrink-0"
-            />
-          ) : null}
-        </div>
-      ) : null}
+        ) : null}
 
-      {loading ? (
-        <div className="absolute inset-0 z-10 grid place-items-center bg-[var(--canvas)] text-[var(--muted)]">
-          <IOSSpinner label="会話を読み込み中" />
-        </div>
-      ) : null}
-    </section>
+        {loading ? (
+          <div className="absolute inset-0 z-10 grid place-items-center bg-[var(--canvas)] text-[var(--muted)]">
+            <IOSSpinner label="会話を読み込み中" />
+          </div>
+        ) : null}
+      </section>
+    </>
   );
 }

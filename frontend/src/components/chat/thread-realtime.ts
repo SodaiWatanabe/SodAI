@@ -3,6 +3,7 @@ import type { RealtimeEvent, Thread } from "@/lib/chat/types";
 const RESPONSE_EVENT_TYPES = new Set<RealtimeEvent["type"]>([
   "response.queued",
   "response.started",
+  "response.phase",
   "response.delta",
   "response.completed",
   "response.failed",
@@ -74,6 +75,17 @@ export function reduceThreadRealtime(
         : event.type === "response.cancelled"
           ? "cancelled"
         : "running";
+  const generationPhase = terminal
+    ? null
+    : event.type === "response.delta"
+      ? "answering"
+      : event.type === "response.started"
+        ? (event.data.phase ?? response.execution.generation_phase)
+        : event.type === "response.phase" &&
+            response.execution.generation_phase === "thinking" &&
+            event.data.phase === "answering"
+          ? "answering"
+          : response.execution.generation_phase;
   return {
     handled: true,
     shouldSync: terminal,
@@ -89,6 +101,7 @@ export function reduceThreadRealtime(
           partial_output: event.data.content ?? response.execution.partial_output,
           resolved_model:
             event.data.resolved_model ?? response.execution.resolved_model,
+          generation_phase: generationPhase,
           result_entry_id:
             event.data.result_entry_id ?? response.execution.result_entry_id,
           error_code: event.data.error_code ?? response.execution.error_code,

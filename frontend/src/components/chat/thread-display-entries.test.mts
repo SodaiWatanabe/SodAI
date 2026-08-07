@@ -48,6 +48,7 @@ const streaming: Thread = {
       attempt_id: "attempt",
       partial_output: "考えています",
       resolved_model: "hina@artifact",
+      generation_phase: "answering",
       error_code: null,
       created_at: "2026-07-16T00:00:01Z",
       evaluation: null,
