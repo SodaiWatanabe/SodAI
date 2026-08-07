@@ -21,19 +21,19 @@ class InferenceNamespace:
 
     @property
     def job_stream(self) -> str:
-        return f"{self.prefix}:jobs:v2"
+        return f"{self.prefix}:jobs:v3"
 
     @property
     def event_stream(self) -> str:
-        return f"{self.prefix}:events:v2"
+        return f"{self.prefix}:events:v3"
 
     @property
     def projector_group(self) -> str:
-        return f"{self._group_prefix}-projector-v2"
+        return f"{self._group_prefix}-projector-v3"
 
     @property
     def worker_group(self) -> str:
-        return f"{self._group_prefix}-workers-v2"
+        return f"{self._group_prefix}-workers-v3"
 
     def job_stream_for(self, model: str, artifact_id: str) -> str:
         self._validate_segment(model, "model")
@@ -52,7 +52,7 @@ class InferenceNamespace:
     def worker_readiness(self, model: str, artifact_id: str) -> str:
         self._validate_segment(model, "model")
         self._validate_segment(artifact_id, "artifact_id")
-        return f"{self.prefix}:worker:ready:{model}:{artifact_id}"
+        return f"{self.prefix}:worker:ready:v3:{model}:{artifact_id}"
 
     @property
     def key_pattern(self) -> str:

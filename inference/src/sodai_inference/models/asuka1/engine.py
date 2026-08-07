@@ -6,7 +6,7 @@ from pathlib import Path
 
 import torch
 from safetensors.torch import load_file
-from sodai_contracts.inference import FinishReason, GenerationJob
+from sodai_contracts.inference import FinishReason, GenerationJob, GenerationPhase
 
 from sodai_inference.architectures.rope_gpt import GPTConfig, RoPEGPT
 from sodai_inference.artifacts import ArtifactManifest, sha256_file, sha256_tree
@@ -22,6 +22,7 @@ REPETITION_PENALTY = 1.05
 
 class Asuka1Engine:
     model_name = "asuka-1"
+    initial_phase = GenerationPhase.THINKING
 
     def __init__(
         self,
@@ -101,13 +102,16 @@ class Asuka1Engine:
 
     def generate(self, prompt_ids: list[int], job: GenerationJob) -> Iterator[GenerationStep]:
         sequence = torch.tensor([prompt_ids], dtype=torch.long, device=self._device)
-        decoder = IncrementalTextDecoder(self._tokenizer)
+        thinking_decoder = IncrementalTextDecoder(self._tokenizer)
+        answer_decoder = IncrementalTextDecoder(self._tokenizer)
         generator = torch.Generator(device=self._device)
         generator.manual_seed(job.id.int % (2**63 - 1))
         generated_ids: list[int] = []
         answer_started = False
         finish_reason = FinishReason.LENGTH
         output_tokens = 0
+        thinking_tokens = 0
+        answer_tokens = 0
 
         with torch.inference_mode():
             logits, _, cache = self._model(sequence, use_cache=True)
@@ -122,16 +126,50 @@ class Asuka1Engine:
                 generated_ids.append(token_id)
 
                 if token_id == self._eot_id:
-                    answer_started = True
+                    if not answer_started:
+                        final_thinking_delta = thinking_decoder.finish()
+                        yield GenerationStep(
+                            GenerationPhase.THINKING,
+                            final_thinking_delta,
+                            thinking_decoder.content,
+                            output_tokens,
+                            thinking_tokens,
+                        )
+                        answer_started = True
+                        yield GenerationStep(
+                            GenerationPhase.ANSWERING,
+                            "",
+                            answer_decoder.content,
+                            output_tokens,
+                            answer_tokens,
+                        )
                 elif token_id in self._stop_token_ids:
                     if not answer_started:
                         raise ValueError("Asuka 1 stopped before the <|eot|> boundary")
                     finish_reason = FinishReason.STOP
                     break
                 elif answer_started:
-                    delta = decoder.push(token_id)
+                    answer_tokens += 1
+                    delta = answer_decoder.push(token_id)
                     if delta:
-                        yield GenerationStep(delta, decoder.content, output_tokens)
+                        yield GenerationStep(
+                            GenerationPhase.ANSWERING,
+                            delta,
+                            answer_decoder.content,
+                            output_tokens,
+                            answer_tokens,
+                        )
+                else:
+                    thinking_tokens += 1
+                    delta = thinking_decoder.push(token_id)
+                    if delta:
+                        yield GenerationStep(
+                            GenerationPhase.THINKING,
+                            delta,
+                            thinking_decoder.content,
+                            output_tokens,
+                            thinking_tokens,
+                        )
 
                 if output_tokens < job.options.max_output_tokens:
                     logits, _, cache = self._model(
@@ -142,10 +180,23 @@ class Asuka1Engine:
 
         if not answer_started:
             raise ValueError("Asuka 1 did not produce the <|eot|> boundary")
-        final_delta = decoder.finish()
+        final_delta = answer_decoder.finish()
         if final_delta:
-            yield GenerationStep(final_delta, decoder.content, output_tokens)
-        yield GenerationStep("", decoder.content, output_tokens, finish_reason)
+            yield GenerationStep(
+                GenerationPhase.ANSWERING,
+                final_delta,
+                answer_decoder.content,
+                output_tokens,
+                answer_tokens,
+            )
+        yield GenerationStep(
+            GenerationPhase.ANSWERING,
+            "",
+            answer_decoder.content,
+            output_tokens,
+            answer_tokens,
+            finish_reason,
+        )
 
     @staticmethod
     def _sample(

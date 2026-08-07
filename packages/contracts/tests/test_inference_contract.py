@@ -10,6 +10,7 @@ from sodai_contracts.inference import (
     GenerationEventType,
     GenerationJob,
     GenerationOptions,
+    GenerationPhase,
     GenerationTurn,
     InferenceCorrelation,
     InferenceNamespace,
@@ -29,10 +30,13 @@ def test_inference_namespace_preserves_production_keys_and_isolates_test_runs() 
     production = InferenceNamespace()
     isolated = InferenceNamespace(f"sodai:e2e:{uuid4().hex}:inference")
 
-    assert production.job_stream == "sodai:inference:jobs:v2"
-    assert production.event_stream == "sodai:inference:events:v2"
-    assert production.projector_group == "sodai-inference-projector-v2"
-    assert production.worker_group == "sodai-inference-workers-v2"
+    assert production.job_stream == "sodai:inference:jobs:v3"
+    assert production.event_stream == "sodai:inference:events:v3"
+    assert production.projector_group == "sodai-inference-projector-v3"
+    assert production.worker_group == "sodai-inference-workers-v3"
+    assert production.worker_readiness("hina", "artifact").endswith(
+        ":worker:ready:v3:hina:artifact"
+    )
     assert isolated.job_stream != production.job_stream
     assert isolated.attempt_lock(uuid4()).startswith(isolated.prefix)
     assert isolated.attempt_cancellation(uuid4()).endswith(":cancelled")
@@ -121,11 +125,112 @@ def test_generation_event_round_trip_preserves_completion_metadata() -> None:
         sequence=13,
         thread_id=uuid4(),
         content="応答",
+        thinking_content="考えました。",
         output_tokens=12,
+        thinking_tokens=4,
+        answer_tokens=6,
         finish_reason=FinishReason.STOP,
     )
 
     assert GenerationEvent.from_json(event.to_json()) == event
+
+
+def test_generation_event_round_trip_preserves_thinking_phase() -> None:
+    event = GenerationEvent.create(
+        GenerationEventType.THINKING_DELTA,
+        execution_id=uuid4(),
+        attempt_id=uuid4(),
+        sequence=2,
+        thread_id=uuid4(),
+        delta="考え中",
+        output_tokens=3,
+        thinking_tokens=3,
+    )
+
+    assert GenerationEvent.from_json(event.to_json()) == event
+
+    changed = GenerationEvent.create(
+        GenerationEventType.PHASE_CHANGED,
+        execution_id=event.execution_id,
+        attempt_id=event.attempt_id,
+        sequence=3,
+        thread_id=event.thread_id,
+        phase=GenerationPhase.ANSWERING,
+        output_tokens=4,
+        thinking_tokens=3,
+        answer_tokens=0,
+    )
+    assert GenerationEvent.from_json(changed.to_json()) == changed
+
+
+@pytest.mark.parametrize(
+    ("values", "message"),
+    [
+        (
+            {"output_tokens": True, "thinking_tokens": True},
+            "output_tokens must be an integer",
+        ),
+        (
+            {"output_tokens": 1, "thinking_tokens": -1},
+            "thinking_tokens cannot be negative",
+        ),
+        (
+            {"output_tokens": 1, "thinking_tokens": 2},
+            "thinking_tokens cannot exceed output_tokens",
+        ),
+    ],
+)
+def test_thinking_event_rejects_invalid_token_counts(values, message: str) -> None:
+    with pytest.raises(ValueError, match=message):
+        GenerationEvent.create(
+            GenerationEventType.THINKING_DELTA,
+            execution_id=uuid4(),
+            attempt_id=uuid4(),
+            sequence=1,
+            thread_id=uuid4(),
+            delta="考え中",
+            **values,
+        )
+
+
+@pytest.mark.parametrize(
+    ("values", "message"),
+    [
+        (
+            {"output_tokens": 1, "answer_tokens": 2},
+            "answer_tokens cannot exceed output_tokens",
+        ),
+        (
+            {
+                "output_tokens": 2,
+                "thinking_tokens": 1,
+                "answer_tokens": 2,
+            },
+            "channel token counts cannot exceed output_tokens",
+        ),
+    ],
+)
+def test_generation_event_rejects_channel_counts_beyond_total(
+    values, message: str
+) -> None:
+    event_type = (
+        GenerationEventType.DELTA
+        if "thinking_tokens" not in values
+        else GenerationEventType.PHASE_CHANGED
+    )
+    event_values = {"delta": "回答"} if event_type is GenerationEventType.DELTA else {
+        "phase": GenerationPhase.ANSWERING
+    }
+    with pytest.raises(ValueError, match=message):
+        GenerationEvent.create(
+            event_type,
+            execution_id=uuid4(),
+            attempt_id=uuid4(),
+            sequence=1,
+            thread_id=uuid4(),
+            **event_values,
+            **values,
+        )
 
 
 def test_inference_logs_are_correlated_without_prompt_content(caplog) -> None:

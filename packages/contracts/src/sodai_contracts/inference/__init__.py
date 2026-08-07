@@ -1,7 +1,8 @@
-from sodai_contracts.inference.v2 import (
+from sodai_contracts.inference.v3 import (
     FinishReason,
     GenerationEvent,
     GenerationEventType,
+    GenerationPhase,
     GenerationJob,
     GenerationOptions,
     GenerationTurn,
@@ -20,6 +21,7 @@ __all__ = [
     "FinishReason",
     "GenerationEvent",
     "GenerationEventType",
+    "GenerationPhase",
     "GenerationJob",
     "GenerationOptions",
     "GenerationTurn",

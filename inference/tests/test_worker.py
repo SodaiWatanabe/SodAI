@@ -9,6 +9,7 @@ from sodai_contracts.inference import (
     GenerationEvent,
     GenerationEventType,
     GenerationJob,
+    GenerationPhase,
     GenerationTurn,
     InferenceCorrelation,
     InferenceSpeaker,
@@ -22,6 +23,7 @@ from sodai_inference.worker import InferenceWorker
 class StubHina:
     model_name = "hina"
     resolved_model = "hina@artifact"
+    initial_phase = GenerationPhase.ANSWERING
     manifest = SimpleNamespace(artifact_id="artifact")
 
     @staticmethod
@@ -30,9 +32,42 @@ class StubHina:
 
     @staticmethod
     def generate(prompt_ids: list[int], job: GenerationJob):
-        yield GenerationStep("ab", "ab", 1)
-        yield GenerationStep("cd", "abcd", 2)
-        yield GenerationStep("", "abcd", 2, FinishReason.STOP)
+        yield GenerationStep(GenerationPhase.ANSWERING, "ab", "ab", 1, 1)
+        yield GenerationStep(GenerationPhase.ANSWERING, "cd", "abcd", 2, 2)
+        yield GenerationStep(
+            GenerationPhase.ANSWERING,
+            "",
+            "abcd",
+            2,
+            2,
+            FinishReason.STOP,
+        )
+
+
+class StubAsuka:
+    model_name = "asuka-1"
+    resolved_model = "asuka-1@artifact"
+    initial_phase = GenerationPhase.THINKING
+    manifest = SimpleNamespace(artifact_id="artifact")
+
+    @staticmethod
+    def build_prompt(job: GenerationJob) -> list[int]:
+        return [1, 2, 3]
+
+    @staticmethod
+    def generate(prompt_ids: list[int], job: GenerationJob):
+        yield GenerationStep(GenerationPhase.THINKING, "考", "考", 1, 1)
+        yield GenerationStep(GenerationPhase.THINKING, "え", "考え", 2, 2)
+        yield GenerationStep(GenerationPhase.ANSWERING, "", "", 3, 0)
+        yield GenerationStep(GenerationPhase.ANSWERING, "答え", "答え", 4, 1)
+        yield GenerationStep(
+            GenerationPhase.ANSWERING,
+            "",
+            "答え",
+            5,
+            1,
+            FinishReason.STOP,
+        )
 
 
 class RecordingWorker(InferenceWorker):
@@ -41,6 +76,7 @@ class RecordingWorker(InferenceWorker):
         *,
         cancel_after_checks: int | None = None,
         fail_at: int | None = None,
+        engine=None,
     ) -> None:
         settings = Settings(
             model_root=Path("."),
@@ -49,7 +85,7 @@ class RecordingWorker(InferenceWorker):
             device="cpu",
             consumer_name="test",
         )
-        super().__init__(settings, None, StubHina())  # type: ignore[arg-type]
+        super().__init__(settings, None, engine or StubHina())  # type: ignore[arg-type]
         self.events: list[GenerationEvent] = []
         self.fail_at = fail_at
         self.cancel_after_checks = cancel_after_checks
@@ -147,9 +183,75 @@ async def test_retry_resumes_after_the_atomically_recorded_sequence() -> None:
     assert [event.sequence for event in worker.events] == [1, 2]
 
 
+@pytest.mark.parametrize(
+    ("resume_after_sequence", "expected_types"),
+    [
+        (
+            0,
+            [
+                GenerationEventType.THINKING_DELTA,
+                GenerationEventType.PHASE_CHANGED,
+                GenerationEventType.DELTA,
+                GenerationEventType.COMPLETED,
+            ],
+        ),
+        (
+            1,
+            [
+                GenerationEventType.PHASE_CHANGED,
+                GenerationEventType.DELTA,
+                GenerationEventType.COMPLETED,
+            ],
+        ),
+        (2, [GenerationEventType.DELTA, GenerationEventType.COMPLETED]),
+        (3, [GenerationEventType.COMPLETED]),
+    ],
+)
 @pytest.mark.asyncio
-async def test_cancellation_stops_before_a_terminal_generation_event() -> None:
-    worker = RecordingWorker(cancel_after_checks=3)
+async def test_asuka_retry_resumes_across_every_phase_boundary(
+    resume_after_sequence: int,
+    expected_types: list[GenerationEventType],
+) -> None:
+    worker = RecordingWorker(engine=StubAsuka())
+
+    await worker._generate(job(), resume_after_sequence=resume_after_sequence)
+
+    assert [event.type for event in worker.events] == expected_types
+    assert [event.sequence for event in worker.events] == list(
+        range(resume_after_sequence + 1, 5)
+    )
+
+
+@pytest.mark.asyncio
+async def test_thinking_and_answer_buffers_emit_separate_ordered_events() -> None:
+    worker = RecordingWorker(engine=StubAsuka())
+
+    await worker._generate(job())
+
+    assert [event.type for event in worker.events] == [
+        GenerationEventType.STARTED,
+        GenerationEventType.THINKING_DELTA,
+        GenerationEventType.PHASE_CHANGED,
+        GenerationEventType.DELTA,
+        GenerationEventType.COMPLETED,
+    ]
+    assert [event.sequence for event in worker.events] == [0, 1, 2, 3, 4]
+    thinking, phase, answer, completed = worker.events[1:]
+    assert thinking.delta == "考え"
+    assert thinking.thinking_tokens == 2
+    assert phase.phase is GenerationPhase.ANSWERING
+    assert answer.delta == "答え"
+    assert answer.answer_tokens == 1
+    assert completed.thinking_content == "考え"
+    assert completed.content == "答え"
+    assert completed.thinking_tokens == 2
+    assert completed.answer_tokens == 1
+    assert completed.output_tokens == 5
+
+
+@pytest.mark.asyncio
+async def test_cancellation_flushes_answer_buffer_before_stopping() -> None:
+    worker = RecordingWorker(cancel_after_checks=2)
 
     await worker._generate(job())
 
@@ -157,6 +259,20 @@ async def test_cancellation_stops_before_a_terminal_generation_event() -> None:
         GenerationEventType.STARTED,
         GenerationEventType.DELTA,
     ]
+    assert worker.events[-1].delta == "ab"
+
+
+@pytest.mark.asyncio
+async def test_cancellation_flushes_thinking_buffer_without_a_terminal_event() -> None:
+    worker = RecordingWorker(cancel_after_checks=2, engine=StubAsuka())
+
+    await worker._generate(job())
+
+    assert [event.type for event in worker.events] == [
+        GenerationEventType.STARTED,
+        GenerationEventType.THINKING_DELTA,
+    ]
+    assert worker.events[-1].delta == "考"
 
 
 @pytest.mark.asyncio

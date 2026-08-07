@@ -6,7 +6,7 @@ from pathlib import Path
 
 import torch
 from safetensors.torch import load_file
-from sodai_contracts.inference import FinishReason, GenerationJob
+from sodai_contracts.inference import FinishReason, GenerationJob, GenerationPhase
 
 from sodai_inference.architectures.absolute_position_gpt import AbsoluteGPT, GPTConfig
 from sodai_inference.artifacts import ArtifactManifest, sha256_file, sha256_tree
@@ -18,6 +18,7 @@ from sodai_inference.models.hina.prompt import HinaPromptBuilder, load_tokenizer
 
 class HinaEngine:
     model_name = "hina"
+    initial_phase = GenerationPhase.ANSWERING
 
     def __init__(
         self,
@@ -114,9 +115,29 @@ class HinaEngine:
                 sequence = torch.cat((sequence, next_token), dim=1)
                 delta = decoder.push(token_id)
                 if delta:
-                    yield GenerationStep(delta, decoder.content, output_tokens)
+                    yield GenerationStep(
+                        GenerationPhase.ANSWERING,
+                        delta,
+                        decoder.content,
+                        output_tokens,
+                        output_tokens,
+                    )
 
+        answer_tokens = output_tokens - (1 if finish_reason is FinishReason.STOP else 0)
         final_delta = decoder.finish()
         if final_delta:
-            yield GenerationStep(final_delta, decoder.content, output_tokens)
-        yield GenerationStep("", decoder.content, output_tokens, finish_reason)
+            yield GenerationStep(
+                GenerationPhase.ANSWERING,
+                final_delta,
+                decoder.content,
+                output_tokens,
+                answer_tokens,
+            )
+        yield GenerationStep(
+            GenerationPhase.ANSWERING,
+            "",
+            decoder.content,
+            output_tokens,
+            answer_tokens,
+            finish_reason,
+        )

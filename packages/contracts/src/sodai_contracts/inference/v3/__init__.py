@@ -1,7 +1,8 @@
-from sodai_contracts.inference.v2.messages import (
+from sodai_contracts.inference.v3.messages import (
     FinishReason,
     GenerationEvent,
     GenerationEventType,
+    GenerationPhase,
     GenerationJob,
     GenerationOptions,
     GenerationTurn,
@@ -12,8 +13,8 @@ from sodai_contracts.inference.v2.messages import (
     MAX_GENERATION_TURNS,
     MIN_INFERENCE_JOB_TIMEOUT_SECONDS,
 )
-from sodai_contracts.inference.v2.namespace import InferenceNamespace
-from sodai_contracts.inference.v2.observability import (
+from sodai_contracts.inference.v3.namespace import InferenceNamespace
+from sodai_contracts.inference.v3.observability import (
     InferenceCorrelation,
     log_inference_event,
 )
@@ -22,6 +23,7 @@ __all__ = [
     "FinishReason",
     "GenerationEvent",
     "GenerationEventType",
+    "GenerationPhase",
     "GenerationJob",
     "GenerationOptions",
     "GenerationTurn",

@@ -7,7 +7,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID, uuid4
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 MAX_GENERATION_TURNS = 32
 MAX_GENERATION_INPUT_BYTES = 64 * 1024
 INFERENCE_ATTEMPT_LOCK_SECONDS = 60
@@ -20,8 +20,15 @@ class InferenceSpeaker(str, Enum):
     SELF = "self"
 
 
+class GenerationPhase(str, Enum):
+    THINKING = "thinking"
+    ANSWERING = "answering"
+
+
 class GenerationEventType(str, Enum):
     STARTED = "started"
+    THINKING_DELTA = "thinking_delta"
+    PHASE_CHANGED = "phase_changed"
     DELTA = "delta"
     HEARTBEAT = "heartbeat"
     COMPLETED = "completed"
@@ -203,10 +210,14 @@ class GenerationEvent:
     thread_id: UUID
     occurred_at: datetime
     resolved_model: str | None = None
+    phase: GenerationPhase | None = None
     delta: str | None = None
     content: str | None = None
+    thinking_content: str | None = None
     input_tokens: int | None = None
     output_tokens: int | None = None
+    thinking_tokens: int | None = None
+    answer_tokens: int | None = None
     finish_reason: FinishReason | None = None
     error_code: str | None = None
 
@@ -215,16 +226,80 @@ class GenerationEvent:
             raise ValueError("occurred_at must be timezone-aware")
         if self.sequence < 0:
             raise ValueError("event sequence cannot be negative")
-        if self.type is GenerationEventType.STARTED and not self.resolved_model:
-            raise ValueError("started event requires resolved_model")
-        if self.type is GenerationEventType.DELTA:
+        if self.type is GenerationEventType.STARTED:
+            if not self.resolved_model or self.phase is None:
+                raise ValueError("started event requires resolved_model and phase")
+        if self.type is GenerationEventType.PHASE_CHANGED and (
+            self.phase is not GenerationPhase.ANSWERING
+        ):
+            raise ValueError("phase_changed event requires the answering phase")
+        if self.type in {
+            GenerationEventType.THINKING_DELTA,
+            GenerationEventType.DELTA,
+        }:
             if self.delta is None:
-                raise ValueError("delta event requires delta")
+                raise ValueError(f"{self.type.value} event requires delta")
+        if self.type is GenerationEventType.THINKING_DELTA and (
+            self.output_tokens is None or self.thinking_tokens is None
+        ):
+            raise ValueError(
+                "thinking_delta event requires output_tokens and thinking_tokens"
+            )
+        if self.type is GenerationEventType.DELTA and (
+            self.output_tokens is None or self.answer_tokens is None
+        ):
+            raise ValueError("delta event requires output_tokens and answer_tokens")
+        if self.type is GenerationEventType.PHASE_CHANGED and (
+            self.output_tokens is None
+            or self.thinking_tokens is None
+            or self.answer_tokens is None
+        ):
+            raise ValueError(
+                "phase_changed event requires output and channel token counts"
+            )
         if self.type is GenerationEventType.COMPLETED:
-            if self.content is None or self.finish_reason is None:
-                raise ValueError("completed event requires content and finish_reason")
+            if (
+                self.content is None
+                or self.thinking_content is None
+                or self.output_tokens is None
+                or self.thinking_tokens is None
+                or self.answer_tokens is None
+                or self.finish_reason is None
+            ):
+                raise ValueError(
+                    "completed event requires content, thinking content, token counts, "
+                    "and finish_reason"
+                )
         if self.type is GenerationEventType.FAILED and not self.error_code:
             raise ValueError("failed event requires error_code")
+        for name, count in (
+            ("input_tokens", self.input_tokens),
+            ("output_tokens", self.output_tokens),
+            ("thinking_tokens", self.thinking_tokens),
+            ("answer_tokens", self.answer_tokens),
+        ):
+            if count is not None:
+                if isinstance(count, bool) or not isinstance(count, int):
+                    raise ValueError(f"{name} must be an integer")
+                if count < 0:
+                    raise ValueError(f"{name} cannot be negative")
+        for name, count in (
+            ("thinking_tokens", self.thinking_tokens),
+            ("answer_tokens", self.answer_tokens),
+        ):
+            if (
+                self.output_tokens is not None
+                and count is not None
+                and count > self.output_tokens
+            ):
+                raise ValueError(f"{name} cannot exceed output_tokens")
+        if (
+            self.output_tokens is not None
+            and self.thinking_tokens is not None
+            and self.answer_tokens is not None
+            and self.thinking_tokens + self.answer_tokens > self.output_tokens
+        ):
+            raise ValueError("channel token counts cannot exceed output_tokens")
 
     @classmethod
     def create(
@@ -259,10 +334,14 @@ class GenerationEvent:
             "thread_id": str(self.thread_id),
             "occurred_at": self.occurred_at.isoformat(),
             "resolved_model": self.resolved_model,
+            "phase": self.phase.value if self.phase else None,
             "delta": self.delta,
             "content": self.content,
+            "thinking_content": self.thinking_content,
             "input_tokens": self.input_tokens,
             "output_tokens": self.output_tokens,
+            "thinking_tokens": self.thinking_tokens,
+            "answer_tokens": self.answer_tokens,
             "finish_reason": self.finish_reason.value if self.finish_reason else None,
             "error_code": self.error_code,
         }
@@ -273,6 +352,7 @@ class GenerationEvent:
         value = _json_object(payload)
         _require_schema_version(value)
         finish_reason = value.get("finish_reason")
+        phase = value.get("phase")
         return cls(
             id=UUID(_required_string(value, "id")),
             type=GenerationEventType(_required_string(value, "type")),
@@ -282,10 +362,14 @@ class GenerationEvent:
             thread_id=UUID(_required_string(value, "thread_id")),
             occurred_at=datetime.fromisoformat(_required_string(value, "occurred_at")),
             resolved_model=_optional_string(value, "resolved_model"),
+            phase=GenerationPhase(phase) if phase is not None else None,
             delta=_optional_string(value, "delta"),
             content=_optional_string(value, "content"),
+            thinking_content=_optional_string(value, "thinking_content"),
             input_tokens=_optional_int(value, "input_tokens"),
             output_tokens=_optional_int(value, "output_tokens"),
+            thinking_tokens=_optional_int(value, "thinking_tokens"),
+            answer_tokens=_optional_int(value, "answer_tokens"),
             finish_reason=FinishReason(finish_reason)
             if finish_reason is not None
             else None,

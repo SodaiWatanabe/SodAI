@@ -14,6 +14,7 @@ from sodai_contracts.inference import (
     GenerationEvent,
     GenerationEventType,
     GenerationJob,
+    GenerationPhase,
     InferenceCorrelation,
     log_inference_event,
 )
@@ -306,14 +307,50 @@ class InferenceWorker:
                 sequence=sequence,
                 thread_id=job.thread_id,
                 resolved_model=self._engine.resolved_model,
+                phase=self._engine.initial_phase,
                 input_tokens=len(prompt_ids),
             )
         )
+        current_phase = self._engine.initial_phase
         buffered_delta = ""
-        buffered_tokens = 0
+        buffered_output_tokens = 0
+        buffered_phase_tokens = 0
+        thinking_content = ""
+        thinking_tokens = 0
+        answer_content = ""
+        answer_tokens = 0
+
+        async def flush_delta() -> None:
+            nonlocal sequence, buffered_delta
+            if not buffered_delta:
+                return
+            sequence += 1
+            values: dict[str, object] = {
+                "delta": buffered_delta,
+                "output_tokens": buffered_output_tokens,
+            }
+            if current_phase is GenerationPhase.THINKING:
+                event_type = GenerationEventType.THINKING_DELTA
+                values["thinking_tokens"] = buffered_phase_tokens
+            else:
+                event_type = GenerationEventType.DELTA
+                values["answer_tokens"] = buffered_phase_tokens
+            await emit(
+                GenerationEvent.create(
+                    event_type,
+                    execution_id=job.execution_id,
+                    attempt_id=job.attempt_id,
+                    sequence=sequence,
+                    thread_id=job.thread_id,
+                    **values,
+                )
+            )
+            buffered_delta = ""
+
         steps = iter(self._engine.generate(prompt_ids, job))
         while True:
             if await self._cancel_requested(job):
+                await flush_delta()
                 steps.close()
                 log_inference_event(
                     logger,
@@ -332,6 +369,7 @@ class InferenceWorker:
                     "generation_ended_without_terminal_step",
                     correlation,
                 )
+                await flush_delta()
                 await emit(self._failed_event(job, sequence + 1))
                 return
             except Exception as error:
@@ -343,42 +381,44 @@ class InferenceWorker:
                     exc_info=True,
                     error_type=type(error).__name__,
                 )
+                await flush_delta()
                 await emit(self._failed_event(job, sequence + 1))
                 return
 
+            if step.phase is GenerationPhase.THINKING:
+                thinking_content = step.content
+                thinking_tokens = step.phase_tokens
+            else:
+                answer_content = step.content
+                answer_tokens = step.phase_tokens
+
+            if step.phase is not current_phase:
+                await flush_delta()
+                current_phase = step.phase
+                sequence += 1
+                await emit(
+                    GenerationEvent.create(
+                        GenerationEventType.PHASE_CHANGED,
+                        execution_id=job.execution_id,
+                        attempt_id=job.attempt_id,
+                        sequence=sequence,
+                        thread_id=job.thread_id,
+                        phase=current_phase,
+                        output_tokens=step.output_tokens,
+                        thinking_tokens=thinking_tokens,
+                        answer_tokens=answer_tokens,
+                    )
+                )
+
             if step.finish_reason is None:
                 buffered_delta += step.delta
-                buffered_tokens = step.output_tokens
-                if len(buffered_delta) < 4:
-                    continue
-                sequence += 1
-                await emit(
-                    GenerationEvent.create(
-                        GenerationEventType.DELTA,
-                        execution_id=job.execution_id,
-                        attempt_id=job.attempt_id,
-                        sequence=sequence,
-                        thread_id=job.thread_id,
-                        delta=buffered_delta,
-                        output_tokens=buffered_tokens,
-                    )
-                )
-                buffered_delta = ""
+                buffered_output_tokens = step.output_tokens
+                buffered_phase_tokens = step.phase_tokens
+                if len(buffered_delta) >= 4:
+                    await flush_delta()
                 continue
 
-            if buffered_delta:
-                sequence += 1
-                await emit(
-                    GenerationEvent.create(
-                        GenerationEventType.DELTA,
-                        execution_id=job.execution_id,
-                        attempt_id=job.attempt_id,
-                        sequence=sequence,
-                        thread_id=job.thread_id,
-                        delta=buffered_delta,
-                        output_tokens=buffered_tokens,
-                    )
-                )
+            await flush_delta()
             sequence += 1
             await emit(
                 GenerationEvent.create(
@@ -387,8 +427,11 @@ class InferenceWorker:
                     attempt_id=job.attempt_id,
                     sequence=sequence,
                     thread_id=job.thread_id,
-                    content=step.content,
+                    content=answer_content,
+                    thinking_content=thinking_content,
                     output_tokens=step.output_tokens,
+                    thinking_tokens=thinking_tokens,
+                    answer_tokens=answer_tokens,
                     finish_reason=step.finish_reason,
                 )
             )
@@ -484,7 +527,12 @@ class InferenceWorker:
         log_inference_event(
             logger,
             logging.DEBUG
-            if event.type in {GenerationEventType.DELTA, GenerationEventType.HEARTBEAT}
+            if event.type
+            in {
+                GenerationEventType.THINKING_DELTA,
+                GenerationEventType.DELTA,
+                GenerationEventType.HEARTBEAT,
+            }
             else logging.INFO,
             "generation_event_published",
             correlation,

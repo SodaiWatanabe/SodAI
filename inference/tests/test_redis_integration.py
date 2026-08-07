@@ -10,6 +10,7 @@ from sodai_contracts.inference import (
     GenerationEvent,
     GenerationEventType,
     GenerationJob,
+    GenerationPhase,
     GenerationTurn,
     InferenceCorrelation,
     InferenceNamespace,
@@ -28,6 +29,7 @@ pytestmark = pytest.mark.skipif(
 class StubHina:
     model_name = "hina"
     resolved_model = "hina@integration"
+    initial_phase = GenerationPhase.ANSWERING
     manifest = SimpleNamespace(artifact_id="integration")
 
 
@@ -70,6 +72,7 @@ async def test_event_publish_and_job_ack_are_atomic_in_redis() -> None:
             sequence=0,
             thread_id=job.thread_id,
             resolved_model="hina@integration",
+            phase=GenerationPhase.ANSWERING,
         )
         await worker._publish(event, progress_key, InferenceCorrelation.from_job(job))
         assert await redis.xlen(settings.inference_keys.event_stream) == 1

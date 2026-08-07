@@ -5,7 +5,7 @@ import logging
 from dataclasses import dataclass
 from uuid import UUID
 
-from sodai_contracts.inference.v2.messages import GenerationEvent, GenerationJob
+from sodai_contracts.inference.v3.messages import GenerationEvent, GenerationJob
 
 
 @dataclass(frozen=True, slots=True)

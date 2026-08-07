@@ -8,6 +8,7 @@ from sodai_contracts.inference import (
     FinishReason,
     GenerationJob,
     GenerationOptions,
+    GenerationPhase,
     GenerationTurn,
     InferenceSpeaker,
 )
@@ -24,6 +25,7 @@ class StubTokenizer:
     def decode(self, token_ids, **_kwargs):
         return {
             (): "",
+            (100,): "考え",
             (101,): "こ",
             (101, 102): "こんにちは",
         }[tuple(token_ids)]
@@ -59,14 +61,25 @@ def stub_engine(tokens: list[int]) -> Asuka1Engine:
     return engine
 
 
-def test_asuka1_hides_thinking_and_streams_only_after_eot() -> None:
+def test_asuka1_separates_thinking_from_answer_at_eot() -> None:
     engine = stub_engine([100, 11, 101, 102, 6])
 
     steps = list(engine.generate([1, 2], job()))
 
-    assert [step.delta for step in steps[:-1]] == ["こ", "んにちは"]
+    assert [step.phase for step in steps] == [
+        GenerationPhase.THINKING,
+        GenerationPhase.THINKING,
+        GenerationPhase.ANSWERING,
+        GenerationPhase.ANSWERING,
+        GenerationPhase.ANSWERING,
+        GenerationPhase.ANSWERING,
+    ]
+    assert [step.delta for step in steps[:-1]] == ["考え", "", "", "こ", "んにちは"]
+    assert steps[1].content == "考え"
+    assert steps[1].phase_tokens == 1
     assert steps[-1].content == "こんにちは"
     assert steps[-1].output_tokens == 5
+    assert steps[-1].phase_tokens == 2
     assert steps[-1].finish_reason is FinishReason.STOP
 
 
