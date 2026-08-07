@@ -39,9 +39,16 @@ Threadへの入力時は、次を同じPostgreSQL transactionで確定します�
 5. `model.generation.requested` outbox event
 6. 料金表snapshotと、必要な場合はクレジットの最大額予約
 
-生成中の本文は`Execution.partial_output`です。空のモデルEntryを先に作りません。completed eventの
-projector transactionだけが結果Entryを作り、ExecutionとResponseRequestをcompletedへ移します。
+生成中の回答本文は`Execution.partial_output`です。Asuka 1の内部思考は
+`Execution.thinking_output`へ別チャネルとして保存し、Entry、検索、次のprompt、公開HTTP API、
+公開WebSocketへは投影しません。`generation_phase`だけを公開し、本文を明かさずクライアントへ
+`thinking`／`answering`を伝えます。空のモデルEntryを先に作らず、completed eventのprojector
+transactionだけが回答を結果Entryとして作り、ExecutionとResponseRequestをcompletedへ移します。
 failed eventはエラー状態だけを確定し、会話履歴へ疑似メッセージを混ぜません。
+
+新しいモデルExecutionでは`thinking_tokens`と`answer_tokens`を0から計測します。既存履歴は
+計測不能なためNULLのままとし、0と区別します。`output_tokens`は停止・制御tokenを含む従来の
+課金用生成token総数であり、チャネル別token数の和はこれを超えません。
 
 terminal eventを投影するtransactionでは、使用量記録とクレジット予約の確定も同時に行います。
 completedは計測済みtokenから実額を確定し、failedとtimeoutは予約を全額解放します。イベント再配送で
@@ -60,8 +67,9 @@ Projectorはeventを適用、重複、gap保留、破棄へ分類します。gap
 適用されなかったeventを公開WebSocketへ流しません。完了済みExecutionへの同一event再送も
 結果Entryを増やしません。
 
-内部stream名とconsumer groupはcontract v2で分離しています。旧payloadを誤って処理せず、
-後方互換層を持ちません。
+内部stream名、consumer group、worker readiness keyはcontract v3で分離しています。旧payloadを
+誤って処理せず、後方互換層を持ちません。v2から切り替えるdeploymentでは、v2の実行中job、event、
+未publish outboxを先にdrainしてからAPIとworkerをv3へ同時に切り替えます。
 
 jobは直近32 Entry、本文合計64KiBまでです。guest・modelごとのactive Executionを1件、
 modelごとの合計を既定32件までに制限します。同じGPUを共有するworkerはresource pool名を
@@ -81,6 +89,11 @@ worker readinessを個別に列挙します。旧workerはactive件数がゼロ�
 eventとattemptの配送位置はRedis scriptで原子的に記録します。sampling seedとchunk境界はjobに
 対して決定的であり、同じartifact、runtime、device classでの再実行時に異なる文章を途中へ
 継ぎ足しません。現在のworker poolへ異種GPUを混在させることはサポートしません。
+
+明示的なcancelは現在APIで即時にExecutionをterminalへ移します。Workerはcancel検知時に手元の
+thinking／answer bufferをflushしますが、検知前にAPIがterminal化した未投影bufferまでの完全保存は
+保証しません。これは回答本文にも共通する制約です。cancel時も生成済みtokenを完全保存するには、
+将来`cancelling`状態とWorkerの終端snapshotを待つhandshakeを導入します。
 
 queued Executionにはjob deadline、running Executionには更新式leaseがあります。APIの
 reconcilerが期限切れをfailedへ収束させるため、Redis停止やworker消失でThreadが永久に送信不能に
@@ -144,8 +157,11 @@ resolved model    asuka-1@<artifact-id>
 `<|self|><|bot|><|eot|>...<|end_turn|>`として再構築し、過去thinkingは入力しません。
 512 tokenのうち標準で256 tokenを出力へ予約し、古いpartner/selfペアから除外します。
 
-生成中は`<|eot|>`までをworker内だけに保持し、PostgreSQLとWebSocketへ出しません。
-`<|eot|>`以降だけを回答として配信し、`<|end_turn|>`またはEOSで停止します。KV cache、FP16、
+生成中は`<|eot|>`までをthinking decoder、以降をanswer decoderで独立に復号します。Workerは
+thinking deltaを内部eventとして送り、projectorがPostgreSQLの非公開チャネルへ保存します。
+`<|eot|>`を一方向のphase境界として、回答deltaだけを`partial_output`と公開WebSocketへ投影します。
+`<|end_turn|>`またはEOSで停止します。terminal eventはthinking／answer両方の最終snapshotと
+チャネル別token数を持ち、再配送やbuffer境界によらずDBを同じ値へ収束させます。KV cache、FP16、
 temperature 0.85、top-p 0.9、top-k 40、repetition penalty 1.05を使用します。
 
 ## 運用状態と検証

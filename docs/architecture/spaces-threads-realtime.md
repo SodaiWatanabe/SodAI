@@ -89,12 +89,15 @@ key平文は保存せずSHA-256 hashだけをExecutionへ記録します。
 - `entry.created`
 - `response.queued`
 - `response.started`
+- `response.phase`
 - `response.delta`
 - `response.completed`
 - `response.failed`
 - `sync.required`
 
-`response.delta.data.content`はその時点の累積本文です。クライアントはdeltaの単純追加ではなく
+`response.started.data.phase`と`response.phase.data.phase`は生成中の`thinking`／`answering`を表します。
+Asuka 1のthinking本文は公開イベントへ含めず、UIはphaseだけから「思考中」を表示します。
+`response.delta.data.content`はその時点の累積回答本文です。クライアントはdeltaの単純追加ではなく
 累積本文で置換するため、再送でも重複しません。購読queueが溢れた場合は古い構造イベントを
 黙って落とさず`sync.required`へ置き換え、Thread一覧と表示中ThreadをHTTPで再取得して
 PostgreSQLのrevisionへ収束します。ページ再読込も同じ復元経路を使います。
