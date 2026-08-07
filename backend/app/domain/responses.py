@@ -6,6 +6,8 @@ from enum import Enum
 from typing import TYPE_CHECKING
 from uuid import UUID
 
+from sodai_contracts.inference import GenerationPhase
+
 from app.domain.answerers import AnswererId
 from app.domain.reasoning import ReasoningEffort
 
@@ -48,6 +50,7 @@ class Execution:
     partial_output: str
     resolved_model: str | None
     artifact_id: str | None
+    generation_phase: GenerationPhase | None
     error_code: str | None
     created_at: datetime
     evaluation: ResponseEvaluationValue | None = None

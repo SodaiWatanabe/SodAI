@@ -10,6 +10,7 @@ from sodai_contracts.inference import (
     GenerationEvent,
     GenerationEventType,
     GenerationJob,
+    GenerationPhase,
 )
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import DBAPIError
@@ -579,6 +580,7 @@ async def test_asuka_uses_free_allowance_and_settles_one_tenth_credit() -> None:
             sequence=0,
             thread_id=creation.thread.id,
             resolved_model=ASUKA1_TEST_RESOLVED_MODEL,
+            phase=GenerationPhase.THINKING,
         ),
         GenerationEvent.create(
             GenerationEventType.COMPLETED,
@@ -587,6 +589,10 @@ async def test_asuka_uses_free_allowance_and_settles_one_tenth_credit() -> None:
             sequence=1,
             thread_id=creation.thread.id,
             content="paid completion",
+            thinking_content="",
+            output_tokens=2,
+            thinking_tokens=0,
+            answer_tokens=1,
             finish_reason=FinishReason.STOP,
         ),
     )
@@ -1954,6 +1960,7 @@ async def test_user_deletion_pseudonymizes_but_preserves_the_ledger() -> None:
         sequence=0,
         thread_id=creation.thread.id,
         resolved_model=ASUKA1_TEST_RESOLVED_MODEL,
+        phase=GenerationPhase.THINKING,
         input_tokens=0,
     )
     completed = GenerationEvent.create(
@@ -1963,7 +1970,10 @@ async def test_user_deletion_pseudonymizes_but_preserves_the_ledger() -> None:
         sequence=1,
         thread_id=creation.thread.id,
         content="retained",
+        thinking_content="",
         output_tokens=0,
+        thinking_tokens=0,
+        answer_tokens=0,
         finish_reason=FinishReason.STOP,
     )
     async with factory() as session:
@@ -2079,6 +2089,7 @@ async def test_inference_billing_records_usage_and_is_terminally_idempotent() ->
         sequence=0,
         thread_id=creation.thread.id,
         resolved_model=ASUKA1_TEST_RESOLVED_MODEL,
+        phase=GenerationPhase.THINKING,
         input_tokens=10,
     )
     completed = GenerationEvent.create(
@@ -2088,7 +2099,10 @@ async def test_inference_billing_records_usage_and_is_terminally_idempotent() ->
         sequence=1,
         thread_id=creation.thread.id,
         content="recorded",
+        thinking_content="考えた",
         output_tokens=5,
+        thinking_tokens=1,
+        answer_tokens=2,
         finish_reason=FinishReason.STOP,
     )
     async with factory() as session:
@@ -2185,6 +2199,7 @@ async def test_cancelled_inference_preserves_partial_output_and_settles_actual_u
             sequence=0,
             thread_id=creation.thread.id,
             resolved_model=ASUKA1_TEST_RESOLVED_MODEL,
+            phase=GenerationPhase.THINKING,
             input_tokens=10,
         ),
         GenerationEvent.create(
@@ -2195,6 +2210,7 @@ async def test_cancelled_inference_preserves_partial_output_and_settles_actual_u
             thread_id=creation.thread.id,
             delta="回答の途中",
             output_tokens=3,
+            answer_tokens=2,
         ),
     )
     for event in events:
@@ -2280,6 +2296,7 @@ async def test_model_completion_and_cancellation_finalize_exactly_once() -> None
             sequence=0,
             thread_id=creation.thread.id,
             resolved_model=ASUKA1_TEST_RESOLVED_MODEL,
+            phase=GenerationPhase.THINKING,
             input_tokens=10,
         ),
         GenerationEvent.create(
@@ -2290,6 +2307,7 @@ async def test_model_completion_and_cancellation_finalize_exactly_once() -> None
             thread_id=creation.thread.id,
             delta="競合前の部分回答",
             output_tokens=3,
+            answer_tokens=2,
         ),
     ):
         async with factory() as session:
@@ -2303,7 +2321,10 @@ async def test_model_completion_and_cancellation_finalize_exactly_once() -> None
         sequence=2,
         thread_id=creation.thread.id,
         content="競合に勝った完全回答",
+        thinking_content="考えた",
         output_tokens=5,
+        thinking_tokens=1,
+        answer_tokens=2,
         finish_reason=FinishReason.STOP,
     )
 
@@ -2562,6 +2583,7 @@ async def test_unmetered_paid_completion_uses_the_explicit_fallback() -> None:
             sequence=0,
             thread_id=creation.thread.id,
             resolved_model=ASUKA1_TEST_RESOLVED_MODEL,
+            phase=GenerationPhase.THINKING,
         ),
         GenerationEvent.create(
             GenerationEventType.COMPLETED,
@@ -2570,6 +2592,10 @@ async def test_unmetered_paid_completion_uses_the_explicit_fallback() -> None:
             sequence=1,
             thread_id=creation.thread.id,
             content="unmetered",
+            thinking_content="",
+            output_tokens=2,
+            thinking_tokens=0,
+            answer_tokens=1,
             finish_reason=FinishReason.STOP,
         ),
     )

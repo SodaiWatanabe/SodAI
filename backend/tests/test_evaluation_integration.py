@@ -3,7 +3,12 @@ from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 import pytest
-from sodai_contracts.inference import FinishReason, GenerationEvent, GenerationEventType
+from sodai_contracts.inference import (
+    FinishReason,
+    GenerationEvent,
+    GenerationEventType,
+    GenerationPhase,
+)
 from sqlalchemy import func, select
 
 from app.db.session import dispose_engine, get_session_factory
@@ -87,6 +92,7 @@ async def complete_response(creation, content: str) -> None:
             sequence=0,
             thread_id=creation.thread.id,
             resolved_model="hina@evaluation-integration",
+            phase=GenerationPhase.ANSWERING,
         ),
         GenerationEvent.create(
             GenerationEventType.COMPLETED,
@@ -95,6 +101,10 @@ async def complete_response(creation, content: str) -> None:
             sequence=1,
             thread_id=creation.thread.id,
             content=content,
+            thinking_content="",
+            output_tokens=2,
+            thinking_tokens=0,
+            answer_tokens=1,
             finish_reason=FinishReason.STOP,
         ),
     )

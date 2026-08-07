@@ -9,6 +9,7 @@ from sodai_contracts.inference import (
     MAX_GENERATION_TURNS,
     GenerationEvent,
     GenerationEventType,
+    GenerationPhase,
     GenerationTurn,
     InferenceSpeaker,
 )
@@ -586,6 +587,9 @@ class SqlAlchemyThreadRepository:
             resolved_model=None,
             artifact_id=latest_execution.model_execution.artifact_id,
         )
+        execution.thinking_output = ""
+        execution.thinking_tokens = 0
+        execution.answer_tokens = 0
         request.executions.append(execution)
         request.status = ResponseStatus.QUEUED.value
         request.finished_at = None
@@ -693,6 +697,7 @@ class SqlAlchemyThreadRepository:
                 execution.partial_output,
             )
         execution.status = ResponseStatus.CANCELLED.value
+        execution.generation_phase = None
         execution.error_code = None
         execution.finish_reason = None
         execution.finished_at = now
@@ -807,6 +812,9 @@ class SqlAlchemyThreadRepository:
                 resolved_model=None,
                 artifact_id=artifact_id,
             )
+            execution.thinking_output = ""
+            execution.thinking_tokens = 0
+            execution.answer_tokens = 0
         self._session.add_all([response_request, execution])
         await self._session.flush()
         return response_request
@@ -1204,6 +1212,7 @@ class SqlAlchemyThreadRepository:
             last_event_id=execution.last_event_id,
             last_event_type=execution.last_event_type,
             execution_status=execution.status,
+            generation_phase=execution.generation_phase,
             event=event,
         )
         if disposition in {EventDisposition.IGNORE, EventDisposition.DEFER}:
@@ -1241,6 +1250,7 @@ class SqlAlchemyThreadRepository:
             execution.started_at = execution.started_at or now
             execution.lease_expires_at = now + timedelta(minutes=3)
             execution.input_tokens = event.input_tokens
+            execution.generation_phase = event.phase.value if event.phase else None
             model_execution.resolved_model = event.resolved_model
             request.status = ResponseStatus.RUNNING.value
             request.started_at = request.started_at or now
@@ -1248,19 +1258,38 @@ class SqlAlchemyThreadRepository:
         if event.type is GenerationEventType.HEARTBEAT:
             execution.lease_expires_at = now + timedelta(minutes=3)
             return
+        if event.type is GenerationEventType.THINKING_DELTA:
+            execution.thinking_output = (execution.thinking_output or "") + (event.delta or "")
+            execution.thinking_tokens = event.thinking_tokens
+            execution.output_tokens = event.output_tokens
+            execution.lease_expires_at = now + timedelta(minutes=3)
+            return
+        if event.type is GenerationEventType.PHASE_CHANGED:
+            execution.generation_phase = event.phase.value if event.phase else None
+            execution.thinking_tokens = event.thinking_tokens
+            execution.answer_tokens = event.answer_tokens
+            execution.output_tokens = event.output_tokens
+            execution.lease_expires_at = now + timedelta(minutes=3)
+            return
         if event.type is GenerationEventType.DELTA:
             execution.partial_output += event.delta or ""
+            execution.generation_phase = GenerationPhase.ANSWERING.value
+            execution.answer_tokens = event.answer_tokens
             execution.output_tokens = event.output_tokens
             execution.lease_expires_at = now + timedelta(minutes=3)
             return
         if event.type is GenerationEventType.COMPLETED:
             content = event.content if event.content is not None else execution.partial_output
+            execution.thinking_output = event.thinking_content
+            execution.thinking_tokens = event.thinking_tokens
+            execution.answer_tokens = event.answer_tokens
+            execution.output_tokens = event.output_tokens
             if not content.strip():
                 self._fail_execution(execution, request, thread, now, "empty_generation")
                 return
             await complete_response(self._session, execution, request, thread, content, now)
-            execution.output_tokens = event.output_tokens
             execution.finish_reason = event.finish_reason.value if event.finish_reason else None
+            execution.generation_phase = None
             return
         self._fail_execution(
             execution,
@@ -1279,6 +1308,7 @@ class SqlAlchemyThreadRepository:
         error_code: str,
     ) -> None:
         execution.status = ResponseStatus.FAILED.value
+        execution.generation_phase = None
         execution.error_code = error_code
         execution.finish_reason = "error"
         execution.finished_at = now
@@ -1374,6 +1404,7 @@ class SqlAlchemyThreadRepository:
             result_entry_id=execution.result_entry_id,
             content=execution.partial_output,
             status=execution.status,
+            generation_phase=execution.generation_phase,
             error_code=execution.error_code,
         )
 
@@ -1656,6 +1687,9 @@ class SqlAlchemyThreadRepository:
             partial_output=model.partial_output,
             resolved_model=(model_execution.resolved_model if model_execution else None),
             artifact_id=(model_execution.artifact_id if model_execution else None),
+            generation_phase=(
+                GenerationPhase(model.generation_phase) if model.generation_phase else None
+            ),
             error_code=model.error_code,
             created_at=model.created_at,
             evaluation=(

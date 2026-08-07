@@ -422,6 +422,24 @@ class ExecutionModel(Base):
             name="idempotency_key_hash",
         ),
         CheckConstraint(
+            "thinking_tokens IS NULL OR thinking_tokens >= 0",
+            name="thinking_tokens_nonnegative",
+        ),
+        CheckConstraint(
+            "answer_tokens IS NULL OR answer_tokens >= 0",
+            name="answer_tokens_nonnegative",
+        ),
+        CheckConstraint(
+            "thinking_tokens IS NULL OR answer_tokens IS NULL OR output_tokens IS NULL OR "
+            "thinking_tokens + answer_tokens <= output_tokens",
+            name="channel_tokens_within_output",
+        ),
+        CheckConstraint(
+            "generation_phase IS NULL OR (status = 'running' AND "
+            "generation_phase IN ('thinking', 'answering'))",
+            name="generation_phase",
+        ),
+        CheckConstraint(
             "(status = 'queued' AND started_at IS NULL AND finished_at IS NULL "
             "AND result_entry_id IS NULL AND error_code IS NULL) OR "
             "(status = 'running' AND started_at IS NOT NULL AND finished_at IS NULL "
@@ -499,6 +517,7 @@ class ExecutionModel(Base):
         String(32), nullable=False, default="queued", server_default="queued"
     )
     partial_output: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    thinking_output: Mapped[str | None] = mapped_column(Text)
     result_entry_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     error_code: Mapped[str | None] = mapped_column(String(64))
     last_event_sequence: Mapped[int] = mapped_column(
@@ -508,6 +527,9 @@ class ExecutionModel(Base):
     last_event_type: Mapped[str | None] = mapped_column(String(32))
     input_tokens: Mapped[int | None] = mapped_column(Integer)
     output_tokens: Mapped[int | None] = mapped_column(Integer)
+    thinking_tokens: Mapped[int | None] = mapped_column(Integer)
+    answer_tokens: Mapped[int | None] = mapped_column(Integer)
+    generation_phase: Mapped[str | None] = mapped_column(String(16))
     finish_reason: Mapped[str | None] = mapped_column(String(32))
     deadline_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

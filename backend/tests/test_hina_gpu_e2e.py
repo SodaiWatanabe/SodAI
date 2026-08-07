@@ -168,7 +168,10 @@ async def test_hina_completes_through_api_stream_and_projection() -> None:
                 thread_id=execution.thread_id,
                 occurred_at=datetime.now(timezone.utc),
                 content=execution.partial_output,
+                thinking_content=execution.thinking_output or "",
                 output_tokens=execution.output_tokens,
+                thinking_tokens=execution.thinking_tokens,
+                answer_tokens=execution.answer_tokens,
                 finish_reason=FinishReason(execution.finish_reason),
             )
             replayed = await SqlAlchemyThreadRepository(

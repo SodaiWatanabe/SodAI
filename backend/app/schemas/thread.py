@@ -3,6 +3,7 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from sodai_contracts.inference import GenerationPhase
 
 from app.domain.answerers import AnswererId, AnswererKind, AnswererPricingKind
 from app.domain.reasoning import ReasoningEffort
@@ -85,6 +86,7 @@ class ExecutionResponse(BaseModel):
     attempt_id: UUID
     partial_output: str
     resolved_model: str | None
+    generation_phase: GenerationPhase | None
     error_code: str | None
     created_at: datetime
     evaluation: ResponseEvaluationValue | None = None

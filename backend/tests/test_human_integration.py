@@ -4,7 +4,11 @@ from datetime import datetime, timedelta, timezone
 from uuid import UUID, uuid4
 
 import pytest
-from sodai_contracts.inference import GenerationEvent, GenerationEventType
+from sodai_contracts.inference import (
+    GenerationEvent,
+    GenerationEventType,
+    GenerationPhase,
+)
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
@@ -679,6 +683,7 @@ async def test_generation_events_ignore_human_executions() -> None:
                 sequence=0,
                 thread_id=thread_id,
                 resolved_model="invalid-for-human",
+                phase=GenerationPhase.ANSWERING,
             ),
             GenerationEvent.create(
                 GenerationEventType.FAILED,

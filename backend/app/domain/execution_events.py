@@ -38,6 +38,7 @@ class ExecutionProjection:
     result_entry_id: UUID | None
     content: str
     status: str
+    generation_phase: str | None
     error_code: str | None = None
 
 
@@ -54,6 +55,7 @@ def classify_generation_event(
     last_event_id: UUID | None,
     last_event_type: str | None,
     execution_status: str,
+    generation_phase: str | None,
     event: GenerationEvent,
 ) -> EventDisposition:
     if event.attempt_id != attempt_id or event.sequence < last_sequence:
@@ -70,9 +72,16 @@ def classify_generation_event(
     if execution_status in TERMINAL_EXECUTION_STATUSES:
         return EventDisposition.IGNORE
     if event.sequence == last_sequence + 1:
+        if event.type in {
+            GenerationEventType.THINKING_DELTA,
+            GenerationEventType.PHASE_CHANGED,
+        } and generation_phase != "thinking":
+            return EventDisposition.IGNORE
         allowed_events = {
             "queued": {GenerationEventType.STARTED, GenerationEventType.FAILED},
             "running": {
+                GenerationEventType.THINKING_DELTA,
+                GenerationEventType.PHASE_CHANGED,
                 GenerationEventType.DELTA,
                 GenerationEventType.HEARTBEAT,
                 GenerationEventType.COMPLETED,

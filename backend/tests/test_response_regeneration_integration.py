@@ -2,7 +2,12 @@ import os
 from uuid import uuid4
 
 import pytest
-from sodai_contracts.inference import FinishReason, GenerationEvent, GenerationEventType
+from sodai_contracts.inference import (
+    FinishReason,
+    GenerationEvent,
+    GenerationEventType,
+    GenerationPhase,
+)
 from sqlalchemy import select
 
 from app.core.config import get_settings
@@ -72,6 +77,7 @@ async def complete_model_response(
             sequence=0,
             thread_id=thread_id,
             resolved_model="hina@2222222222222222",
+            phase=GenerationPhase.ANSWERING,
         ),
         GenerationEvent.create(
             GenerationEventType.COMPLETED,
@@ -80,6 +86,10 @@ async def complete_model_response(
             sequence=1,
             thread_id=thread_id,
             content=content,
+            thinking_content="",
+            output_tokens=2,
+            thinking_tokens=0,
+            answer_tokens=1,
             finish_reason=FinishReason.STOP,
         ),
     )

@@ -255,13 +255,17 @@ class GenerationCoordinator:
     async def _publish_realtime(
         self, event: GenerationEvent, projection: ExecutionProjection
     ) -> None:
-        if event.type is GenerationEventType.HEARTBEAT:
+        if event.type in {
+            GenerationEventType.THINKING_DELTA,
+            GenerationEventType.HEARTBEAT,
+        }:
             return
         if projection.status == "failed":
             event_type = "response.failed"
         else:
             event_type = {
                 GenerationEventType.STARTED: "response.started",
+                GenerationEventType.PHASE_CHANGED: "response.phase",
                 GenerationEventType.DELTA: "response.delta",
                 GenerationEventType.COMPLETED: "response.completed",
                 GenerationEventType.FAILED: "response.failed",
@@ -274,6 +278,9 @@ class GenerationCoordinator:
         }
         if event_type == "response.started":
             data["resolved_model"] = event.resolved_model
+            data["phase"] = event.phase.value if event.phase else None
+        elif event_type == "response.phase":
+            data["phase"] = event.phase.value if event.phase else None
         elif event_type == "response.delta":
             data.update({"delta": event.delta, "content": projection.content})
         elif event_type == "response.completed":

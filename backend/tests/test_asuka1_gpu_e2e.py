@@ -23,7 +23,7 @@ from app.repositories.credits import CreditLedgerRepository
 from app.services.inference.broker import RedisInferenceBroker
 from app.services.inference.coordinator import GenerationCoordinator
 from app.services.inference.deployment import ModelDeploymentRegistry
-from app.services.realtime import realtime_hub
+from app.services.realtime import RealtimeEvent, realtime_hub
 from app.services.thread import ThreadService, get_thread_service
 
 pytestmark = pytest.mark.skipif(
@@ -96,12 +96,14 @@ async def test_asuka1_completes_through_api_stream_and_projection() -> None:
             execution_id = creation["response"]["execution"]["id"]
 
             event_types: list[str] = []
+            public_events: list[RealtimeEvent] = []
             deadline = asyncio.get_running_loop().time() + 180
             while True:
                 try:
                     event = await asyncio.wait_for(queue.get(), timeout=0.1)
                     if str(event.thread_id) == thread_id:
                         event_types.append(event.type)
+                        public_events.append(event)
                 except asyncio.TimeoutError:
                     pass
                 response = await client.get(f"/api/v1/threads/{thread_id}")
@@ -117,8 +119,27 @@ async def test_asuka1_completes_through_api_stream_and_projection() -> None:
         assert len(thread["entries"]) == 2
         assert thread["entries"][-1]["content"].strip()
         assert "response.started" in event_types
+        assert "response.phase" in event_types
         assert "response.delta" in event_types
         assert "response.completed" in event_types
+        assert event_types.index("response.phase") < event_types.index("response.delta")
+        started = next(event for event in public_events if event.type == "response.started")
+        phase = next(event for event in public_events if event.type == "response.phase")
+        assert started.data["phase"] == "thinking"
+        assert phase.data["phase"] == "answering"
+        for event in public_events:
+            assert {
+                "thinking_content",
+                "thinking_output",
+                "thinking_tokens",
+                "answer_tokens",
+            }.isdisjoint(event.data)
+
+        public_execution = thread["latest_response"]["execution"]
+        assert public_execution["generation_phase"] is None
+        assert "thinking_output" not in public_execution
+        assert "thinking_tokens" not in public_execution
+        assert "answer_tokens" not in public_execution
 
         async with factory() as session:
             execution = await session.scalar(
@@ -132,6 +153,17 @@ async def test_asuka1_completes_through_api_stream_and_projection() -> None:
             assert execution.model_execution.resolved_model.startswith("asuka-1@")
             assert (execution.input_tokens or 0) > 0
             assert (execution.output_tokens or 0) > 0
+            assert execution.thinking_output is not None
+            assert execution.thinking_tokens is not None
+            assert execution.answer_tokens is not None
+            assert execution.output_tokens is not None
+            assert execution.thinking_tokens >= 0
+            assert execution.answer_tokens > 0
+            assert (
+                execution.output_tokens
+                >= execution.thinking_tokens + execution.answer_tokens
+            )
+            assert execution.generation_phase is None
             assert usage is not None
             assert usage.charged_amount == CREDIT_SCALE // 10
     finally:

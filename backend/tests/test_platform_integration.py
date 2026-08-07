@@ -8,6 +8,7 @@ from sodai_contracts.inference import (
     FinishReason,
     GenerationEvent,
     GenerationEventType,
+    GenerationPhase,
 )
 from sqlalchemy import delete, func, select
 from sqlalchemy.exc import DBAPIError
@@ -35,6 +36,7 @@ from app.repositories.threads import (
     SqlAlchemyThreadRepository,
     ThreadBusyError,
 )
+from app.schemas.thread import ThreadResponse
 from app.services.inference.billing import InferenceBillingService
 from app.services.inference.deployment import ModelDeploymentRegistry
 from app.services.realtime import realtime_hub
@@ -103,6 +105,7 @@ async def test_generation_projection_creates_one_immutable_result_entry() -> Non
                     sequence=0,
                     thread_id=uuid4(),
                     resolved_model="hina@integration",
+                    phase=GenerationPhase.ANSWERING,
                 )
             )
             await session.commit()
@@ -116,6 +119,7 @@ async def test_generation_projection_creates_one_immutable_result_entry() -> Non
                 sequence=0,
                 thread_id=creation.thread.id,
                 resolved_model="hina@integration",
+                phase=GenerationPhase.ANSWERING,
             ),
             GenerationEvent.create(
                 GenerationEventType.DELTA,
@@ -124,6 +128,8 @@ async def test_generation_projection_creates_one_immutable_result_entry() -> Non
                 sequence=1,
                 thread_id=creation.thread.id,
                 delta="こんに",
+                output_tokens=3,
+                answer_tokens=3,
             ),
             GenerationEvent.create(
                 GenerationEventType.COMPLETED,
@@ -132,6 +138,10 @@ async def test_generation_projection_creates_one_immutable_result_entry() -> Non
                 sequence=2,
                 thread_id=creation.thread.id,
                 content="こんにちは。雛です。",
+                thinking_content="",
+                output_tokens=10,
+                thinking_tokens=0,
+                answer_tokens=8,
                 finish_reason=FinishReason.STOP,
             ),
         )
@@ -178,6 +188,121 @@ async def test_generation_projection_creates_one_immutable_result_entry() -> Non
             guest = await session.get(GuestSessionModel, principal.id)
             if guest is not None:
                 await session.delete(guest)
+                await session.commit()
+
+
+@pytest.mark.anyio
+async def test_asuka_thinking_is_persisted_without_entering_the_public_thread() -> None:
+    principal = Principal(PrincipalKind.USER, uuid4())
+    now = datetime.now(timezone.utc)
+    factory = get_session_factory()
+    async with factory() as session:
+        session.add(UserModel(id=principal.id, display_name="Thinking owner"))
+        await session.commit()
+
+    try:
+        async with factory() as session:
+            repository = SqlAlchemyThreadRepository(session)
+            context = await repository.ensure_personal_context(principal)
+            creation = await repository.create_thread_response(
+                principal,
+                context,
+                "考えて答えてください",
+                get_answerer(AnswererId.ASUKA_1),
+                execution_target="local:asuka-1",
+                artifact_id=ASUKA1_TEST_ARTIFACT_ID,
+                deadline_at=now + timedelta(minutes=5),
+            )
+            await session.commit()
+
+        execution = creation.response.execution
+        events = (
+            GenerationEvent.create(
+                GenerationEventType.STARTED,
+                execution_id=execution.id,
+                attempt_id=execution.attempt_id,
+                sequence=0,
+                thread_id=creation.thread.id,
+                resolved_model=ASUKA1_TEST_RESOLVED_MODEL,
+                phase=GenerationPhase.THINKING,
+            ),
+            GenerationEvent.create(
+                GenerationEventType.THINKING_DELTA,
+                execution_id=execution.id,
+                attempt_id=execution.attempt_id,
+                sequence=1,
+                thread_id=creation.thread.id,
+                delta="考え",
+                output_tokens=2,
+                thinking_tokens=2,
+            ),
+            GenerationEvent.create(
+                GenerationEventType.PHASE_CHANGED,
+                execution_id=execution.id,
+                attempt_id=execution.attempt_id,
+                sequence=2,
+                thread_id=creation.thread.id,
+                phase=GenerationPhase.ANSWERING,
+                output_tokens=3,
+                thinking_tokens=2,
+                answer_tokens=0,
+            ),
+            GenerationEvent.create(
+                GenerationEventType.DELTA,
+                execution_id=execution.id,
+                attempt_id=execution.attempt_id,
+                sequence=3,
+                thread_id=creation.thread.id,
+                delta="答え",
+                output_tokens=4,
+                answer_tokens=1,
+            ),
+            GenerationEvent.create(
+                GenerationEventType.COMPLETED,
+                execution_id=execution.id,
+                attempt_id=execution.attempt_id,
+                sequence=4,
+                thread_id=creation.thread.id,
+                content="答えです。",
+                thinking_content="考えました。",
+                output_tokens=7,
+                thinking_tokens=3,
+                answer_tokens=2,
+                finish_reason=FinishReason.STOP,
+            ),
+        )
+        for event in events:
+            async with factory() as session:
+                await SqlAlchemyThreadRepository(session).project_generation_event(event)
+                await session.commit()
+
+        async with factory() as session:
+            stored = await session.get(ExecutionModel, execution.id)
+            thread = await SqlAlchemyThreadRepository(session).get(
+                principal, creation.thread.id
+            )
+
+        assert stored is not None
+        assert stored.thinking_output == "考えました。"
+        assert stored.partial_output == "答えです。"
+        assert stored.thinking_tokens == 3
+        assert stored.answer_tokens == 2
+        assert stored.output_tokens == 7
+        assert stored.generation_phase is None
+        assert [entry.content for entry in thread.entries] == [
+            "考えて答えてください",
+            "答えです。",
+        ]
+        public_payload = ThreadResponse.model_validate(thread).model_dump_json()
+        assert "考えました。" not in public_payload
+        assert "thinking_output" not in public_payload
+        assert "thinking_tokens" not in public_payload
+        assert "answer_tokens" not in public_payload
+    finally:
+        async with factory() as session:
+            user = await session.get(UserModel, principal.id)
+            if user is not None:
+                await session.delete(user)
                 await session.commit()
 
 
@@ -354,6 +479,7 @@ async def test_failed_response_retry_is_idempotent_and_preserves_context() -> No
                 sequence=0,
                 thread_id=creation.thread.id,
                 resolved_model=ASUKA1_TEST_RESOLVED_MODEL,
+                phase=GenerationPhase.THINKING,
             ),
             GenerationEvent.create(
                 GenerationEventType.FAILED,
@@ -440,6 +566,8 @@ async def test_failed_response_retry_is_idempotent_and_preserves_context() -> No
                     sequence=2,
                     thread_id=creation.thread.id,
                     delta="古い試行",
+                    output_tokens=4,
+                    answer_tokens=4,
                 )
             )
             await session.commit()
@@ -474,6 +602,7 @@ async def test_failed_response_retry_is_idempotent_and_preserves_context() -> No
                 sequence=0,
                 thread_id=creation.thread.id,
                 resolved_model=ASUKA1_TEST_RESOLVED_MODEL,
+                phase=GenerationPhase.THINKING,
             ),
             GenerationEvent.create(
                 GenerationEventType.COMPLETED,
@@ -482,6 +611,10 @@ async def test_failed_response_retry_is_idempotent_and_preserves_context() -> No
                 sequence=1,
                 thread_id=creation.thread.id,
                 content="再試行が完了しました。",
+                thinking_content="考えました。",
+                output_tokens=8,
+                thinking_tokens=2,
+                answer_tokens=4,
                 finish_reason=FinishReason.STOP,
             ),
         )

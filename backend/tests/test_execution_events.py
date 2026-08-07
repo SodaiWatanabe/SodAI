@@ -1,6 +1,11 @@
 from uuid import uuid4
 
-from sodai_contracts.inference import FinishReason, GenerationEvent, GenerationEventType
+from sodai_contracts.inference import (
+    FinishReason,
+    GenerationEvent,
+    GenerationEventType,
+    GenerationPhase,
+)
 
 from app.domain.execution_events import EventDisposition, classify_generation_event
 
@@ -13,6 +18,7 @@ def event(*, attempt_id, sequence: int) -> GenerationEvent:
         sequence=sequence,
         thread_id=uuid4(),
         resolved_model="hina@artifact",
+        phase=GenerationPhase.ANSWERING,
     )
 
 
@@ -24,7 +30,10 @@ def completed_event(*, attempt_id, sequence: int) -> GenerationEvent:
         sequence=sequence,
         thread_id=uuid4(),
         content="完了",
+        thinking_content="",
         output_tokens=1,
+        thinking_tokens=0,
+        answer_tokens=1,
         finish_reason=FinishReason.STOP,
     )
 
@@ -37,6 +46,35 @@ def delta_event(*, attempt_id, sequence: int) -> GenerationEvent:
         sequence=sequence,
         thread_id=uuid4(),
         delta="続き",
+        output_tokens=1,
+        answer_tokens=1,
+    )
+
+
+def thinking_delta_event(*, attempt_id, sequence: int) -> GenerationEvent:
+    return GenerationEvent.create(
+        GenerationEventType.THINKING_DELTA,
+        execution_id=uuid4(),
+        attempt_id=attempt_id,
+        sequence=sequence,
+        thread_id=uuid4(),
+        delta="思考",
+        output_tokens=1,
+        thinking_tokens=1,
+    )
+
+
+def phase_changed_event(*, attempt_id, sequence: int) -> GenerationEvent:
+    return GenerationEvent.create(
+        GenerationEventType.PHASE_CHANGED,
+        execution_id=uuid4(),
+        attempt_id=attempt_id,
+        sequence=sequence,
+        thread_id=uuid4(),
+        phase=GenerationPhase.ANSWERING,
+        output_tokens=2,
+        thinking_tokens=1,
+        answer_tokens=0,
     )
 
 
@@ -58,6 +96,7 @@ def classify(
     last_sequence: int,
     last_event: GenerationEvent | None = None,
     execution_status: str = "running",
+    generation_phase: str | None = "answering",
 ) -> EventDisposition:
     return classify_generation_event(
         attempt_id=attempt_id,
@@ -65,6 +104,7 @@ def classify(
         last_event_id=last_event.id if last_event else None,
         last_event_type=last_event.type.value if last_event else None,
         execution_status=execution_status,
+        generation_phase=generation_phase,
         event=candidate,
     )
 
@@ -216,3 +256,29 @@ def test_running_execution_rejects_a_second_started_event() -> None:
         )
         is EventDisposition.IGNORE
     )
+
+
+def test_thinking_events_cannot_reverse_the_answering_phase() -> None:
+    attempt_id = uuid4()
+    thinking_delta = thinking_delta_event(attempt_id=attempt_id, sequence=1)
+    phase_changed = phase_changed_event(attempt_id=attempt_id, sequence=1)
+
+    for candidate in (thinking_delta, phase_changed):
+        assert (
+            classify(
+                candidate,
+                attempt_id=attempt_id,
+                last_sequence=0,
+                generation_phase="thinking",
+            )
+            is EventDisposition.APPLY
+        )
+        assert (
+            classify(
+                candidate,
+                attempt_id=attempt_id,
+                last_sequence=0,
+                generation_phase="answering",
+            )
+            is EventDisposition.IGNORE
+        )

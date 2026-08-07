@@ -63,6 +63,7 @@ def creation_fixture() -> ResponseCreation:
         partial_output="",
         resolved_model=None,
         artifact_id="0123456789abcdef",
+        generation_phase=None,
         error_code=None,
         created_at=NOW,
     )

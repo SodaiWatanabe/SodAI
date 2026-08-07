@@ -65,8 +65,8 @@ def test_acknowledging_an_event_also_removes_its_payload() -> None:
 
     assert redis.eval_args[1:] == (
         1,
-        "test:inference:events:v2",
-        "test-inference-projector-v2",
+        "test:inference:events:v3",
+        "test-inference-projector-v3",
         "20-0",
     )
 
