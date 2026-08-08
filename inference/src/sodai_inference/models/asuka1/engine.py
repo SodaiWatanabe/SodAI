@@ -16,8 +16,7 @@ from sodai_inference.models.base import GenerationStep
 from sodai_inference.models.decoder import IncrementalTextDecoder
 
 TOP_P = 0.90
-TOP_K = 40
-REPETITION_PENALTY = 1.05
+REPETITION_PENALTY = 1.10
 
 
 class Asuka1Engine:
@@ -222,8 +221,6 @@ class Asuka1Engine:
             logits = logits.scatter(-1, token_ids.unsqueeze(0), selected)
 
         logits = logits / temperature
-        threshold = torch.topk(logits, TOP_K, dim=-1).values[..., -1, None]
-        logits = logits.masked_fill(logits < threshold, float("-inf"))
         sorted_logits, sorted_indices = torch.sort(logits, descending=True, dim=-1)
         cumulative = torch.cumsum(torch.softmax(sorted_logits, dim=-1), dim=-1)
         sorted_remove = cumulative > TOP_P
