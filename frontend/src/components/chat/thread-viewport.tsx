@@ -3,6 +3,7 @@
 import { type Ref, type RefObject, useEffect, useRef, useState } from "react";
 
 import { SearchHighlight } from "@/components/chat/search-highlight";
+import { MessageMarkdown } from "@/components/chat/message-markdown";
 import { MessageActions } from "@/components/chat/message-actions";
 import { resolveMessageBrain } from "@/components/chat/message-brain";
 import {
@@ -23,6 +24,7 @@ import {
 import { getConversationMessageLayout } from "@/components/conversation/conversation-layout";
 import { ConversationMessage } from "@/components/conversation/conversation-message";
 import { IOSSpinner } from "@/components/ui/ios-spinner";
+import { hasMessageListMarkdown } from "@/lib/chat/message-markdown";
 import type {
   AvailableAnswerer,
   ResponseEvaluationValue,
@@ -118,6 +120,14 @@ function StreamedText({
         text={stream.content}
       />
     );
+  }
+
+  if (hasMessageListMarkdown(stream.content)) {
+    return <MessageMarkdown content={stream.content} />;
+  }
+
+  if (!stream.animated && !streaming) {
+    return <MessageMarkdown content={stream.content} />;
   }
 
   return (
