@@ -129,6 +129,10 @@ require_value "$root_env" SODAI_IMAGE_TAG
 image_tag="$(read_value "$root_env" SODAI_IMAGE_TAG)"
 [[ "$image_tag" =~ ^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$ ]] || \
   fail "SODAI_IMAGE_TAG must be a valid container image tag in $root_env."
+require_non_placeholder "$root_env" SODAI_INFERENCE_GPU_UUID
+inference_gpu_uuid="$(read_value "$root_env" SODAI_INFERENCE_GPU_UUID)"
+[[ "$inference_gpu_uuid" =~ ^GPU-[[:xdigit:]]{8}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{12}$ ]] || \
+  fail "SODAI_INFERENCE_GPU_UUID must be a full NVIDIA GPU UUID in $root_env."
 require_equal "$root_env" POSTGRES_DATA_VOLUME sodai-production-postgres-data
 require_equal "$root_env" REDIS_DATA_VOLUME sodai-production-redis-data
 

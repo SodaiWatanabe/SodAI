@@ -112,6 +112,8 @@ Inference imageへmodel weightは含めません。`.env.production`の
 `SODAI_MODEL_HOST_PATH`を`/models`へ読み取り専用mountします。HinaとAsuka 1は独立した
 workerで動き、既定では同じresource poolを共有してGPU生成を直列化します。標準構成の
 workerはhost側のUID/GID 1000で読み取れるmodel fileを前提とします。
+両workerが使用するGPUは、再起動で変わり得るindexではなく、`nvidia-smi -L`で確認した
+`SODAI_INFERENCE_GPU_UUID`へ固定します。container内では選択したGPUが`cuda:0`になります。
 Backendは会話作成時にdeployment manifestを検証するため、GID 1000を補助グループとして
 使用します。artifactを有効化するコマンドはmodel treeへ所有グループの読取り権限を付与し、
 ComposeはBackendとworkerの双方へ同じtreeを読取り専用でmountします。

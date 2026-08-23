@@ -16,6 +16,7 @@ x-inference-environment: &inference-environment
   REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
   SODAI_MODEL_ROOT: /models
   INFERENCE_NAMESPACE: ${INFERENCE_NAMESPACE:-sodai:inference}
+  NVIDIA_VISIBLE_DEVICES: ${SODAI_INFERENCE_GPU_UUID:?SODAI_INFERENCE_GPU_UUID must be set}
 
 x-inference-runtime: &inference-runtime
   profiles:
@@ -33,7 +34,11 @@ x-inference-runtime: &inference-runtime
     - data
   volumes:
     - ${SODAI_MODEL_HOST_PATH:-./var/models}:/models:ro
-  gpus: all
+  gpus:
+    - driver: nvidia
+      device_ids:
+        - ${SODAI_INFERENCE_GPU_UUID:?SODAI_INFERENCE_GPU_UUID must be set}
+      capabilities: [gpu]
   healthcheck:
     test: ["CMD", "sodai-inference-healthcheck"]
     interval: 10s

@@ -21,6 +21,7 @@ POSTGRES_ADMIN_PASSWORD=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 AUTH_DATABASE_PASSWORD=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 APP_DATABASE_PASSWORD=cccccccccccccccccccccccccccccccc
 REDIS_PASSWORD=dddddddddddddddddddddddddddddddd
+SODAI_INFERENCE_GPU_UUID=GPU-11111111-2222-3333-4444-555555555555
 CLOUDFLARE_TUNNEL_TOKEN=eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 EOF
 
@@ -134,6 +135,10 @@ expect_failure "SMTP placeholder"
 write_valid_fixtures
 sed -i 's/SODAI_IMAGE_TAG=2026.08.01-test/SODAI_IMAGE_TAG=invalid tag/' "$root_env"
 expect_failure "invalid container image tag"
+
+write_valid_fixtures
+sed -i 's/GPU-11111111-2222-3333-4444-555555555555/0/' "$root_env"
+expect_failure "GPU index used instead of a stable UUID"
 
 write_valid_fixtures
 sed -i 's/POSTGRES_DATA_VOLUME=sodai-production-postgres-data/POSTGRES_DATA_VOLUME=sodai-postgres-data/' "$root_env"
