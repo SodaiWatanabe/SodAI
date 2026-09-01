@@ -535,7 +535,7 @@ async def test_thread_returns_payment_required_when_credits_are_exhausted() -> N
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         response = await client.post(
-            "/api/v1/threads", json={"input": "こんにちは", "answerer": "asuka-1"}
+            "/api/v1/threads", json={"input": "こんにちは", "answerer": "asuka-1.1"}
         )
 
     assert response.status_code == 402

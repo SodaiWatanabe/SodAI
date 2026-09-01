@@ -10,7 +10,7 @@ case "$model" in
   hina)
     test_file=backend/tests/test_hina_gpu_e2e.py
     ;;
-  asuka-1)
+  asuka-1.1)
     test_file=backend/tests/test_asuka1_gpu_e2e.py
     ;;
   *)
@@ -148,7 +148,7 @@ SQL
 
 (cd backend && DATABASE_URL="$database_url" .venv/bin/alembic upgrade head)
 
-artifact_id=$(backend/.venv/bin/python - "$model" <<'PY'
+deployment_info=$(backend/.venv/bin/python - "$model" <<'PY'
 import sys
 
 sys.path.insert(0, "backend")
@@ -156,19 +156,22 @@ from app.core.config import get_settings
 from app.services.inference.deployment import ModelDeploymentRegistry
 
 settings = get_settings()
-print(ModelDeploymentRegistry(settings.model_root).resolve(sys.argv[1]).artifact_id)
+deployment = ModelDeploymentRegistry(settings.model_root).resolve(sys.argv[1])
+print(f"{deployment.model}|{deployment.artifact_id}")
 PY
 )
+runtime_model=${deployment_info%%|*}
+artifact_id=${deployment_info#*|}
 
 INFERENCE_NAMESPACE="$namespace" \
-SODAI_INFERENCE_MODEL="$model" \
+SODAI_INFERENCE_MODEL="$runtime_model" \
 SODAI_INFERENCE_ARTIFACT_ID="$artifact_id" \
 SODAI_INFERENCE_DEVICE="$device" \
 INFERENCE_CONSUMER_NAME="e2e-$run_id" \
 inference/.venv/bin/sodai-inference >"$worker_log" 2>&1 &
 worker_pid=$!
 
-INFERENCE_NAMESPACE="$namespace" SODAI_INFERENCE_MODEL="$model" \
+INFERENCE_NAMESPACE="$namespace" SODAI_INFERENCE_MODEL="$runtime_model" \
 SODAI_INFERENCE_ARTIFACT_ID="$artifact_id" \
 inference/.venv/bin/python - "$worker_pid" <<'PY'
 import asyncio

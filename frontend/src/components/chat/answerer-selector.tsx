@@ -160,7 +160,9 @@ export function AnswererSelector({
   const humanAnswerers = answerers.filter(
     (option) => option.kind === "human" && !option.is_legacy,
   );
-  const pastAnswerers = answerers.filter((option) => option.is_legacy);
+  const pastAnswerers = answerers.filter(
+    (option) => option.kind === "ai" && option.is_legacy,
+  );
   const label = selected?.name ?? "モデル";
 
   return (

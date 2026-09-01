@@ -18,6 +18,7 @@ from app.domain.reasoning import (
 class AnswererId(str, Enum):
     HINA = "hina"
     ASUKA_1 = "asuka-1"
+    ASUKA_1_1 = "asuka-1.1"
     HUMAN_LITE = "human-lite"
     HUMAN_STANDARD = "human-standard"
     HUMAN_PRO = "human-pro"
@@ -64,6 +65,7 @@ class AnswererDefinition:
     description: str
     runtime_kind: RuntimeKind
     runtime_name: str
+    deployment_name: str | None
     tariff: InferenceTariff
     audiences: frozenset[AnswererAudience]
     default_for: frozenset[AnswererAudience] = frozenset()
@@ -100,11 +102,11 @@ class AvailableAnswerer:
 
 
 HINA_ACTOR_ID = UUID("00000000-0000-4000-8000-000000000001")
-ASUKA_1_ACTOR_ID = UUID("00000000-0000-4000-8000-000000000002")
 HUMAN_LITE_ACTOR_ID = UUID("00000000-0000-4000-8000-000000000003")
 HUMAN_PRO_ACTOR_ID = UUID("00000000-0000-4000-8000-000000000004")
 HUMAN_STANDARD_ACTOR_ID = UUID("00000000-0000-4000-8000-000000000005")
-ASUKA_1_FIXED_CHARGE = CREDIT_SCALE // 10
+ASUKA_1_1_ACTOR_ID = UUID("00000000-0000-4000-8000-000000000006")
+ASUKA_1_1_FIXED_CHARGE = CREDIT_SCALE // 10
 HUMAN_LITE_REASONING_EFFORTS = frozenset({ReasoningEffort.LOW})
 HUMAN_STANDARD_REASONING_EFFORTS = HUMAN_LITE_REASONING_EFFORTS | {
     ReasoningEffort.MEDIUM,
@@ -157,22 +159,23 @@ HUMAN_CREDIT_TERMS = {
     ): HumanCreditTerms.from_customer_charge(8 * CREDIT_SCALE),
 }
 
-ASUKA_1_TARIFF = InferenceTariff(
-    revision="asuka-1-flat-v2",
-    fixed_charge=ASUKA_1_FIXED_CHARGE,
-    maximum_charge=ASUKA_1_FIXED_CHARGE,
-    unmetered_charge=ASUKA_1_FIXED_CHARGE,
+ASUKA_1_1_TARIFF = InferenceTariff(
+    revision="asuka-1.1-flat-v1",
+    fixed_charge=ASUKA_1_1_FIXED_CHARGE,
+    maximum_charge=ASUKA_1_1_FIXED_CHARGE,
+    unmetered_charge=ASUKA_1_1_FIXED_CHARGE,
 )
 
 ANSWERER_CATALOG = (
     AnswererDefinition(
-        id=AnswererId.ASUKA_1,
-        actor_id=ASUKA_1_ACTOR_ID,
-        name="Asuka 1",
+        id=AnswererId.ASUKA_1_1,
+        actor_id=ASUKA_1_1_ACTOR_ID,
+        name="Asuka 1.1",
         description="会話に最適。",
         runtime_kind=RuntimeKind.LOCAL_MODEL,
         runtime_name="asuka-1",
-        tariff=ASUKA_1_TARIFF,
+        deployment_name="asuka-1.1",
+        tariff=ASUKA_1_1_TARIFF,
         audiences=frozenset({AnswererAudience.AUTHENTICATED}),
         default_for=frozenset({AnswererAudience.AUTHENTICATED}),
         generation_temperature=0.85,
@@ -185,6 +188,7 @@ ANSWERER_CATALOG = (
         description="知能の萌芽を捉える。",
         runtime_kind=RuntimeKind.LOCAL_MODEL,
         runtime_name="hina",
+        deployment_name="hina",
         tariff=FREE_INFERENCE_TARIFF,
         audiences=frozenset(AnswererAudience),
         default_for=frozenset({AnswererAudience.GUEST}),
@@ -197,6 +201,7 @@ ANSWERER_CATALOG = (
         description="日常のやりとりに最適。",
         runtime_kind=RuntimeKind.HUMAN,
         runtime_name="human-lite",
+        deployment_name=None,
         tariff=_fixed_tariff("human-lite-low-v1", CREDIT_SCALE // 2),
         audiences=frozenset({AnswererAudience.AUTHENTICATED}),
         supported_reasoning_efforts=HUMAN_LITE_REASONING_EFFORTS,
@@ -210,6 +215,7 @@ ANSWERER_CATALOG = (
         description="幅広い相談に対応。",
         runtime_kind=RuntimeKind.HUMAN,
         runtime_name="human-standard",
+        deployment_name=None,
         tariff=_fixed_tariff("human-standard-medium-v1", 3 * CREDIT_SCALE // 2),
         audiences=frozenset({AnswererAudience.AUTHENTICATED}),
         supported_reasoning_efforts=HUMAN_STANDARD_REASONING_EFFORTS,
@@ -223,6 +229,7 @@ ANSWERER_CATALOG = (
         description="より高度な応答。",
         runtime_kind=RuntimeKind.HUMAN,
         runtime_name="human-pro",
+        deployment_name=None,
         tariff=_fixed_tariff("human-pro-medium-v1", 2 * CREDIT_SCALE),
         audiences=frozenset({AnswererAudience.AUTHENTICATED}),
         supported_reasoning_efforts=HUMAN_PRO_REASONING_EFFORTS,
@@ -244,6 +251,12 @@ if any(
     for answerer in ANSWERER_CATALOG
 ):
     raise RuntimeError("Only Human answerers must define a required Human rank")
+if any(
+    (answerer.runtime_kind is RuntimeKind.LOCAL_MODEL)
+    != (answerer.deployment_name is not None)
+    for answerer in ANSWERER_CATALOG
+):
+    raise RuntimeError("Only local model answerers must define a deployment name")
 if any(
     answerer.default_reasoning_effort not in answerer.supported_reasoning_efforts
     for answerer in ANSWERER_CATALOG

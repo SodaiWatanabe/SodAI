@@ -105,7 +105,7 @@ async def create_execution(principal: Principal, content: str):
             principal,
             context,
             content,
-            get_answerer(AnswererId.ASUKA_1),
+            get_answerer(AnswererId.ASUKA_1_1),
             execution_target="local:asuka-1",
             artifact_id=ASUKA1_TEST_ARTIFACT_ID,
             deadline_at=datetime.now(timezone.utc) + timedelta(minutes=5),
@@ -556,7 +556,7 @@ async def test_asuka_uses_free_allowance_and_settles_one_tenth_credit() -> None:
         settings,
     )
 
-    creation = await service.create(principal, "paid Asuka", AnswererId.ASUKA_1)
+    creation = await service.create(principal, "paid Asuka", AnswererId.ASUKA_1_1)
     execution = creation.response.execution
     charge = CREDIT_SCALE // 10
     async with factory() as session:
@@ -568,7 +568,7 @@ async def test_asuka_uses_free_allowance_and_settles_one_tenth_credit() -> None:
         assert reserved.available == FREE_CREDIT_ALLOWANCE_POLICY.amount - charge
         assert reserved.reserved == charge
         assert intent is not None
-        assert intent.tariff_revision == "asuka-1-flat-v2"
+        assert intent.tariff_revision == "asuka-1.1-flat-v1"
         assert outbox is not None
         assert GenerationJob.from_json(outbox.payload).options.max_output_tokens == 256
 
@@ -609,7 +609,7 @@ async def test_asuka_uses_free_allowance_and_settles_one_tenth_credit() -> None:
         assert settled.available == FREE_CREDIT_ALLOWANCE_POLICY.amount - charge
         assert settled.reserved == 0
         assert usage is not None
-        assert usage.tariff_revision == "asuka-1-flat-v2"
+        assert usage.tariff_revision == "asuka-1.1-flat-v1"
         assert usage.charged_amount == charge
         assert usage.billing_reason == "unmetered"
 
@@ -625,7 +625,7 @@ async def test_failed_asuka_releases_credit_but_keeps_the_started_allowance() ->
         settings,
     )
 
-    creation = await service.create(principal, "failed Asuka", AnswererId.ASUKA_1)
+    creation = await service.create(principal, "failed Asuka", AnswererId.ASUKA_1_1)
     execution = creation.response.execution
     failed = GenerationEvent.create(
         GenerationEventType.FAILED,
@@ -2913,7 +2913,7 @@ async def test_insufficient_credits_roll_back_the_entire_thread_creation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     principal = await create_user()
-    answerer = get_answerer(AnswererId.ASUKA_1)
+    answerer = get_answerer(AnswererId.ASUKA_1_1)
     assert answerer is not None
     paid_answerer = replace(
         answerer,
@@ -2936,7 +2936,7 @@ async def test_insufficient_credits_roll_back_the_entire_thread_creation(
     )
 
     with pytest.raises(InsufficientCreditsError):
-        await service.create(principal, "no funds", AnswererId.ASUKA_1)
+        await service.create(principal, "no funds", AnswererId.ASUKA_1_1)
 
     async with get_session_factory()() as session:
         space_count = await session.scalar(
@@ -2975,14 +2975,14 @@ async def test_exhausted_free_allowance_rejects_the_next_asuka_thread() -> None:
         await service.create(
             principal,
             f"allowance paid response {index}",
-            AnswererId.ASUKA_1,
+            AnswererId.ASUKA_1_1,
         )
 
     with pytest.raises(InsufficientCreditsError):
         await service.create(
             principal,
             "one response beyond the free allowance",
-            AnswererId.ASUKA_1,
+            AnswererId.ASUKA_1_1,
         )
 
     async with factory() as session:

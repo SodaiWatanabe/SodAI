@@ -109,7 +109,7 @@ make production-config
 one-shot containerでのみ実行します。
 
 Inference imageへmodel weightは含めません。`.env.production`の
-`SODAI_MODEL_HOST_PATH`を`/models`へ読み取り専用mountします。HinaとAsuka 1は独立した
+`SODAI_MODEL_HOST_PATH`を`/models`へ読み取り専用mountします。HinaとAsuka 1.1は独立した
 workerで動き、既定では同じresource poolを共有してGPU生成を直列化します。標準構成の
 workerはhost側のUID/GID 1000で読み取れるmodel fileを前提とします。
 両workerが使用するGPUは、再起動で変わり得るindexではなく、`nvidia-smi -L`で確認した
@@ -141,7 +141,7 @@ make production-up-gpu
 
 GPU workerをまだ公開に含めない場合だけ、最後を`make production-up`にします。どちらの
 targetもAuth、Backend、Frontendがhealthyになった後でCloudflare Tunnelを起動します。
-`production-up-gpu`はさらにHinaとAsuka 1をloadし、両方のworker leaseを取得するまで
+`production-up-gpu`はさらにHinaとAsuka 1.1をloadし、両方のworker leaseを取得するまで
 待ちます。
 
 稼働状態とログは次で確認します。

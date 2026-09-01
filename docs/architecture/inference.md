@@ -15,7 +15,7 @@ FastAPI ── PostgreSQL
   ▼
 Redis Streams
   ├─ Hina worker ── var/models/hina/<artifact-id>
-  └─ Asuka 1 worker ── var/models/asuka-1/<artifact-id>
+  └─ Asuka 1.1 worker ── var/models/asuka-1/<artifact-id>
 ```
 
 - FastAPIは所有権、応答要求、実行状態、確定Entry、公開イベントを管理します。
@@ -39,7 +39,7 @@ Threadへの入力時は、次を同じPostgreSQL transactionで確定します�
 5. `model.generation.requested` outbox event
 6. 料金表snapshotと、必要な場合はクレジットの最大額予約
 
-生成中の回答本文は`Execution.partial_output`です。Asuka 1の内部思考は
+生成中の回答本文は`Execution.partial_output`です。Asuka 1.1の内部思考は
 `Execution.thinking_output`へ別チャネルとして保存し、Entry、検索、次のprompt、公開HTTP API、
 公開WebSocketへは投影しません。`generation_phase`だけを公開し、本文を明かさずクライアントへ
 `thinking`／`answering`を伝えます。空のモデルEntryを先に作らず、completed eventのprojector
@@ -135,16 +135,18 @@ Workerは生成済みtoken ID列全体をdecodeし、安定した接頭辞の差
 adapter境界であり、APIの`assistant/user`関係ではありません。512 tokenのうち標準で128 tokenを
 出力へ予約し、古いEntryから境界単位で除外します。
 
-## Asuka 1
+## Asuka 1.1
 
-Asuka 1はBuilding-SLM v2のstep 250 SFT成果物を出自とするRoPEモデルです。公開IDは
-`asuka-1`、resolved modelは`asuka-1@<artifact-id>`です。Hinaとはarchitecture、prompt builder、
-artifact profile、engineを分離し、Redis配送とprojectorだけを共有します。
+Asuka 1.1はBuilding-SLM v2のstep 200 SFT成果物を出自とするRoPEモデルです。公開IDは
+`asuka-1.1`です。推論互換性を表すruntime modelは`asuka-1`のまま保ち、公開deployment slot
+`asuka-1.1`がimmutable artifactを選びます。旧Asuka 1は選択肢と本番workerから外しますが、
+過去のResponseRequest、Actor、resolved modelは履歴として変更しません。
 
 ```text
-公開answerer ID  asuka-1
+公開answerer ID  asuka-1.1
+deployment slot   asuka-1.1
 runtime model     asuka-1
-学習上の出自      Building-SLM v2 / gpt_sft.pt / step 250
+学習上の出自      Building-SLM v2 / gpt_sft_asuka1_v0.2.1_train_only.pt / step 200
 architecture      rope_gpt
 context length    512
 runtime dtype     float16
@@ -162,7 +164,7 @@ thinking deltaを内部eventとして送り、projectorがPostgreSQLの非公開
 `<|eot|>`を一方向のphase境界として、回答deltaだけを`partial_output`と公開WebSocketへ投影します。
 `<|end_turn|>`またはEOSで停止します。terminal eventはthinking／answer両方の最終snapshotと
 チャネル別token数を持ち、再配送やbuffer境界によらずDBを同じ値へ収束させます。KV cache、FP16、
-temperature 0.85、top-p 0.9、top-k 40、repetition penalty 1.05を使用します。
+temperature 0.85、top-p 0.9、top-kなし、repetition penalty 1.10を使用します。
 
 ## 運用状態と検証
 

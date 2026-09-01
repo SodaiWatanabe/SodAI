@@ -43,20 +43,21 @@ async def test_asuka1_completes_through_api_stream_and_projection() -> None:
     database_name = make_url(settings.database_url).database or ""
     assert database_name.startswith("sodai_e2e_")
     assert settings.inference_namespace.startswith("sodai:e2e:")
-    assert os.environ["SODAI_GPU_E2E_MODEL"] == "asuka-1"
+    model = os.environ["SODAI_GPU_E2E_MODEL"]
+    assert model == "asuka-1.1"
     assert os.environ["SODAI_E2E_DEVICE_USED"].startswith("cuda")
     namespace = InferenceNamespace(settings.inference_namespace)
 
     factory = get_session_factory()
     principal = Principal(PrincipalKind.USER, uuid4())
     async with factory() as session:
-        session.add(UserModel(id=principal.id, display_name="Asuka 1 E2E"))
+        session.add(UserModel(id=principal.id, display_name=f"{model} E2E"))
         await session.flush()
         await CreditLedgerRepository(session).grant(
             principal.id,
             CREDIT_SCALE,
             source_kind=CreditSourceKind.ADMIN,
-            idempotency_key=f"asuka1-e2e-{principal.id}",
+            idempotency_key=f"{model}-e2e-{principal.id}",
         )
         await session.commit()
 
@@ -88,7 +89,7 @@ async def test_asuka1_completes_through_api_stream_and_projection() -> None:
         ) as client:
             created_response = await client.post(
                 "/api/v1/threads",
-                json={"input": "こんにちは", "answerer": "asuka-1"},
+                json={"input": "こんにちは", "answerer": model},
             )
             assert created_response.status_code == 201, created_response.text
             creation = created_response.json()
@@ -113,7 +114,7 @@ async def test_asuka1_completes_through_api_stream_and_projection() -> None:
                 if status in {"completed", "failed"}:
                     break
                 if asyncio.get_running_loop().time() >= deadline:
-                    pytest.fail("Asuka 1 generation did not reach a terminal state")
+                    pytest.fail("Asuka 1.1 generation did not reach a terminal state")
 
         assert status == "completed", thread["latest_response"]["execution"]["error_code"]
         assert len(thread["entries"]) == 2

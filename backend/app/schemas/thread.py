@@ -10,7 +10,7 @@ from app.domain.reasoning import ReasoningEffort
 from app.domain.responses import ResponseEvaluationValue
 
 ANSWERER_SELECTION_DESCRIPTION = (
-    "Answerer ID. Omit to use Hina for guests or Asuka 1 for authenticated accounts."
+    "Answerer ID. Omit to use Hina for guests or Asuka 1.1 for authenticated accounts."
 )
 InputText = Annotated[
     str,

@@ -137,9 +137,7 @@ class InferenceOperationsService:
         for answerer in ANSWERER_CATALOG:
             if answerer.runtime_kind is RuntimeKind.HUMAN:
                 continue
-            artifact_id, deployment_available = self._artifact(
-                answerer.runtime_kind, answerer.runtime_name
-            )
+            artifact_id, deployment_available = self._artifact(answerer.deployment_name)
             runtime_specs.append(
                 (
                     answerer.id,
@@ -228,9 +226,11 @@ class InferenceOperationsService:
             return False
         return True
 
-    def _artifact(self, runtime_kind: RuntimeKind, model: str) -> tuple[str | None, bool]:
+    def _artifact(self, deployment_name: str | None) -> tuple[str | None, bool]:
+        if deployment_name is None:
+            return None, False
         try:
-            return self._deployments.resolve(model).artifact_id, True
+            return self._deployments.resolve(deployment_name).artifact_id, True
         except ModelDeploymentError:
             return None, False
 
@@ -290,9 +290,7 @@ class InferenceOperationsService:
         for answerer in ANSWERER_CATALOG:
             if answerer.runtime_kind is RuntimeKind.HUMAN:
                 continue
-            artifact_id, deployment_available = self._artifact(
-                answerer.runtime_kind, answerer.runtime_name
-            )
+            artifact_id, deployment_available = self._artifact(answerer.deployment_name)
             if artifact_id is not None:
                 current_artifacts.add((answerer.id, artifact_id))
             runtimes.append(

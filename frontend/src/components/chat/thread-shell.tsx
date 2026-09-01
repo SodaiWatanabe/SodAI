@@ -53,6 +53,7 @@ import {
   responseEvaluation,
   withResponseEvaluation,
 } from "@/lib/chat/response-evaluation";
+import { resolvePreferredAnswerer } from "@/lib/preferences/answerer";
 import { useChatApi } from "@/lib/chat/use-chat-api";
 
 type ThreadShellProps = {
@@ -113,8 +114,11 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
   const [operation, setOperationState] = useState<ResponseOperation>(
     IDLE_RESPONSE_OPERATION,
   );
+  const effectiveAnswerer = resolvePreferredAnswerer(answerers, answerer);
   const responding = operation.kind !== "idle" || isResponding(thread);
-  const selectedAnswerer = answerers.find((option) => option.id === answerer);
+  const selectedAnswerer = answerers.find(
+    (option) => option.id === effectiveAnswerer,
+  );
   const reasoningEffort = resolveReasoningEffort(
     selectedAnswerer,
     requestedReasoningEffort,
@@ -125,7 +129,7 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
       ? latestResponse.requested_answerer
       : operation.kind === "creating" ||
           operation.kind === "waiting-for-execution-to-cancel"
-        ? answerer
+        ? effectiveAnswerer
         : operation.kind === "regenerating"
           ? latestResponse?.requested_answerer
         : undefined;
@@ -649,7 +653,7 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
   async function submit(event: FormEvent) {
     event.preventDefault();
     const input = message.trim();
-    if (!input || !answerer || !reasoningEffort || responding) return;
+    if (!input || !effectiveAnswerer || !reasoningEffort || responding) return;
     setTurnAnchor(undefined);
     positionedTurnRef.current = undefined;
     pinToBottom();
@@ -661,7 +665,7 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
       const created = await createResponse(
         threadId,
         input,
-        answerer,
+        effectiveAnswerer,
         reasoningEffort,
       );
       if (!mountedRef.current) return;
@@ -681,7 +685,7 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
       );
       setOperation(nextOperation);
       patchThread(threadId, {
-        answerer,
+        answerer: effectiveAnswerer,
         last_activity_at: created.thread.last_activity_at,
         revision: created.thread.revision,
       });
@@ -714,7 +718,7 @@ export function ThreadShell({ threadId, targetEntryId }: ThreadShellProps) {
       onWheel={handleUserScrollIntent}
     >
       <ChatHeader
-        answerer={answerer}
+        answerer={effectiveAnswerer}
         answerers={answerers}
         onAnswererChange={selectAnswerer}
       />

@@ -64,7 +64,7 @@ activeなExecutionも1件だけです。入力Entryと結果Entryが別Threadを
 正本です。対応する`reasoning_effort`と既定値も同じcatalogから公開します。Thread作成と
 ResponseRequest作成は任意の`reasoning_effort`を受け取り、省略時は選択Answererの既定値を
 ResponseRequestへsnapshotします。現在はゲストの既定値が`hina`、ログインユーザーの既定値が
-`asuka-1`です。
+`asuka-1.1`です。
 
 再試行APIは`Idempotency-Key` headerを必須とします。同じResponseRequestとkeyの組み合わせは、
 同時送信や通信後の再送でも同じExecutionを返します。新しい入力Entryやcontext snapshotは作らず、
@@ -96,7 +96,7 @@ key平文は保存せずSHA-256 hashだけをExecutionへ記録します。
 - `sync.required`
 
 `response.started.data.phase`と`response.phase.data.phase`は生成中の`thinking`／`answering`を表します。
-Asuka 1のthinking本文は公開イベントへ含めず、UIはphaseだけから「思考中」を表示します。
+Asuka 1.1のthinking本文は公開イベントへ含めず、UIはphaseだけから「思考中」を表示します。
 `response.delta.data.content`はその時点の累積回答本文です。クライアントはdeltaの単純追加ではなく
 累積本文で置換するため、再送でも重複しません。購読queueが溢れた場合は古い構造イベントを
 黙って落とさず`sync.required`へ置き換え、Thread一覧と表示中ThreadをHTTPで再取得して

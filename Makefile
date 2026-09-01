@@ -24,9 +24,9 @@ DEV_BACKEND_PORT ?= 13202
 
 .PHONY: install install-contracts install-auth install-backend install-frontend install-inference \
 	dev-auth dev-backend dev-frontend dev-inference import-hina import-asuka1 \
-	deploy-hina deploy-asuka1 \
+	deploy-hina deploy-asuka1 deploy-asuka11 \
 	inference-status credits-grant credits-expire credits-audit human-rank test-inference-e2e \
-	test-asuka1-e2e \
+	test-asuka11-e2e \
 	infra-check-env infra-config production-config production-build production-migrate \
 	production-up production-up-gpu production-down production-logs production-ps \
 	infra-up infra-up-internal infra-down infra-logs infra-ps \
@@ -74,6 +74,7 @@ dev-frontend:
 dev-inference: infra-check-env
 	set -a; . ./$(ENV_FILE); set +a; exec env \
 		$(if $(MODEL),SODAI_INFERENCE_MODEL="$(MODEL)") \
+		$(if $(DEPLOYMENT),SODAI_INFERENCE_DEPLOYMENT="$(DEPLOYMENT)") \
 		$(if $(ARTIFACT_ID),SODAI_INFERENCE_ARTIFACT_ID="$(ARTIFACT_ID)") \
 		$(if $(DEVICE),SODAI_INFERENCE_DEVICE="$(DEVICE)") \
 		$(if $(HINA_ARTIFACT_ID),HINA_ARTIFACT_ID="$(HINA_ARTIFACT_ID)") \
@@ -103,6 +104,10 @@ deploy-asuka1: infra-check-env
 	@test -n "$(ARTIFACT_ID)" || { echo 'ARTIFACT_ID=<artifact-id> を指定してください。' >&2; exit 1; }
 	set -a; . ./$(ENV_FILE); set +a; exec $(INFERENCE_VENV)/bin/sodai-deploy-asuka1 "$(ARTIFACT_ID)"
 
+deploy-asuka11: infra-check-env
+	@test -n "$(ARTIFACT_ID)" || { echo 'ARTIFACT_ID=<artifact-id> を指定してください。' >&2; exit 1; }
+	set -a; . ./$(ENV_FILE); set +a; exec $(INFERENCE_VENV)/bin/sodai-deploy-asuka11 "$(ARTIFACT_ID)"
+
 inference-status:
 	cd backend && .venv/bin/python -m app.cli.inference_status
 
@@ -130,8 +135,8 @@ human-rank:
 test-inference-e2e: infra-check-env
 	ENV_FILE="$(ENV_FILE)" ./infra/scripts/test-inference-e2e.sh
 
-test-asuka1-e2e: infra-check-env
-	MODEL=asuka-1 ENV_FILE="$(ENV_FILE)" ./infra/scripts/test-inference-e2e.sh
+test-asuka11-e2e: infra-check-env
+	MODEL=asuka-1.1 ENV_FILE="$(ENV_FILE)" ./infra/scripts/test-inference-e2e.sh
 
 infra-check-env:
 	@test -f "$(ENV_FILE)" || { \
@@ -163,8 +168,8 @@ production-up: production-config
 	$(COMPOSE_PRODUCTION) --profile tunnel up -d --wait auth backend frontend cloudflared
 
 production-up-gpu: production-config
-	$(COMPOSE_PRODUCTION) --profile tunnel --profile gpu up -d --wait \
-		auth backend frontend inference-hina inference-asuka1 cloudflared
+	$(COMPOSE_PRODUCTION) --profile tunnel --profile gpu up -d --wait --remove-orphans \
+		auth backend frontend inference-hina inference-asuka11 cloudflared
 
 production-down: production-config
 	$(COMPOSE_PRODUCTION) --profile tunnel --profile gpu down --remove-orphans

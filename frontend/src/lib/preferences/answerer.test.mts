@@ -8,13 +8,17 @@ import {
 } from "./answerer.ts";
 
 const answerers = [
-  { id: "asuka-1", is_default: true },
+  { id: "asuka-1.1", is_default: true },
   { id: "hina", is_default: false },
   { id: "human-pro", is_default: false },
 ];
 
 test("最後に選択した回答者を種別にかかわらず復元する", () => {
   assert.equal(resolvePreferredAnswerer(answerers, "hina"), "hina");
+  assert.equal(
+    resolvePreferredAnswerer(answerers, "asuka-1"),
+    "asuka-1.1",
+  );
   assert.equal(
     resolvePreferredAnswerer(answerers, "human-pro"),
     "human-pro",
@@ -24,17 +28,17 @@ test("最後に選択した回答者を種別にかかわらず復元する", ()
 test("保存済みの回答者が利用不能なら既定値へ戻す", () => {
   assert.equal(
     resolvePreferredAnswerer(answerers, "retired-answerer"),
-    "asuka-1",
+    "asuka-1.1",
   );
-  assert.equal(resolvePreferredAnswerer(answerers, undefined), "asuka-1");
+  assert.equal(resolvePreferredAnswerer(answerers, undefined), "asuka-1.1");
   assert.equal(
     resolvePreferredAnswerer(
       answerers.map((answerer) => ({ ...answerer, is_default: false })),
       undefined,
     ),
-    "asuka-1",
+    "asuka-1.1",
   );
-  assert.equal(resolvePreferredAnswerer([], "asuka-1"), undefined);
+  assert.equal(resolvePreferredAnswerer([], "asuka-1.1"), undefined);
 });
 
 test("回答者IDをCookieへ安全に保存して復元する", () => {

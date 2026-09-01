@@ -4,9 +4,18 @@ import test from "node:test";
 import {
   IDLE_RESPONSE_OPERATION,
   requestResponseCancellation,
+  responseCanRegenerate,
   resolveCreatedExecution,
   resolveTerminalExecution,
 } from "./response-operation.ts";
+
+test("提供終了したAnswererの履歴には再生成操作を出さない", () => {
+  const available = new Set(["asuka-1.1", "hina"]);
+
+  assert.equal(responseCanRegenerate("completed", "asuka-1", available), false);
+  assert.equal(responseCanRegenerate("completed", "asuka-1.1", available), true);
+  assert.equal(responseCanRegenerate("failed", "asuka-1.1", available), false);
+});
 
 test("作成中の停止要求をExecution確定まで保持する", () => {
   const waiting = requestResponseCancellation({ kind: "creating" });

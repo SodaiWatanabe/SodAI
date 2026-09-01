@@ -10,7 +10,7 @@ import { resolveMessageBrain } from "./message-brain.ts";
 const entry: ThreadEntry = {
   id: "entry",
   thread_id: "thread",
-  author: { id: "actor", kind: "model", name: "モデル" },
+  author: { id: "actor", kind: "model", name: "Asuka 1" },
   kind: "message",
   content: "回答です。",
   ordinal: 1,
@@ -20,9 +20,9 @@ const entry: ThreadEntry = {
   evaluation: null,
 };
 
-const answerer = {
-  id: "asuka-1",
-  name: "Asuka 1",
+const currentAnswerer = {
+  id: "asuka-1.1",
+  name: "Asuka 1.1",
   description: "会話に最適。",
   kind: "ai",
   is_default: true,
@@ -51,9 +51,16 @@ const answerer = {
 } satisfies AvailableAnswerer;
 
 test("履歴EntryのAnswererを表示名へ変換する", () => {
-  assert.deepEqual(resolveMessageBrain(entry, [answerer]), {
+  assert.deepEqual(resolveMessageBrain(entry, [currentAnswerer]), {
     name: "Asuka 1",
   });
+  assert.deepEqual(
+    resolveMessageBrain(
+      { ...entry, answerer: "asuka-1.1" },
+      [currentAnswerer],
+    ),
+    { name: "Asuka 1.1" },
+  );
 });
 
 test("Answererがカタログにない場合は作者名へ戻す", () => {
@@ -62,13 +69,13 @@ test("Answererがカタログにない場合は作者名へ戻す", () => {
       { ...entry, answerer: null },
       [],
     ),
-    { name: "モデル" },
+    { name: "Asuka 1" },
   );
 });
 
 test("Human回答もAnswererの表示名へ変換する", () => {
   const humanAnswerer = {
-    ...answerer,
+    ...currentAnswerer,
     id: "human-lite",
     name: "Human Lite",
     kind: "human",

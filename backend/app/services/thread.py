@@ -528,10 +528,14 @@ class ThreadService:
     def _resolve_runtime(self, answerer: AnswererDefinition) -> tuple[str, str | None]:
         if answerer.runtime_kind is RuntimeKind.HUMAN:
             return f"human:{answerer.runtime_name}", None
+        if answerer.deployment_name is None:
+            raise AnswererUnavailableError
         try:
-            deployment = self._deployments.resolve(answerer.runtime_name)
+            deployment = self._deployments.resolve(answerer.deployment_name)
         except ModelDeploymentError as error:
             raise AnswererUnavailableError from error
+        if deployment.model != answerer.runtime_name:
+            raise AnswererUnavailableError
         return f"local:{answerer.runtime_name}", deployment.artifact_id
 
     @staticmethod

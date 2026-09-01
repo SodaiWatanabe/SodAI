@@ -10,6 +10,7 @@ import {
   resolveResponseActivity,
   responseActivityLabel,
 } from "@/components/chat/response-activity";
+import { responseCanRegenerate } from "@/components/chat/response-operation";
 import {
   appendStreamedText,
   createStreamedTextState,
@@ -286,8 +287,11 @@ export function ThreadViewport({
     : "";
   const latestRegenerableResponse =
     thread?.latest_response &&
-    (thread.latest_response.status === "completed" ||
-      thread.latest_response.status === "cancelled")
+    responseCanRegenerate(
+      thread.latest_response.status,
+      thread.latest_response.requested_answerer,
+      new Set(answerers.map((answerer) => answerer.id)),
+    )
       ? thread.latest_response
       : undefined;
 

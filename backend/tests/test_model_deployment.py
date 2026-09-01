@@ -24,6 +24,35 @@ def test_resolves_immutable_hina_artifact(tmp_path) -> None:
     assert resolved.resolved_model == "hina@797fb28e6eb46da6"
 
 
+def test_named_deployment_can_share_the_asuka_runtime(tmp_path) -> None:
+    artifact_id = "cf34c76742725e86"
+    artifact = tmp_path / "asuka-1" / artifact_id / "manifest.json"
+    artifact.parent.mkdir(parents=True)
+    artifact.write_text(
+        json.dumps({"model": "asuka-1", "artifact_id": artifact_id}),
+        encoding="utf-8",
+    )
+    deployment = tmp_path / "deployments" / "asuka-1.1.json"
+    deployment.parent.mkdir()
+    deployment.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "deployment": "asuka-1.1",
+                "model": "asuka-1",
+                "artifact_id": artifact_id,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    resolved = ModelDeploymentRegistry(tmp_path).resolve("asuka-1.1")
+
+    assert resolved.deployment_name == "asuka-1.1"
+    assert resolved.model == "asuka-1"
+    assert resolved.resolved_model == f"asuka-1@{artifact_id}"
+
+
 def test_rejects_mismatched_deployment(tmp_path) -> None:
     deployment = tmp_path / "hina" / "deployment.json"
     deployment.parent.mkdir()

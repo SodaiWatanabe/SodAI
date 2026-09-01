@@ -15,6 +15,7 @@ async def check() -> None:
         settings.model_root,
         settings.model_name,
         settings.artifact_id,
+        deployment_name=settings.deployment_name,
     )
     artifact_id = ArtifactManifest.load(artifact_path / "manifest.json").artifact_id
     redis = Redis.from_url(

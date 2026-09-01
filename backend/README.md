@@ -31,7 +31,7 @@ email addresses are never used as an automatic identity-linking key.
 ## Answerer contract
 
 Public answerer IDs are opaque, immutable API identifiers. The catalog uses
-`hina` as the guest default and `asuka-1` as the authenticated default. Omitting
+`hina` as the guest default and `asuka-1.1` as the authenticated default. Omitting
 `answerer` resolves through the same principal-aware policy. Response requests
 store the public answerer ID and shared `reasoning_effort`, while model executions
 separately record the requested model, immutable artifact, and resolved runtime such as
@@ -74,7 +74,7 @@ and metered inference reserves the catalog's maximum charge before its outbox jo
 committed. Terminal projection settles the measured charge or releases the reservation
 in the same database transaction as its usage record.
 
-Hina is free for guests and authenticated users. The first valid Asuka 1 request while
+Hina is free for guests and authenticated users. The first valid Asuka 1.1 request while
 the allowance is dormant starts a user-specific 168-hour, 20-credit lot; successful
 responses settle 0.1 credit and failures release the reservation. Reading the balance or
 using Hina never starts the clock. Both answerers still create immutable billing intent

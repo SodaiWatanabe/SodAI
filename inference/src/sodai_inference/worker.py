@@ -493,7 +493,7 @@ class InferenceWorker:
             sequence=sequence,
             thread_id=job.thread_id,
             finish_reason=FinishReason.ERROR,
-            error_code=f"{job.model.replace('-', '_')}_generation_failed",
+            error_code=f"{job.model.replace('-', '_').replace('.', '_')}_generation_failed",
         )
 
     async def _publish(
@@ -574,6 +574,7 @@ async def run_worker() -> None:
         settings.model_root,
         settings.model_name,
         settings.artifact_id,
+        deployment_name=settings.deployment_name,
     )
     engine = load_engine(settings.model_name, artifact_path, settings.device)
     worker = InferenceWorker(settings, redis, engine)

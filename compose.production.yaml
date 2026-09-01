@@ -181,15 +181,16 @@ services:
       SODAI_INFERENCE_RESOURCE_POOL: ${HINA_RESOURCE_POOL:-gpu-cuda:0}
       INFERENCE_CONSUMER_NAME: ${HINA_CONSUMER_NAME:-sodai-production-hina}
 
-  inference-asuka1:
+  inference-asuka11:
     <<: *inference-runtime
     environment:
       <<: *inference-environment
       SODAI_INFERENCE_MODEL: asuka-1
-      SODAI_INFERENCE_DEVICE: ${ASUKA1_DEVICE:-cuda:0}
-      SODAI_INFERENCE_ARTIFACT_ID: ${ASUKA1_ARTIFACT_ID:-}
-      SODAI_INFERENCE_RESOURCE_POOL: ${ASUKA1_RESOURCE_POOL:-gpu-cuda:0}
-      INFERENCE_CONSUMER_NAME: ${ASUKA1_CONSUMER_NAME:-sodai-production-asuka1}
+      SODAI_INFERENCE_DEPLOYMENT: asuka-1.1
+      SODAI_INFERENCE_DEVICE: ${ASUKA11_DEVICE:-cuda:0}
+      SODAI_INFERENCE_ARTIFACT_ID: ${ASUKA11_ARTIFACT_ID:-}
+      SODAI_INFERENCE_RESOURCE_POOL: ${ASUKA11_RESOURCE_POOL:-gpu-cuda:0}
+      INFERENCE_CONSUMER_NAME: ${ASUKA11_CONSUMER_NAME:-sodai-production-asuka11}
 
   auth-migrate:
     profiles:

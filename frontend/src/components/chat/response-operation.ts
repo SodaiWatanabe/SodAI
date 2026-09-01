@@ -45,3 +45,14 @@ export function responseOperationIsPending(operation: ResponseOperation) {
     operation.kind === "cancelling"
   );
 }
+
+export function responseCanRegenerate(
+  status: string,
+  requestedAnswerer: string,
+  availableAnswererIds: ReadonlySet<string>,
+) {
+  return (
+    (status === "completed" || status === "cancelled") &&
+    availableAnswererIds.has(requestedAnswerer)
+  );
+}

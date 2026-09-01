@@ -28,15 +28,15 @@ importとdeployment promotionは意図的に分離しています。更新時は
 worker readinessをRedisで検証します。初回導入も同じ順序です。promotion後はpinned workerをそのまま
 利用でき、次回起動から`HINA_ARTIFACT_ID`を省略できます。
 
-Asuka 1はBuilding-SLM v2のRoPE SFT成果物を独立artifactとして取り込みます。
+Asuka 1.1はBuilding-SLM v2のRoPE SFT成果物を既存Asuka runtimeのartifactとして取り込みます。
 
 ```bash
 make import-asuka1 \
   CHECKPOINT=../Building-SLM/checkpoints/v2/gpt_sft.pt \
   TOKENIZER=../Building-SLM/tokenizer \
   SOURCE_REPOSITORY=../Building-SLM
-make dev-inference MODEL=asuka-1 ARTIFACT_ID=<artifact-id> DEVICE=cuda:0
-make deploy-asuka1 ARTIFACT_ID=<artifact-id>
+make dev-inference MODEL=asuka-1 DEPLOYMENT=asuka-1.1 ARTIFACT_ID=<artifact-id> DEVICE=cuda:0
+make deploy-asuka11 ARTIFACT_ID=<artifact-id>
 ```
 
-HinaとAsuka 1は別process・別artifact streamで稼働し、共通workerは配送と復旧だけを担当します。
+HinaとAsuka 1.1は別process・別artifact streamで稼働し、共通workerは配送と復旧だけを担当します。
