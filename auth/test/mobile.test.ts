@@ -82,6 +82,8 @@ async function fixture() {
     assert.equal(callback.status, 302, await callback.clone().text());
     const handoff = await request(callback.headers.get("location")!);
     assert.equal(handoff.status, 302, await handoff.clone().text());
+    // Explicitly clear any fragment inherited from the provider's browser page.
+    assert.ok(handoff.headers.get("location")!.endsWith("#"));
     const appURL = new URL(handoff.headers.get("location")!);
     assert.equal(appURL.origin, "null");
     assert.equal(appURL.protocol, "me.sodai.app:");
@@ -187,6 +189,7 @@ test("provider cancellation returns state and a generic error without credential
   const oauthState = new URL(start.headers.get("location")!).searchParams.get("state")!;
   const callback = await f.request("/callback/google?error=access_denied&state=" + oauthState);
   const handoff = await f.request(callback.headers.get("location")!);
+  assert.ok(handoff.headers.get("location")!.endsWith("#"));
   const appURL = new URL(handoff.headers.get("location")!);
   assert.equal(appURL.searchParams.get("state"), state);
   assert.equal(appURL.searchParams.get("error"), "login_failed");

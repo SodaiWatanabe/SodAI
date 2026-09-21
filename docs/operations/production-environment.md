@@ -196,6 +196,9 @@ rollbackは`SODAI_AUTH_IMAGE_TAG`とAuthの環境設定を更新前の値へ戻�
 Google側のcallbackは既存の`https://app.sodai.me/api/auth/callback/google`を使います。
 モバイル用の短命codeをアプリへ渡すURLは`me.sodai.app://auth/callback`に固定され、
 交換時にPKCEとstateを照合します。既存のauth schemaを利用するため追加migrationはありません。
+callback末尾には空のfragment `#` を明示し、認証ページ由来のfragmentがアプリへ
+引き継がれることを防ぎます（[RFC 9110 §10.2.2](https://www.rfc-editor.org/rfc/rfc9110.html#section-10.2.2)）。
+アプリ側はこの空fragmentを受け付け、state・codeはqueryから検証します。
 
 停止が必要な場合は次を使用します。PostgreSQLとRedisのnamed volumeは削除しません。
 

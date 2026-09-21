@@ -112,6 +112,9 @@ export function mobileAuth(): BetterAuthPlugin {
         }
         ctx.setCookie(cookie.name, "", { ...cookie.attributes, maxAge: 0 });
         const callback = new URL(CALLBACK);
+        // RFC 9110 redirects inherit the provider page's fragment when omitted.
+        // An explicit empty fragment clears it before the native app receives the URL.
+        callback.hash = "#";
         callback.searchParams.set("state", transaction.data.state);
         const session = ctx.query.error ? null : await getSessionFromCtx(ctx);
         if (!session) {
