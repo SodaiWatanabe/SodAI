@@ -53,7 +53,7 @@ x-inference-runtime: &inference-runtime
 
 services:
   auth:
-    image: sodai/auth:${SODAI_IMAGE_TAG:-local}
+    image: sodai/auth:${SODAI_AUTH_IMAGE_TAG:-${SODAI_IMAGE_TAG:-local}}
     build:
       context: ./auth
       target: runtime
@@ -195,7 +195,7 @@ services:
   auth-migrate:
     profiles:
       - operations
-    image: sodai/auth-migrator:${SODAI_IMAGE_TAG:-local}
+    image: sodai/auth-migrator:${SODAI_AUTH_IMAGE_TAG:-${SODAI_IMAGE_TAG:-local}}
     build:
       context: ./auth
       target: migrator

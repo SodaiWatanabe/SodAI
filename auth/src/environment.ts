@@ -8,6 +8,14 @@ export type GoogleCredentials = {
   clientSecret: string;
 };
 
+export function getMobileAuthEnabled(): boolean {
+  const value = process.env.AUTH_MOBILE_ENABLED?.trim() || "false";
+  if (value !== "true" && value !== "false") {
+    throw new Error("AUTH_MOBILE_ENABLED must be true or false.");
+  }
+  return value === "true";
+}
+
 export function requireEnvironment(name: RequiredEnvironmentName): string {
   const value = process.env[name]?.trim();
   if (!value) {

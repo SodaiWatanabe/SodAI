@@ -2,6 +2,7 @@ import { Hono, type Context } from "hono";
 
 export type AuthServiceCapabilities = Readonly<{
   google: boolean;
+  mobile?: boolean;
 }>;
 
 type AuthRequestHandler = (request: Request) => Response | Promise<Response>;

@@ -171,6 +171,32 @@ Next.js deployment IDにも使うため、deploy前後のasset取り違えを検
 image tagへ戻して`production-up-gpu`を再実行します。DB migrationは自動downgradeしません。
 schema変更を伴うreleaseは、1つ前のアプリと互換なexpand/contract方式で作成します。
 
+### Authだけを更新する場合
+
+DB schema変更がないAuth単独の更新では、`.env.production`の
+`SODAI_AUTH_IMAGE_TAG`へ新しいcommitのtagを設定します。
+`SODAI_IMAGE_TAG`は既存のまま維持し、他サービスのimageを切り替えません。
+この上書きはAuthとAuth migratorにだけ適用されます。
+
+```bash
+make production-config
+docker compose --env-file .env.production -f compose.yaml -f compose.production.yaml \
+  build auth
+docker compose --env-file .env.production -f compose.yaml -f compose.production.yaml \
+  up -d --no-deps --wait auth
+```
+
+rollbackは`SODAI_AUTH_IMAGE_TAG`とAuthの環境設定を更新前の値へ戻し、同じ`up`を実行します。
+通常の全体更新へ戻すときは`SODAI_AUTH_IMAGE_TAG`を空にし、
+新しい`SODAI_IMAGE_TAG`で全体をbuild・deployします。
+
+ネイティブのGoogleログインを公開する場合は、Authの環境ファイルで
+`AUTH_MOBILE_ENABLED=true`を設定します。既定はfalseです。
+公開`/api/auth/capabilities`の`google`と`mobile`が両方trueであることを確認します。
+Google側のcallbackは既存の`https://app.sodai.me/api/auth/callback/google`を使います。
+モバイル用の短命codeをアプリへ渡すURLは`me.sodai.app://auth/callback`に固定され、
+交換時にPKCEとstateを照合します。既存のauth schemaを利用するため追加migrationはありません。
+
 停止が必要な場合は次を使用します。PostgreSQLとRedisのnamed volumeは削除しません。
 
 ```bash

@@ -1,21 +1,25 @@
 import type { BetterAuthOptions } from "better-auth";
-import { emailOTP, jwt } from "better-auth/plugins";
+import { bearer, emailOTP, jwt } from "better-auth/plugins";
 
 import { authDatabasePool } from "./database.js";
 import {
   getAuthBaseUrl,
   getClientIpAddressHeaders,
   getGoogleCredentials,
+  getMobileAuthEnabled,
   getTrustedOrigins,
   requireEnvironment,
 } from "./environment.js";
 import { sendSignInOtpEmail } from "./email/index.js";
+import { mobileAuth } from "./mobile.js";
 
 const authBaseUrl = getAuthBaseUrl();
 const googleCredentials = getGoogleCredentials();
+const mobileEnabled = getMobileAuthEnabled();
 
 export const authCapabilities = Object.freeze({
   google: Boolean(googleCredentials),
+  mobile: mobileEnabled,
 });
 
 export const authOptions = {
@@ -60,6 +64,7 @@ export const authOptions = {
     },
   },
   plugins: [
+    ...(mobileEnabled ? [bearer(), mobileAuth()] : []),
     emailOTP({
       allowedAttempts: 3,
       expiresIn: 5 * 60,
