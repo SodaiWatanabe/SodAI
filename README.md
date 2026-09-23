@@ -30,6 +30,7 @@ SodAI/
 ├── backend/                 # FastAPI、app schema、認証トークン検証
 ├── auth/                    # Hono、Better Auth、auth schema、認証メール
 ├── frontend/                # Next.js、UI、Auth/APIクライアント
+├── mobile/ios/              # SwiftUIのiPhoneアプリ（Chat / Brain）
 ├── inference/               # Hina／Asuka 1.1のモデル別GPU推論worker
 ├── packages/contracts/      # APIとworkerのversioned内部契約
 ├── var/models/              # Git管理外のimmutableモデル成果物
