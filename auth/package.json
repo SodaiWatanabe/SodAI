@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "dev:mobile-fixture": "tsx scripts/mobile-fixture.ts",
     "dev": "tsx watch src/main.ts",
     "start": "NODE_ENV=production node dist/main.js",
     "build": "tsc -p tsconfig.build.json",
