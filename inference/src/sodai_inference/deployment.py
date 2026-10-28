@@ -176,18 +176,6 @@ async def _activate_ready_artifact(
     )
 
 
-def resolve_hina_artifact(model_root: Path, artifact_id: str | None = None) -> Path:
-    return resolve_artifact(model_root, "hina", artifact_id)
-
-
-def activate_hina_artifact(model_root: Path, artifact_id: str) -> Path:
-    return activate_artifact(model_root, "hina", artifact_id)
-
-
-def main() -> None:
-    _main("hina", "hina")
-
-
 def main_asuka1() -> None:
     _main("asuka-1", "asuka-1")
 
@@ -197,4 +185,4 @@ def main_asuka11() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    main_asuka11()

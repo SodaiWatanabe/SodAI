@@ -34,13 +34,13 @@ def test_inference_namespace_preserves_production_keys_and_isolates_test_runs() 
     assert production.event_stream == "sodai:inference:events:v3"
     assert production.projector_group == "sodai-inference-projector-v3"
     assert production.worker_group == "sodai-inference-workers-v3"
-    assert production.worker_readiness("hina", "artifact").endswith(
-        ":worker:ready:v3:hina:artifact"
+    assert production.worker_readiness("asuka-1", "artifact").endswith(
+        ":worker:ready:v3:asuka-1:artifact"
     )
     assert isolated.job_stream != production.job_stream
     assert isolated.attempt_lock(uuid4()).startswith(isolated.prefix)
     assert isolated.attempt_cancellation(uuid4()).endswith(":cancelled")
-    assert isolated.worker_readiness("hina", "artifact").startswith(isolated.prefix)
+    assert isolated.worker_readiness("asuka-1", "artifact").startswith(isolated.prefix)
 
 
 def test_generation_job_round_trip_preserves_partner_self_vocabulary() -> None:
@@ -50,7 +50,7 @@ def test_generation_job_round_trip_preserves_partner_self_vocabulary() -> None:
         attempt_id=uuid4(),
         thread_id=uuid4(),
         answerer_actor_id=uuid4(),
-        model="hina",
+        model="asuka-1",
         artifact_id="8f42c9",
         turns=(
             GenerationTurn(InferenceSpeaker.PARTNER, "こんにちは"),
@@ -78,7 +78,7 @@ def test_generation_job_must_end_with_partner_turn() -> None:
             attempt_id=uuid4(),
             thread_id=uuid4(),
             answerer_actor_id=uuid4(),
-            model="hina",
+            model="asuka-1",
             artifact_id="8f42c9",
             turns=(GenerationTurn(InferenceSpeaker.SELF, "応答"),),
             deadline=datetime.now(timezone.utc) + timedelta(minutes=5),
@@ -92,7 +92,7 @@ def test_generation_job_bounds_history_size() -> None:
         "attempt_id": uuid4(),
         "thread_id": uuid4(),
         "answerer_actor_id": uuid4(),
-        "model": "hina",
+        "model": "asuka-1",
         "artifact_id": "8f42c9",
         "deadline": datetime.now(timezone.utc) + timedelta(minutes=5),
     }
@@ -240,7 +240,7 @@ def test_inference_logs_are_correlated_without_prompt_content(caplog) -> None:
         attempt_id=uuid4(),
         thread_id=uuid4(),
         answerer_actor_id=uuid4(),
-        model="hina",
+        model="asuka-1",
         artifact_id="8f42c9",
         turns=(GenerationTurn(InferenceSpeaker.PARTNER, "秘密のプロンプト"),),
         deadline=datetime.now(timezone.utc) + timedelta(minutes=5),

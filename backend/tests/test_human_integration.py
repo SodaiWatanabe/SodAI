@@ -177,8 +177,8 @@ async def create_contextual_task(owner: Principal) -> tuple[UUID, UUID]:
             owner,
             context,
             "最初の質問",
-            get_answerer(AnswererId.HINA),
-            execution_target="local:hina",
+            get_answerer(AnswererId.ASUKA_1_1),
+            execution_target="local:asuka-1",
             artifact_id="integration",
             deadline_at=now + timedelta(minutes=5),
         )
@@ -876,8 +876,8 @@ async def test_human_matching_uses_oldest_compatible_task_and_returns_answer() -
                 lite_thread_id,
                 owner_actor.id,
                 "次はAIへ切り替える",
-                get_answerer(AnswererId.HINA),
-                execution_target="local:hina",
+                get_answerer(AnswererId.ASUKA_1_1),
+                execution_target="local:asuka-1",
                 artifact_id="integration",
                 deadline_at=datetime.now(timezone.utc) + timedelta(minutes=5),
                 model_limit=32,
@@ -920,7 +920,7 @@ async def test_human_matching_uses_oldest_compatible_task_and_returns_answer() -
         assert execution is not None and execution.status == "queued"
         assert skipped_claim is not None and skipped_claim.status == "skipped"
         assert inference.queued == 1
-        assert inference.active_by_answerer == {AnswererId.HINA: 1}
+        assert inference.active_by_answerer == {AnswererId.ASUKA_1_1: 1}
 
         # The assigned Human is not a normal member of the owner's thread.
         async with factory() as session:

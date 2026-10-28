@@ -232,6 +232,7 @@ class ThreadService:
             answerer = get_answerer(retry.response.requested_answerer)
             if answerer is None:
                 raise AnswererUnavailableError
+            answerer = answerer.for_audience(self._audience(principal))
             artifact_id = self._required_artifact(retry.execution.artifact_id)
             self._validate_retry_artifact(answerer, artifact_id)
             await InferenceBillingService(session).register(
@@ -543,14 +544,16 @@ class ThreadService:
         return list_available_answerers(ThreadService._audience(principal))
 
     @staticmethod
-    def select_answerer(principal: Principal, requested: AnswererId | None) -> AnswererDefinition:
+    def select_answerer(
+        principal: Principal, requested: AnswererId | str | None
+    ) -> AnswererDefinition:
         audience = ThreadService._audience(principal)
         answerer = (
             get_answerer(requested) if requested is not None else get_default_answerer(audience)
         )
         if answerer is None or audience not in answerer.audiences:
             raise AnswererAccessError
-        return answerer
+        return answerer.for_audience(audience)
 
     @staticmethod
     def select_reasoning_effort(

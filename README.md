@@ -9,7 +9,7 @@ Browser
   ├─ Next.js ── /api/auth/* ── Hono / Better Auth ── PostgreSQL auth schema
   └─ FastAPI ─────────────────────────────────────── PostgreSQL app schema / inference outbox
                                                              │
-                                                             └─ Redis Streams ── Hina / Asuka 1.1 GPU workers
+                                                             └─ Redis Streams ── Asuka 1.1 GPU workers
 
 Internet ── Cloudflare Tunnel ── 自宅環境
                                       └─ SodAI GPU worker
@@ -21,7 +21,7 @@ apexサイト用に予約し、認証のissuer、audience、Cookie、ブラウ�
 
 認証プロバイダーのユーザーIDをサービス全体の主キーにせず、SodAI内部の不変UUIDと`(issuer, subject)`の対応として扱います。これによりBetter Authを自前運用しながら、将来Cognitoなどへ段階移行できます。詳細は[認証・アカウント境界](docs/architecture/authentication.md)を参照してください。
 
-作業文脈はSpaceとThreadとしてHTTPで永続化し、Hina／Asukaの生成差分をWebSocketで配信します。匿名利用、再読込後の復元、イベント再同期、応答主体の権限境界は[Space・Thread・リアルタイム基盤](docs/architecture/spaces-threads-realtime.md)、モデル成果物とGPU実行の境界は[推論基盤](docs/architecture/inference.md)にまとめています。複式簿記、期限付きLot、推論予約、将来の購入・報酬との接続は[クレジット基盤](docs/architecture/credits.md)を参照してください。
+作業文脈はSpaceとThreadとしてHTTPで永続化し、Asukaの生成差分をWebSocketで配信します。匿名利用、再読込後の復元、イベント再同期、応答主体の権限境界は[Space・Thread・リアルタイム基盤](docs/architecture/spaces-threads-realtime.md)、モデル成果物とGPU実行の境界は[推論基盤](docs/architecture/inference.md)にまとめています。複式簿記、期限付きLot、推論予約、将来の購入・報酬との接続は[クレジット基盤](docs/architecture/credits.md)を参照してください。
 
 ## ディレクトリ
 
@@ -31,7 +31,7 @@ SodAI/
 ├── auth/                    # Hono、Better Auth、auth schema、認証メール
 ├── frontend/                # Next.js、UI、Auth/APIクライアント
 ├── mobile/ios/              # SwiftUIのiPhoneアプリ（Chat / Brain）
-├── inference/               # Hina／Asuka 1.1のモデル別GPU推論worker
+├── inference/               # Asuka 1.1のモデル別GPU推論worker
 ├── packages/contracts/      # APIとworkerのversioned内部契約
 ├── var/models/              # Git管理外のimmutableモデル成果物
 ├── infra/
@@ -84,24 +84,7 @@ cp frontend/.env.example frontend/.env.local
 make migrate
 ```
 
-HinaをBuilding-SLMのv1 SFT成果物から取り込みます。
-
-```bash
-make import-hina \
-  CHECKPOINT=../Building-SLM/checkpoints/v1/gpt_sft.pt \
-  TOKENIZER=../Building-SLM/tokenizer \
-  SOURCE_REPOSITORY=../Building-SLM
-# 別ターミナルで、importが表示したartifactを固定してworkerを先に起動
-make dev-inference HINA_ARTIFACT_ID=<artifact-id>
-# worker ready後に、新規runの向き先を原子的に切り替える
-make deploy-hina ARTIFACT_ID=<importで表示されたartifact-id>
-```
-
-初回導入でも更新時でも、`deploy-hina`より先に対象artifactのworkerを起動します。promotion後は
-そのpinned workerを動かし続けて構いません。次回起動からは`HINA_ARTIFACT_ID`を省略できます。
-
-Asuka 1.1はBuilding-SLM v2のSFT成果物からAsuka runtime artifactとして取り込み、
-Hinaとは別workerで起動します。
+Asuka 1.1をBuilding-SLM v2のSFT成果物から取り込み、Asuka runtime workerで起動します。
 
 ```bash
 make import-asuka1 \
@@ -111,6 +94,9 @@ make import-asuka1 \
 make dev-inference MODEL=asuka-1 DEPLOYMENT=asuka-1.1 ARTIFACT_ID=<artifact-id> DEVICE=cuda:0
 make deploy-asuka11 ARTIFACT_ID=<artifact-id>
 ```
+
+新artifactのworkerを先に起動し、readyになってからdeploymentを切り替えます。
+非ログイン時もAsuka 1.1を使用し、ゲストは無料で利用できます。
 
 開発用overrideはPostgreSQLとRedisを`127.0.0.1`だけへ公開します。`compose.yaml`単体では両者をホストへ一切公開しません。
 
@@ -159,7 +145,7 @@ make check
 make infra-config
 # 実PostgreSQLで台帳不変条件とmigration往復を検証
 make test-integration
-# local CUDA上で実Hinaを含む隔離E2E
+# local CUDA上で実Asuka 1.1を含む隔離E2E
 make test-inference-e2e
 # 公開しない詳細な推論運用状態
 make inference-status

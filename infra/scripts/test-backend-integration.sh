@@ -83,6 +83,10 @@ backend/.venv/bin/pytest -q backend/tests/test_earned_expiration_migration.py
 DATABASE_URL="$database_url" \
 SODAI_ASUKA11_MIGRATION_TEST=prepare \
 backend/.venv/bin/pytest -q backend/tests/test_asuka11_migration.py
+(cd backend && DATABASE_URL="$database_url" .venv/bin/alembic upgrade 20260902_0018)
+DATABASE_URL="$database_url" \
+SODAI_RETIRED_MODEL_MIGRATION_TEST=prepare \
+backend/.venv/bin/pytest -q backend/tests/test_retired_model_migration.py
 (cd backend && DATABASE_URL="$database_url" .venv/bin/alembic upgrade head)
 (cd backend && DATABASE_URL="$database_url" .venv/bin/alembic check)
 DATABASE_URL="$database_url" \
@@ -91,6 +95,9 @@ backend/.venv/bin/pytest -q backend/tests/test_earned_expiration_migration.py
 DATABASE_URL="$database_url" \
 SODAI_ASUKA11_MIGRATION_TEST=verify \
 backend/.venv/bin/pytest -q backend/tests/test_asuka11_migration.py
+DATABASE_URL="$database_url" \
+SODAI_RETIRED_MODEL_MIGRATION_TEST=verify \
+backend/.venv/bin/pytest -q backend/tests/test_retired_model_migration.py
 
 (cd backend && DATABASE_URL="$database_url" .venv/bin/alembic downgrade 20260713_0002)
 (cd backend && DATABASE_URL="$database_url" .venv/bin/alembic upgrade head)

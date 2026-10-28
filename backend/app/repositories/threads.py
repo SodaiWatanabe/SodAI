@@ -23,6 +23,7 @@ from app.domain.answerers import (
     AnswererId,
     RuntimeKind,
     get_answerer,
+    parse_stored_answerer_id,
 )
 from app.domain.execution_events import (
     EventDisposition,
@@ -521,7 +522,9 @@ class SqlAlchemyThreadRepository:
             return ExecutionRetry(
                 thread=await self.get(principal, request.thread_id),
                 response=self._to_response(request),
-                execution=self._to_execution(replayed, AnswererId(request.requested_answerer)),
+                execution=self._to_execution(
+                    replayed, parse_stored_answerer_id(request.requested_answerer)
+                ),
                 replayed=True,
             )
 
@@ -552,7 +555,7 @@ class SqlAlchemyThreadRepository:
         ):
             raise ResponseNotRetryableError
 
-        answerer = AnswererId(request.requested_answerer)
+        answerer = parse_stored_answerer_id(request.requested_answerer)
         answerer_definition = get_answerer(answerer)
         if answerer_definition is None or answerer_definition.runtime_kind is RuntimeKind.HUMAN:
             raise ResponseNotRetryableError
@@ -1545,7 +1548,7 @@ class SqlAlchemyThreadRepository:
             id=model.id,
             space_id=model.space_id,
             title=model.title,
-            answerer=AnswererId(model.default_answerer),
+            answerer=parse_stored_answerer_id(model.default_answerer),
             revision=model.revision,
             created_at=model.created_at,
             updated_at=model.updated_at,
@@ -1574,7 +1577,7 @@ class SqlAlchemyThreadRepository:
         entry_responses: dict[
             UUID,
             tuple[
-                AnswererId,
+                AnswererId | str,
                 ResponseStatus,
                 UUID,
                 ResponseEvaluationValue | None,
@@ -1586,7 +1589,7 @@ class SqlAlchemyThreadRepository:
                     continue
                 evaluation = execution.__dict__.get("evaluation")
                 entry_responses[execution.result_entry_id] = (
-                    AnswererId(request.requested_answerer),
+                    parse_stored_answerer_id(request.requested_answerer),
                     ResponseStatus(execution.status),
                     execution.id,
                     (
@@ -1608,7 +1611,7 @@ class SqlAlchemyThreadRepository:
             id=model.id,
             space_id=model.space_id,
             title=model.title,
-            answerer=AnswererId(model.default_answerer),
+            answerer=parse_stored_answerer_id(model.default_answerer),
             revision=model.revision,
             entries=tuple(
                 cls._to_entry(entry, entry_responses.get(entry.id))
@@ -1624,7 +1627,7 @@ class SqlAlchemyThreadRepository:
     def _to_entry(
         model: ThreadEntryModel,
         response: tuple[
-            AnswererId,
+            AnswererId | str,
             ResponseStatus,
             UUID,
             ResponseEvaluationValue | None,
@@ -1657,7 +1660,7 @@ class SqlAlchemyThreadRepository:
             id=model.id,
             thread_id=model.thread_id,
             input_entry_id=model.input_entry_id,
-            requested_answerer=AnswererId(model.requested_answerer),
+            requested_answerer=parse_stored_answerer_id(model.requested_answerer),
             reasoning_effort=ReasoningEffort(model.reasoning_effort),
             target_actor=Actor(
                 id=model.target_actor.id,
@@ -1666,12 +1669,14 @@ class SqlAlchemyThreadRepository:
                 name=model.target_actor.name,
             ),
             status=ResponseStatus(model.status),
-            execution=cls._to_execution(execution, AnswererId(model.requested_answerer)),
+            execution=cls._to_execution(
+                execution, parse_stored_answerer_id(model.requested_answerer)
+            ),
             created_at=model.created_at,
         )
 
     @staticmethod
-    def _to_execution(model: ExecutionModel, answerer: AnswererId) -> Execution:
+    def _to_execution(model: ExecutionModel, answerer: AnswererId | str) -> Execution:
         model_execution = model.model_execution
         evaluation = model.__dict__.get("evaluation")
         return Execution(

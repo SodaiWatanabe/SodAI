@@ -31,11 +31,11 @@ email addresses are never used as an automatic identity-linking key.
 ## Answerer contract
 
 Public answerer IDs are opaque, immutable API identifiers. The catalog uses
-`hina` as the guest default and `asuka-1.1` as the authenticated default. Omitting
+`asuka-1.1` as the default for guests and authenticated users. Omitting
 `answerer` resolves through the same principal-aware policy. Response requests
 store the public answerer ID and shared `reasoning_effort`, while model executions
 separately record the requested model, immutable artifact, and resolved runtime such as
-`hina@<artifact-id>`. Additions start in `app.domain.answerers` so identity,
+`asuka-1@<artifact-id>`. Additions start in `app.domain.answerers` so identity,
 metadata, audience rules, reasoning capabilities, defaults, and runtime routing
 cannot drift.
 
@@ -43,8 +43,7 @@ The browser never starts an execution directly. Thread writes create an immutabl
 input Entry, ResponseRequest, first Execution, context snapshot, and transactional
 outbox together. The dispatcher publishes committed jobs to Redis, and the
 projector is the only component allowed to apply runtime events to PostgreSQL and
-the public WebSocket stream. Hina and the in-process Asuka stand-in use this same
-path.
+the public WebSocket stream. Asuka uses this same path.
 
 Human Lite, Human Standard, and Human Pro reuse the same ResponseRequest, Execution, context, and
 ThreadEntry records without creating a model outbox job. Their rank-based FIFO
@@ -53,7 +52,7 @@ matching, Brain readiness lease, shared reasoning deadline, skip loop, and exten
 
 Generation jobs carry at most 32 recent turns and 64 KiB of Entry content.
 PostgreSQL advisory locking enforces the configured per-guest/model and per-model active
-Execution limits before Hina work is committed. Processed Redis entries and
+Execution limits before model work is committed. Processed Redis entries and
 published outbox payloads are removed because PostgreSQL is the sole Thread record.
 
 Failed response requests are retried with
@@ -74,10 +73,11 @@ and metered inference reserves the catalog's maximum charge before its outbox jo
 committed. Terminal projection settles the measured charge or releases the reservation
 in the same database transaction as its usage record.
 
-Hina is free for guests and authenticated users. The first valid Asuka 1.1 request while
+Asuka 1.1 is free for guests; authenticated users pay 0.1 credit per successful response.
+The first valid authenticated Asuka 1.1 request while
 the allowance is dormant starts a user-specific 168-hour, 20-credit lot; successful
 responses settle 0.1 credit and failures release the reservation. Reading the balance or
-using Hina never starts the clock. Both answerers still create immutable billing intent
+guest usage never starts the clock. All model requests still create immutable billing intent
 snapshots and terminal usage records. The active allowance and cursor-paginated history
 are exposed at `GET /api/v1/credits` and `GET /api/v1/credits/transactions`. Operational
 grants and expiration use `make credits-grant` and `make credits-expire`; the complete

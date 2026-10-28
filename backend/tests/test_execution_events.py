@@ -17,7 +17,7 @@ def event(*, attempt_id, sequence: int) -> GenerationEvent:
         attempt_id=attempt_id,
         sequence=sequence,
         thread_id=uuid4(),
-        resolved_model="hina@artifact",
+        resolved_model="asuka-1@artifact",
         phase=GenerationPhase.ANSWERING,
     )
 

@@ -22,10 +22,23 @@ def principal(kind: PrincipalKind) -> Principal:
     return Principal(kind, uuid4())
 
 
-@pytest.mark.parametrize("answerer_id", [AnswererId.ASUKA_1, AnswererId.ASUKA_1_1])
-def test_guest_cannot_select_asuka(answerer_id: AnswererId) -> None:
+@pytest.mark.parametrize(
+    "answerer_id",
+    [AnswererId.ASUKA_1, AnswererId.HUMAN_LITE, AnswererId.HUMAN_STANDARD, AnswererId.HUMAN_PRO],
+)
+def test_guest_cannot_select_unavailable_answerers(answerer_id: AnswererId) -> None:
     with pytest.raises(AnswererAccessError):
         ThreadService.select_answerer(principal(PrincipalKind.GUEST), answerer_id)
+
+
+@pytest.mark.parametrize("requested", [None, AnswererId.ASUKA_1_1])
+def test_guest_selects_asuka_with_a_free_tariff(requested: AnswererId | None) -> None:
+    answerer = ThreadService.select_answerer(principal(PrincipalKind.GUEST), requested)
+    assert answerer.id is AnswererId.ASUKA_1_1
+    assert answerer.deployment_name == "asuka-1.1"
+    assert answerer.tariff.is_free
+    authenticated = get_answerer(AnswererId.ASUKA_1_1)
+    assert authenticated is not None and authenticated.tariff.fixed_charge == 100_000
 
 
 def test_authenticated_account_can_select_asuka_1_1() -> None:
@@ -48,7 +61,7 @@ def test_asuka_1_is_no_longer_selectable() -> None:
 @pytest.mark.parametrize(
     ("kind", "expected"),
     [
-        (PrincipalKind.GUEST, AnswererId.HINA),
+        (PrincipalKind.GUEST, AnswererId.ASUKA_1_1),
         (PrincipalKind.USER, AnswererId.ASUKA_1_1),
     ],
 )
@@ -61,7 +74,6 @@ def test_answerer_catalog_is_the_single_ui_source() -> None:
 
     assert [(item.id, item.name, item.description, item.is_default) for item in answerers] == [
         (AnswererId.ASUKA_1_1, "Asuka 1.1", "会話に最適。", True),
-        (AnswererId.HINA, "Hina", "知能の萌芽を捉える。", False),
         (AnswererId.HUMAN_LITE, "Human Lite", "日常のやりとりに最適。", False),
         (AnswererId.HUMAN_STANDARD, "Human Standard", "幅広い相談に対応。", False),
         (AnswererId.HUMAN_PRO, "Human Pro", "より高度な応答。", False),
@@ -77,10 +89,6 @@ def test_answerer_catalog_is_the_single_ui_source() -> None:
         by_id[AnswererId.ASUKA_1_1].pricing.maximum_charge,
         by_id[AnswererId.ASUKA_1_1].pricing.unmetered_charge,
     ) == ("asuka-1.1-flat-v1", 100_000, 0, 0, 100_000, 100_000)
-    assert by_id[AnswererId.HINA].pricing.kind is AnswererPricingKind.FREE
-    hina = get_answerer(AnswererId.HINA)
-    assert hina is not None and hina.generation_max_output_tokens == 128
-    assert by_id[AnswererId.HINA].is_legacy is True
     assert by_id[AnswererId.ASUKA_1_1].is_legacy is False
     assert by_id[AnswererId.HUMAN_LITE].is_legacy is False
     assert by_id[AnswererId.HUMAN_STANDARD].is_legacy is False
@@ -134,7 +142,11 @@ def test_answerer_catalog_is_the_single_ui_source() -> None:
     assert standard is not None and standard.required_human_rank == 2
     assert pro is not None and pro.required_human_rank == 3
     guest_answerers = ThreadService.available_answerers(principal(PrincipalKind.GUEST))
+    assert [item.id for item in guest_answerers] == [AnswererId.ASUKA_1_1]
+    assert guest_answerers[0].is_default
     assert all(item.pricing.kind is AnswererPricingKind.FREE for item in guest_answerers)
+    assert guest_answerers[0].pricing.maximum_charge == 0
+    assert guest_answerers[0].reasoning_efforts[0].customer_charge == 0
 
 
 @pytest.mark.parametrize(

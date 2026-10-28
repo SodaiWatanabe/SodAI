@@ -10,7 +10,7 @@ from app.domain.reasoning import ReasoningEffort
 from app.domain.responses import ResponseEvaluationValue
 
 ANSWERER_SELECTION_DESCRIPTION = (
-    "Answerer ID. Omit to use Hina for guests or Asuka 1.1 for authenticated accounts."
+    "Answerer ID. Omit to use Asuka 1.1 for guests and authenticated accounts."
 )
 InputText = Annotated[
     str,
@@ -66,7 +66,7 @@ class EntryResponse(BaseModel):
     content: str
     ordinal: int
     created_at: datetime
-    answerer: AnswererId | None = None
+    answerer: AnswererId | str | None = None
     response_status: Literal["completed", "cancelled"] | None = None
     execution_id: UUID | None = None
     evaluation: ResponseEvaluationValue | None = None
@@ -79,7 +79,7 @@ class ExecutionResponse(BaseModel):
     response_request_id: UUID
     thread_id: UUID
     result_entry_id: UUID | None
-    answerer: AnswererId
+    answerer: AnswererId | str
     target: str
     status: Literal["queued", "running", "completed", "failed", "cancelled"]
     attempt_no: int
@@ -98,7 +98,7 @@ class ResponseRequestResponse(BaseModel):
     id: UUID
     thread_id: UUID
     input_entry_id: UUID
-    requested_answerer: AnswererId
+    requested_answerer: AnswererId | str
     reasoning_effort: ReasoningEffort
     target_actor: ActorResponse
     status: Literal["queued", "running", "completed", "failed", "cancelled"]
@@ -125,7 +125,7 @@ class ThreadSummaryResponse(BaseModel):
     id: UUID
     space_id: UUID
     title: str
-    answerer: AnswererId
+    answerer: AnswererId | str
     revision: int
     created_at: datetime
     updated_at: datetime

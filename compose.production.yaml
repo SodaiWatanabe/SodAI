@@ -171,16 +171,6 @@ services:
     stop_grace_period: 30s
     logging: *default-logging
 
-  inference-hina:
-    <<: *inference-runtime
-    environment:
-      <<: *inference-environment
-      SODAI_INFERENCE_MODEL: hina
-      SODAI_INFERENCE_DEVICE: ${HINA_DEVICE:-cuda:0}
-      SODAI_INFERENCE_ARTIFACT_ID: ${HINA_ARTIFACT_ID:-}
-      SODAI_INFERENCE_RESOURCE_POOL: ${HINA_RESOURCE_POOL:-gpu-cuda:0}
-      INFERENCE_CONSUMER_NAME: ${HINA_CONSUMER_NAME:-sodai-production-hina}
-
   inference-asuka11:
     <<: *inference-runtime
     environment:

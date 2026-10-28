@@ -9,12 +9,11 @@ import {
 
 const answerers = [
   { id: "asuka-1.1", is_default: true },
-  { id: "hina", is_default: false },
   { id: "human-pro", is_default: false },
 ];
 
 test("最後に選択した回答者を種別にかかわらず復元する", () => {
-  assert.equal(resolvePreferredAnswerer(answerers, "hina"), "hina");
+  assert.equal(resolvePreferredAnswerer(answerers, "asuka-1.1"), "asuka-1.1");
   assert.equal(
     resolvePreferredAnswerer(answerers, "asuka-1"),
     "asuka-1.1",
@@ -26,6 +25,7 @@ test("最後に選択した回答者を種別にかかわらず復元する", ()
 });
 
 test("保存済みの回答者が利用不能なら既定値へ戻す", () => {
+  assert.equal(resolvePreferredAnswerer(answerers, "hina"), "asuka-1.1");
   assert.equal(
     resolvePreferredAnswerer(answerers, "retired-answerer"),
     "asuka-1.1",

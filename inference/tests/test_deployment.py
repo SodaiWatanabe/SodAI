@@ -5,18 +5,16 @@ import pytest
 
 from sodai_inference.artifacts import MANIFEST_SCHEMA_VERSION, sha256_file, sha256_tree
 from sodai_inference.deployment import (
+    activate_artifact,
     activate_deployment,
-    activate_hina_artifact,
     resolve_artifact,
-    resolve_hina_artifact,
 )
 from sodai_inference.models.asuka1.profile import ASUKA1_PROFILE
-from sodai_inference.models.hina.profile import HINA_PROFILE
 
 ARTIFACT_ID = "0123456789abcdef"
 
 
-def create_artifact(tmp_path, profile=HINA_PROFILE):
+def create_artifact(tmp_path, profile=ASUKA1_PROFILE):
     artifact = tmp_path / profile.model / ARTIFACT_ID
     tokenizer = artifact / "tokenizer"
     tokenizer.mkdir(parents=True)
@@ -63,10 +61,10 @@ def create_artifact(tmp_path, profile=HINA_PROFILE):
 def test_activation_validates_then_atomically_promotes_artifact(tmp_path) -> None:
     artifact = create_artifact(tmp_path)
 
-    activated = activate_hina_artifact(tmp_path, ARTIFACT_ID)
+    activated = activate_artifact(tmp_path, "asuka-1", ARTIFACT_ID)
 
     assert activated == artifact
-    assert resolve_hina_artifact(tmp_path) == artifact
+    assert resolve_artifact(tmp_path, "asuka-1") == artifact
 
 
 def test_named_deployment_routes_asuka_versions_to_one_runtime(tmp_path) -> None:
@@ -104,7 +102,7 @@ def test_activation_grants_the_model_group_read_only_access(tmp_path) -> None:
     for path in (tmp_path, *tmp_path.rglob("*")):
         path.chmod(0o700 if path.is_dir() else 0o600)
 
-    activate_hina_artifact(tmp_path, ARTIFACT_ID)
+    activate_artifact(tmp_path, "asuka-1", ARTIFACT_ID)
 
     for path in (tmp_path, *tmp_path.rglob("*")):
         mode = path.stat().st_mode
@@ -122,7 +120,7 @@ def test_activation_rejects_corrupted_artifact(tmp_path) -> None:
     (artifact / "model_config.json").write_text('{"tampered": true}\n', encoding="utf-8")
 
     with pytest.raises(ValueError, match="config is corrupted"):
-        activate_hina_artifact(tmp_path, ARTIFACT_ID)
+        activate_artifact(tmp_path, "asuka-1", ARTIFACT_ID)
 
 
 def test_activation_hashes_the_entire_tokenizer_bundle(tmp_path) -> None:
@@ -132,7 +130,7 @@ def test_activation_hashes_the_entire_tokenizer_bundle(tmp_path) -> None:
     )
 
     with pytest.raises(ValueError, match="tokenizer is corrupted"):
-        activate_hina_artifact(tmp_path, ARTIFACT_ID)
+        activate_artifact(tmp_path, "asuka-1", ARTIFACT_ID)
 
 
 def test_activation_rejects_an_incomplete_runtime_contract(tmp_path) -> None:
@@ -143,9 +141,9 @@ def test_activation_rejects_an_incomplete_runtime_contract(tmp_path) -> None:
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
 
     with pytest.raises(ValueError, match="special token set"):
-        activate_hina_artifact(tmp_path, ARTIFACT_ID)
+        activate_artifact(tmp_path, "asuka-1", ARTIFACT_ID)
 
 
 def test_artifact_id_cannot_escape_the_model_root(tmp_path) -> None:
     with pytest.raises(ValueError, match="invalid artifact_id"):
-        resolve_hina_artifact(tmp_path, "../../outside")
+        resolve_artifact(tmp_path, "asuka-1", "../../outside")

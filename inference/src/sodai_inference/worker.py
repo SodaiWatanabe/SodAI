@@ -121,7 +121,7 @@ class InferenceWorker:
             except asyncio.CancelledError:
                 raise
             except Exception:
-                logger.exception("Hina readiness lease refresh failed")
+                logger.exception("Inference readiness lease refresh failed")
                 await asyncio.sleep(1)
 
     async def _announce_readiness(self) -> None:

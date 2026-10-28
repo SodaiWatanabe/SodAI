@@ -33,8 +33,8 @@ def runtime(
     *, ready: bool = True, stream_state: StreamGroupSnapshot | None = None
 ) -> RuntimeInferenceSnapshot:
     return RuntimeInferenceSnapshot(
-        answerer=AnswererId.HINA,
-        model="hina",
+        answerer=AnswererId.ASUKA_1_1,
+        model="asuka-1",
         artifact_id="artifact",
         is_current_deployment=True,
         deployment_available=True,

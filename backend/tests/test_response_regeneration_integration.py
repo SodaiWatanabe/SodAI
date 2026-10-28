@@ -76,7 +76,7 @@ async def complete_model_response(
             attempt_id=attempt_id,
             sequence=0,
             thread_id=thread_id,
-            resolved_model="hina@2222222222222222",
+            resolved_model="asuka-1@1111111111111111",
             phase=GenerationPhase.ANSWERING,
         ),
         GenerationEvent.create(
@@ -120,7 +120,7 @@ async def context_entry_ids(response_request_id):
 async def test_ai_regeneration_preserves_context_and_replaces_only_the_projection() -> None:
     requester = await create_user("AI regeneration requester")
     service = thread_service()
-    original = await service.create(requester, "同じ文脈で答えて", AnswererId.HINA)
+    original = await service.create(requester, "同じ文脈で答えて", AnswererId.ASUKA_1_1)
     first_execution = original.response.execution
     await complete_model_response(
         original.thread.id,
@@ -141,7 +141,7 @@ async def test_ai_regeneration_preserves_context_and_replaces_only_the_projectio
     assert replayed.response.id == regenerated.response.id
     assert regenerated.response.id != original.response.id
     assert regenerated.response.input_entry_id == original.response.input_entry_id
-    assert regenerated.response.requested_answerer is AnswererId.HINA
+    assert regenerated.response.requested_answerer is AnswererId.ASUKA_1_1
     assert await context_entry_ids(regenerated.response.id) == await context_entry_ids(
         original.response.id
     )
@@ -184,7 +184,7 @@ async def test_ai_regeneration_preserves_context_and_replaces_only_the_projectio
         requester,
         completed.id,
         "続けて",
-        AnswererId.HINA,
+        AnswererId.ASUKA_1_1,
     )
     follow_up_context = await context_entry_ids(follow_up.response.id)
     assert first_result_entry_id not in follow_up_context

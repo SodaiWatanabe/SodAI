@@ -73,8 +73,8 @@ async def create_response(principal: Principal, content: str):
             principal,
             context,
             content,
-            get_answerer(AnswererId.HINA),
-            execution_target="local:hina",
+            get_answerer(AnswererId.ASUKA_1_1),
+            execution_target="local:asuka-1",
             artifact_id="evaluation-integration",
             deadline_at=datetime.now(timezone.utc) + timedelta(minutes=5),
         )
@@ -91,7 +91,7 @@ async def complete_response(creation, content: str) -> None:
             attempt_id=execution.attempt_id,
             sequence=0,
             thread_id=creation.thread.id,
-            resolved_model="hina@evaluation-integration",
+            resolved_model="asuka-1@evaluation-integration",
             phase=GenerationPhase.ANSWERING,
         ),
         GenerationEvent.create(

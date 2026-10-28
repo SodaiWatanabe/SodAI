@@ -23,8 +23,8 @@ Human Execution ───────────────── CreditReserv
                                           └─ 回答者90% + 運営10%
 ```
 
-Hinaはゲストを含む全ユーザーが無料で利用できます。Asuka 1.1は認証済みユーザー向けの有料モデルで、
-成功した応答1回につき0.1 creditを消費します。どちらも同じExecution、料金表snapshot、使用量記録を
+Asuka 1.1はゲストが無料で利用でき、認証済みユーザーは成功した応答1回につき
+0.1 creditを消費します。どちらも同じExecution、料金表snapshot、使用量記録を
 通るため、無料・有料で会話や推論の基盤を分岐させません。
 
 HumanもAIと同じExecution、ResponseRequest、`reasoning_effort`を使います。料金はAnswerer catalogの
@@ -107,7 +107,7 @@ activeな無料枠なし + 有料推論
        └─ earned / adminなど他のLotには影響しない
 ```
 
-`GET /credits`、Hina、guestのリクエストはLotを発行せず、時計も開始しません。有料リクエストではユーザーの
+`GET /credits`とguestのリクエストはLotを発行せず、時計も開始しません。有料リクエストではユーザーの
 wallet行をロックし、DB時刻を取得してからactive Lotの確認、必要な発行、最大料金予約を行います。
 Execution、Outboxを含む同じDB transactionでcommitするため、予約できずrollbackしたリクエストは
 周期を開始しません。別Executionの並行リクエストもwallet lockで直列化され、二重発行しません。
@@ -152,7 +152,7 @@ Executionなので、前の失敗予約を解放してから独立した料金sn
 
 | Answerer | 対象 | 料金 |
 | --- | --- | --- |
-| Hina | ゲスト・認証済み | 無料、回数制限なし |
+| Asuka 1.1 | ゲスト | 無料 |
 | Asuka 1.1 | 認証済み | 成功1応答につき0.1 credit、失敗時は全額返却 |
 
 Asuka 1.1の料金表`asuka-1.1-flat-v1`は固定額、最大予約額、
@@ -286,4 +286,4 @@ make test-inference-e2e
 長期未利用、rollback、報酬の90日期限、並行予約、FEFO、期限切れ、
 失敗・timeout解放、匿名化、履歴paginationに加え、孤立仕訳や誤ったLot由来を直接書き込む破壊系も
 検証します。さらにmigrationを`head -> 0002 -> head`と往復し、Alembicのschema差分がないことを
-確認します。`test-inference-e2e`は実HinaのGPU生成後に使用量記録と無料確定まで検証します。
+確認します。`test-inference-e2e`は実Asuka 1.1のGPU生成後にゲストの無料確定と認証済みユーザーの課金まで検証します。

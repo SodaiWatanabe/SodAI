@@ -20,9 +20,9 @@ from sodai_inference.models.base import GenerationStep
 from sodai_inference.worker import InferenceWorker
 
 
-class StubHina:
-    model_name = "hina"
-    resolved_model = "hina@artifact"
+class StubAnswerEngine:
+    model_name = "asuka-1"
+    resolved_model = "asuka-1@artifact"
     initial_phase = GenerationPhase.ANSWERING
     manifest = SimpleNamespace(artifact_id="artifact")
 
@@ -85,7 +85,7 @@ class RecordingWorker(InferenceWorker):
             device="cpu",
             consumer_name="test",
         )
-        super().__init__(settings, None, engine or StubHina())  # type: ignore[arg-type]
+        super().__init__(settings, None, engine or StubAnswerEngine())  # type: ignore[arg-type]
         self.events: list[GenerationEvent] = []
         self.fail_at = fail_at
         self.cancel_after_checks = cancel_after_checks
@@ -137,7 +137,7 @@ def job() -> GenerationJob:
         attempt_id=uuid4(),
         thread_id=uuid4(),
         answerer_actor_id=uuid4(),
-        model="hina",
+        model="asuka-1",
         artifact_id="artifact",
         turns=(GenerationTurn(InferenceSpeaker.PARTNER, "こんにちは"),),
         deadline=datetime.now(timezone.utc) + timedelta(minutes=5),
@@ -285,7 +285,7 @@ async def test_abandoned_job_scan_continues_from_the_returned_cursor() -> None:
         consumer_name="test",
     )
     redis = FakeRedis()
-    worker = InferenceWorker(settings, redis, StubHina())  # type: ignore[arg-type]
+    worker = InferenceWorker(settings, redis, StubAnswerEngine())  # type: ignore[arg-type]
 
     await worker._next_jobs()
     await worker._next_jobs()
@@ -303,7 +303,7 @@ async def test_acknowledging_a_job_also_removes_its_payload() -> None:
         consumer_name="test",
     )
     redis = FakeRedis()
-    worker = InferenceWorker(settings, redis, StubHina())  # type: ignore[arg-type]
+    worker = InferenceWorker(settings, redis, StubAnswerEngine())  # type: ignore[arg-type]
 
     await worker._ack("30-0")
 

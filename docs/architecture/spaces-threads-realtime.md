@@ -63,8 +63,7 @@ activeなExecutionも1件だけです。入力Entryと結果Entryが別Threadを
 応答主体の公開ID、表示名、説明、利用権限、主体別デフォルトはBackendのanswerer catalogだけが
 正本です。対応する`reasoning_effort`と既定値も同じcatalogから公開します。Thread作成と
 ResponseRequest作成は任意の`reasoning_effort`を受け取り、省略時は選択Answererの既定値を
-ResponseRequestへsnapshotします。現在はゲストの既定値が`hina`、ログインユーザーの既定値が
-`asuka-1.1`です。
+ResponseRequestへsnapshotします。ゲスト・ログインユーザーともに既定値は`asuka-1.1`です。
 
 再試行APIは`Idempotency-Key` headerを必須とします。同じResponseRequestとkeyの組み合わせは、
 同時送信や通信後の再送でも同じExecutionを返します。新しい入力Entryやcontext snapshotは作らず、

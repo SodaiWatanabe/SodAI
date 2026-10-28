@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 from uuid import UUID
 
@@ -16,7 +16,6 @@ from app.domain.reasoning import (
 
 
 class AnswererId(str, Enum):
-    HINA = "hina"
     ASUKA_1 = "asuka-1"
     ASUKA_1_1 = "asuka-1.1"
     HUMAN_LITE = "human-lite"
@@ -69,6 +68,7 @@ class AnswererDefinition:
     tariff: InferenceTariff
     audiences: frozenset[AnswererAudience]
     default_for: frozenset[AnswererAudience] = frozenset()
+    guest_tariff: InferenceTariff | None = None
     supported_reasoning_efforts: frozenset[ReasoningEffort] = frozenset(
         {ReasoningEffort.NONE}
     )
@@ -77,6 +77,11 @@ class AnswererDefinition:
     generation_max_output_tokens: int = 128
     required_human_rank: int | None = None
     is_legacy: bool = False
+
+    def for_audience(self, audience: AnswererAudience) -> "AnswererDefinition":
+        if audience is AnswererAudience.GUEST and self.guest_tariff is not None:
+            return replace(self, tariff=self.guest_tariff)
+        return self
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,7 +106,6 @@ class AvailableAnswerer:
     default_reasoning_effort: ReasoningEffort
 
 
-HINA_ACTOR_ID = UUID("00000000-0000-4000-8000-000000000001")
 HUMAN_LITE_ACTOR_ID = UUID("00000000-0000-4000-8000-000000000003")
 HUMAN_PRO_ACTOR_ID = UUID("00000000-0000-4000-8000-000000000004")
 HUMAN_STANDARD_ACTOR_ID = UUID("00000000-0000-4000-8000-000000000005")
@@ -176,23 +180,11 @@ ANSWERER_CATALOG = (
         runtime_name="asuka-1",
         deployment_name="asuka-1.1",
         tariff=ASUKA_1_1_TARIFF,
-        audiences=frozenset({AnswererAudience.AUTHENTICATED}),
-        default_for=frozenset({AnswererAudience.AUTHENTICATED}),
+        audiences=frozenset(AnswererAudience),
+        default_for=frozenset(AnswererAudience),
+        guest_tariff=FREE_INFERENCE_TARIFF,
         generation_temperature=0.85,
         generation_max_output_tokens=256,
-    ),
-    AnswererDefinition(
-        id=AnswererId.HINA,
-        actor_id=HINA_ACTOR_ID,
-        name="Hina",
-        description="知能の萌芽を捉える。",
-        runtime_kind=RuntimeKind.LOCAL_MODEL,
-        runtime_name="hina",
-        deployment_name="hina",
-        tariff=FREE_INFERENCE_TARIFF,
-        audiences=frozenset(AnswererAudience),
-        default_for=frozenset({AnswererAudience.GUEST}),
-        is_legacy=True,
     ),
     AnswererDefinition(
         id=AnswererId.HUMAN_LITE,
@@ -242,7 +234,8 @@ _ANSWERERS_BY_ID = {answerer.id: answerer for answerer in ANSWERER_CATALOG}
 if len(_ANSWERERS_BY_ID) != len(ANSWERER_CATALOG):
     raise RuntimeError("Answerer catalog contains duplicate identifiers")
 if any(
-    AnswererAudience.GUEST in answerer.audiences and not answerer.tariff.is_free
+    AnswererAudience.GUEST in answerer.audiences
+    and not answerer.for_audience(AnswererAudience.GUEST).tariff.is_free
     for answerer in ANSWERER_CATALOG
 ):
     raise RuntimeError("Guest answerers must use a free tariff")
@@ -284,12 +277,20 @@ for audience in AnswererAudience:
     _DEFAULTS[audience] = defaults[0]
 
 
-def get_answerer(answerer_id: AnswererId) -> AnswererDefinition | None:
+def get_answerer(answerer_id: AnswererId | str) -> AnswererDefinition | None:
     return _ANSWERERS_BY_ID.get(answerer_id)
 
 
+def parse_stored_answerer_id(value: str) -> AnswererId | str:
+    """Keep historical attribution readable after an answerer is retired."""
+    try:
+        return AnswererId(value)
+    except ValueError:
+        return value
+
+
 def get_default_answerer(audience: AnswererAudience) -> AnswererDefinition:
-    return _DEFAULTS[audience]
+    return _DEFAULTS[audience].for_audience(audience)
 
 
 def get_human_credit_terms(
@@ -348,7 +349,7 @@ def list_available_answerers(audience: AnswererAudience) -> list[AvailableAnswer
             ),
             default_reasoning_effort=item.default_reasoning_effort,
         )
-        for item in ANSWERER_CATALOG
+        for item in (definition.for_audience(audience) for definition in ANSWERER_CATALOG)
         if audience in item.audiences
     ]
 

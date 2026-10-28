@@ -54,7 +54,7 @@ class ThreadSummary:
     id: UUID
     space_id: UUID
     title: str
-    answerer: AnswererId
+    answerer: AnswererId | str
     revision: int
     created_at: datetime
     updated_at: datetime
@@ -84,7 +84,7 @@ class Entry:
     content: str
     ordinal: int
     created_at: datetime
-    answerer: AnswererId | None = None
+    answerer: AnswererId | str | None = None
     response_status: ResponseStatus | None = None
     execution_id: UUID | None = None
     evaluation: ResponseEvaluationValue | None = None
@@ -95,7 +95,7 @@ class Thread:
     id: UUID
     space_id: UUID
     title: str
-    answerer: AnswererId
+    answerer: AnswererId | str
     revision: int
     entries: tuple[Entry, ...]
     latest_response: ResponseRequest | None

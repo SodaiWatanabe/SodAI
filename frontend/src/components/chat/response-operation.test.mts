@@ -10,7 +10,7 @@ import {
 } from "./response-operation.ts";
 
 test("提供終了したAnswererの履歴には再生成操作を出さない", () => {
-  const available = new Set(["asuka-1.1", "hina"]);
+  const available = new Set(["asuka-1.1", "asuka-1.1"]);
 
   assert.equal(responseCanRegenerate("completed", "asuka-1", available), false);
   assert.equal(responseCanRegenerate("completed", "asuka-1.1", available), true);

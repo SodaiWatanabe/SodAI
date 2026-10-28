@@ -86,8 +86,8 @@ async def test_generation_projection_creates_one_immutable_result_entry() -> Non
                 principal,
                 context,
                 "こんにちは",
-                get_answerer(AnswererId.HINA),
-                execution_target="local:hina",
+                get_answerer(AnswererId.ASUKA_1_1),
+                execution_target="local:asuka-1",
                 artifact_id="integration",
                 deadline_at=now + timedelta(minutes=5),
             )
@@ -104,7 +104,7 @@ async def test_generation_projection_creates_one_immutable_result_entry() -> Non
                     attempt_id=execution.attempt_id,
                     sequence=0,
                     thread_id=uuid4(),
-                    resolved_model="hina@integration",
+                    resolved_model="asuka-1@integration",
                     phase=GenerationPhase.ANSWERING,
                 )
             )
@@ -118,7 +118,7 @@ async def test_generation_projection_creates_one_immutable_result_entry() -> Non
                 attempt_id=execution.attempt_id,
                 sequence=0,
                 thread_id=creation.thread.id,
-                resolved_model="hina@integration",
+                resolved_model="asuka-1@integration",
                 phase=GenerationPhase.ANSWERING,
             ),
             GenerationEvent.create(
@@ -170,8 +170,8 @@ async def test_generation_projection_creates_one_immutable_result_entry() -> Non
             "こんにちは",
             "こんにちは。雛です。",
         ]
-        assert thread.entries[-1].author.key == "model:hina"
-        assert thread.entries[-1].answerer is AnswererId.HINA
+        assert thread.entries[-1].author.key == "model:asuka-1.1"
+        assert thread.entries[-1].answerer is AnswererId.ASUKA_1_1
         assert thread.latest_response is not None
         assert thread.latest_response.status.value == "completed"
         assert thread.latest_response.execution.result_entry_id == thread.entries[-1].id
@@ -334,8 +334,8 @@ async def test_thread_search_is_literal_scoped_and_excludes_archived_threads() -
                 owner,
                 owner_context,
                 "元のタイトルには検索語がありません",
-                get_answerer(AnswererId.HINA),
-                execution_target="local:hina",
+                get_answerer(AnswererId.ASUKA_1_1),
+                execution_target="local:asuka-1",
                 artifact_id="integration",
                 deadline_at=now + timedelta(minutes=5),
             )
@@ -348,8 +348,8 @@ async def test_thread_search_is_literal_scoped_and_excludes_archived_threads() -
                 owner,
                 owner_context,
                 f"{'長い前置き' * 12}本文だけの検索語",
-                get_answerer(AnswererId.HINA),
-                execution_target="local:hina",
+                get_answerer(AnswererId.ASUKA_1_1),
+                execution_target="local:asuka-1",
                 artifact_id="integration",
                 deadline_at=now + timedelta(minutes=5),
             )
@@ -367,8 +367,8 @@ async def test_thread_search_is_literal_scoped_and_excludes_archived_threads() -
                 owner,
                 owner_context,
                 "記号は100%と_under\\scoreです",
-                get_answerer(AnswererId.HINA),
-                execution_target="local:hina",
+                get_answerer(AnswererId.ASUKA_1_1),
+                execution_target="local:asuka-1",
                 artifact_id="integration",
                 deadline_at=now + timedelta(minutes=5),
             )
@@ -377,8 +377,8 @@ async def test_thread_search_is_literal_scoped_and_excludes_archived_threads() -
                 other,
                 other_context,
                 "他人だけの秘密検索語",
-                get_answerer(AnswererId.HINA),
-                execution_target="local:hina",
+                get_answerer(AnswererId.ASUKA_1_1),
+                execution_target="local:asuka-1",
                 artifact_id="integration",
                 deadline_at=now + timedelta(minutes=5),
             )

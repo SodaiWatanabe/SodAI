@@ -21,8 +21,8 @@ class Settings:
     redis_password: str | None
     device: str
     consumer_name: str
-    model_name: str = "hina"
-    deployment_name: str = "hina"
+    model_name: str = "asuka-1"
+    deployment_name: str = "asuka-1.1"
     artifact_id: str | None = None
     resource_pool: str | None = None
     inference_namespace: str = "sodai:inference"
@@ -36,12 +36,9 @@ class Settings:
         model_root = Path(os.getenv("SODAI_MODEL_ROOT", REPOSITORY_ROOT / "var" / "models"))
         if not model_root.is_absolute():
             model_root = REPOSITORY_ROOT / model_root
-        model_name = os.getenv("SODAI_INFERENCE_MODEL", "hina")
-        deployment_name = os.getenv("SODAI_INFERENCE_DEPLOYMENT", model_name)
-        device = os.getenv(
-            "SODAI_INFERENCE_DEVICE",
-            os.getenv("HINA_DEVICE", "cuda:0"),
-        )
+        model_name = os.getenv("SODAI_INFERENCE_MODEL", "asuka-1")
+        deployment_name = os.getenv("SODAI_INFERENCE_DEPLOYMENT", "asuka-1.1")
+        device = os.getenv("SODAI_INFERENCE_DEVICE", "cuda:0")
         resource_pool = os.getenv("SODAI_INFERENCE_RESOURCE_POOL") or None
         if resource_pool is None and device.startswith("cuda"):
             resource_pool = f"gpu-{device}"
@@ -55,11 +52,7 @@ class Settings:
             consumer_name=os.getenv(
                 "INFERENCE_CONSUMER_NAME", f"{socket.gethostname()}-{os.getpid()}"
             ),
-            artifact_id=(
-                os.getenv("SODAI_INFERENCE_ARTIFACT_ID")
-                or (os.getenv("HINA_ARTIFACT_ID") if model_name == "hina" else None)
-                or None
-            ),
+            artifact_id=os.getenv("SODAI_INFERENCE_ARTIFACT_ID") or None,
             resource_pool=resource_pool,
             inference_namespace=os.getenv("INFERENCE_NAMESPACE", "sodai:inference"),
         )

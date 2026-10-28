@@ -1,5 +1,6 @@
 import asyncio
 import os
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 import pytest
@@ -18,7 +19,7 @@ from app.domain.principals import Principal, PrincipalKind
 from app.main import app
 from app.models.account import UserModel
 from app.models.credits import InferenceUsageRecordModel
-from app.models.platform import ExecutionModel
+from app.models.platform import ExecutionModel, GuestSessionModel
 from app.repositories.credits import CreditLedgerRepository
 from app.services.inference.broker import RedisInferenceBroker
 from app.services.inference.coordinator import GenerationCoordinator
@@ -28,7 +29,7 @@ from app.services.thread import ThreadService, get_thread_service
 
 pytestmark = pytest.mark.skipif(
     os.getenv("SODAI_GPU_E2E") != "1",
-    reason="run through make test-asuka1-e2e",
+    reason="run through make test-inference-e2e",
 )
 
 
@@ -38,7 +39,10 @@ def anyio_backend() -> str:
 
 
 @pytest.mark.anyio
-async def test_asuka1_completes_through_api_stream_and_projection() -> None:
+@pytest.mark.parametrize("principal_kind", [PrincipalKind.GUEST, PrincipalKind.USER])
+async def test_asuka1_completes_through_api_stream_and_projection(
+    principal_kind: PrincipalKind,
+) -> None:
     settings = get_settings()
     database_name = make_url(settings.database_url).database or ""
     assert database_name.startswith("sodai_e2e_")
@@ -49,16 +53,27 @@ async def test_asuka1_completes_through_api_stream_and_projection() -> None:
     namespace = InferenceNamespace(settings.inference_namespace)
 
     factory = get_session_factory()
-    principal = Principal(PrincipalKind.USER, uuid4())
+    principal = Principal(principal_kind, uuid4())
     async with factory() as session:
-        session.add(UserModel(id=principal.id, display_name=f"{model} E2E"))
-        await session.flush()
-        await CreditLedgerRepository(session).grant(
-            principal.id,
-            CREDIT_SCALE,
-            source_kind=CreditSourceKind.ADMIN,
-            idempotency_key=f"{model}-e2e-{principal.id}",
-        )
+        if principal_kind is PrincipalKind.GUEST:
+            now = datetime.now(timezone.utc)
+            session.add(
+                GuestSessionModel(
+                    id=principal.id,
+                    token_hash=uuid4().hex + uuid4().hex,
+                    expires_at=now + timedelta(days=1),
+                    last_seen_at=now,
+                )
+            )
+        else:
+            session.add(UserModel(id=principal.id, display_name=f"{model} E2E"))
+            await session.flush()
+            await CreditLedgerRepository(session).grant(
+                principal.id,
+                CREDIT_SCALE,
+                source_kind=CreditSourceKind.ADMIN,
+                idempotency_key=f"{model}-e2e-{principal.id}",
+            )
         await session.commit()
 
     redis = Redis.from_url(
@@ -84,15 +99,14 @@ async def test_asuka1_completes_through_api_stream_and_projection() -> None:
     coordinator.start()
 
     try:
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             created_response = await client.post(
                 "/api/v1/threads",
-                json={"input": "こんにちは", "answerer": model},
+                json={"input": "こんにちは"},
             )
             assert created_response.status_code == 201, created_response.text
             creation = created_response.json()
+            assert creation["response"]["requested_answerer"] == model
             thread_id = creation["thread"]["id"]
             execution_id = creation["response"]["execution"]["id"]
 
@@ -160,13 +174,11 @@ async def test_asuka1_completes_through_api_stream_and_projection() -> None:
             assert execution.output_tokens is not None
             assert execution.thinking_tokens >= 0
             assert execution.answer_tokens > 0
-            assert (
-                execution.output_tokens
-                >= execution.thinking_tokens + execution.answer_tokens
-            )
+            assert execution.output_tokens >= execution.thinking_tokens + execution.answer_tokens
             assert execution.generation_phase is None
             assert usage is not None
-            assert usage.charged_amount == CREDIT_SCALE // 10
+            expected_charge = 0 if principal_kind is PrincipalKind.GUEST else CREDIT_SCALE // 10
+            assert usage.charged_amount == expected_charge
     finally:
         app.dependency_overrides.clear()
         realtime_hub.unsubscribe(principal, queue)

@@ -55,7 +55,13 @@ from app.models.credits import (
     InferenceCreditReservationModel,
     InferenceUsageRecordModel,
 )
-from app.models.platform import ExecutionModel, OutboxEventModel, SpaceModel, ThreadModel
+from app.models.platform import (
+    ExecutionModel,
+    GuestSessionModel,
+    OutboxEventModel,
+    SpaceModel,
+    ThreadModel,
+)
 from app.repositories.credits import CreditLedgerRepository
 from app.repositories.evaluations import ResponseEvaluationNotFoundError
 from app.repositories.threads import SqlAlchemyThreadRepository
@@ -507,42 +513,94 @@ async def test_rolled_back_free_allowance_start_leaves_the_cycle_dormant() -> No
 
 
 @pytest.mark.anyio
-async def test_hina_stays_free_without_issuing_or_reserving_credits() -> None:
-    principal = await create_user()
+async def test_guest_asuka_stays_free_across_creation_retry_and_regeneration() -> None:
+    principal = Principal(PrincipalKind.GUEST, uuid4())
+    settings = get_settings()
     factory = get_session_factory()
+    now = datetime.now(timezone.utc)
     async with factory() as session:
-        repository = SqlAlchemyThreadRepository(session)
-        context = await repository.ensure_personal_context(principal)
-        creation = await repository.create_thread_response(
-            principal,
-            context,
-            "free Hina",
-            get_answerer(AnswererId.HINA),
-            execution_target="local:hina",
-            artifact_id="test-hina",
-            deadline_at=datetime.now(timezone.utc) + timedelta(minutes=5),
-        )
-        hina = get_answerer(AnswererId.HINA)
-        assert hina is not None
-        await InferenceBillingService(
-            session,
-            FREE_CREDIT_ALLOWANCE_POLICY,
-        ).register(principal, creation.response.execution, hina.tariff)
-        await session.commit()
-
-    async with factory() as session:
-        account = await session.scalar(
-            select(CreditAccountModel).where(
-                CreditAccountModel.owner_user_id == principal.id
+        session.add(
+            GuestSessionModel(
+                id=principal.id,
+                token_hash=uuid4().hex + uuid4().hex,
+                expires_at=now + timedelta(days=1),
+                last_seen_at=now,
             )
         )
-        intent = await session.get(
-            InferenceBillingIntentModel,
-            creation.response.execution.id,
+        await session.commit()
+    service = ThreadService(factory, ModelDeploymentRegistry(settings.model_root), settings)
+    creation = await service.create(principal, "free Asuka 1.1", None)
+    assert creation.response.requested_answerer is AnswererId.ASUKA_1_1
+    assert creation.response.execution.target == "local:asuka-1"
+
+    async def finish(execution, *, failed=False):
+        event = GenerationEvent.create(
+            GenerationEventType.FAILED if failed else GenerationEventType.COMPLETED,
+            execution_id=execution.id,
+            attempt_id=execution.attempt_id,
+            sequence=1,
+            thread_id=creation.thread.id,
+            **(
+                {"error_code": "generation_failed"}
+                if failed
+                else {
+                    "content": "ゲストへの回答",
+                    "input_tokens": 3,
+                    "output_tokens": 2,
+                    "thinking_content": "",
+                    "thinking_tokens": 0,
+                    "answer_tokens": 1,
+                    "finish_reason": FinishReason.STOP,
+                }
+            ),
         )
-        assert account is None
-        assert intent is not None
-        assert intent.maximum_charge == 0
+        async with factory() as session:
+            repository = SqlAlchemyThreadRepository(session)
+            await repository.project_generation_event(GenerationEvent.create(
+                GenerationEventType.STARTED,
+                execution_id=execution.id,
+                attempt_id=execution.attempt_id,
+                sequence=0,
+                thread_id=creation.thread.id,
+                resolved_model=ASUKA1_TEST_RESOLVED_MODEL,
+                phase=GenerationPhase.ANSWERING,
+            ))
+            await repository.project_generation_event(event)
+            usage = await InferenceBillingService(session).finalize(execution.id)
+            assert usage.charged_amount == 0
+            assert usage.user_id is None
+            await session.commit()
+
+    await finish(creation.response.execution, failed=True)
+    retry = await service.retry(principal, creation.response.id, "guest-retry")
+    replayed = await service.retry(principal, creation.response.id, "guest-retry")
+    assert replayed.id == retry.id
+    await finish(retry)
+    regenerated = await service.regenerate(principal, creation.response.id)
+    await finish(regenerated.response.execution)
+    appended = await service.append(principal, creation.thread.id, "続けて", None)
+    await finish(appended.response.execution)
+
+    async with factory() as session:
+        for execution in (
+            creation.response.execution,
+            retry,
+            regenerated.response.execution,
+            appended.response.execution,
+        ):
+            intent = await session.get(InferenceBillingIntentModel, execution.id)
+            reservation = await session.get(InferenceCreditReservationModel, execution.id)
+            assert intent is not None and intent.maximum_charge == 0
+            assert intent.fixed_charge == 0 and intent.user_id is None
+            assert reservation is None
+        assert (
+            await session.scalar(
+                select(func.count())
+                .select_from(CreditAccountModel)
+                .where(CreditAccountModel.owner_user_id == principal.id)
+            )
+            == 0
+        )
 
 
 @pytest.mark.anyio

@@ -186,7 +186,7 @@ export function AnswererSelector({
 
       <PopoverContent
         role={authenticated ? "menu" : "dialog"}
-        aria-label={authenticated ? "モデル" : "よりスマートな回答"}
+        aria-label={authenticated ? "モデル" : "ヒトに相談する"}
         className={authenticated ? "w-52" : "overflow-hidden"}
         style={authenticated ? undefined : { padding: 0 }}
       >
@@ -245,10 +245,10 @@ export function AnswererSelector({
             />
             <div className="px-4 pb-4 pt-5">
               <p className="text-lg font-semibold tracking-[-0.02em] text-[var(--text)]">
-                よりスマートに回答
+                ヒトに相談する
               </p>
               <p className="mt-1 text-sm leading-5 text-[var(--muted)]">
-                ログインすると、より性能の高いモデルにアクセスできます。
+                ログインすると、ヒトによる回答も選べます。
               </p>
               <div className="mt-5 flex gap-2">
                 <GuestAuthAction

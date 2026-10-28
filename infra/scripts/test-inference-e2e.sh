@@ -5,11 +5,8 @@ repository_root=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
 cd "$repository_root"
 
 env_file=${ENV_FILE:-.env}
-model=${MODEL:-hina}
+model=${MODEL:-asuka-1.1}
 case "$model" in
-  hina)
-    test_file=backend/tests/test_hina_gpu_e2e.py
-    ;;
   asuka-1.1)
     test_file=backend/tests/test_asuka1_gpu_e2e.py
     ;;
@@ -58,7 +55,7 @@ print(url.render_as_string(hide_password=False))
 PY
 )
 
-device=${SODAI_E2E_DEVICE:-${HINA_E2E_DEVICE:-cuda:0}}
+device=${SODAI_E2E_DEVICE:-cuda:0}
 inference/.venv/bin/python - "$device" <<'PY'
 import sys
 

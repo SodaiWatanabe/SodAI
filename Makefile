@@ -23,8 +23,8 @@ DEV_BACKEND_HOST ?= 127.0.0.1
 DEV_BACKEND_PORT ?= 13202
 
 .PHONY: install install-contracts install-auth install-backend install-frontend install-inference \
-	dev-auth dev-backend dev-frontend dev-inference import-hina import-asuka1 \
-	deploy-hina deploy-asuka1 deploy-asuka11 \
+	dev-auth dev-backend dev-frontend dev-inference import-asuka1 \
+	deploy-asuka1 deploy-asuka11 \
 	inference-status credits-grant credits-expire credits-audit human-rank test-inference-e2e \
 	test-asuka11-e2e \
 	infra-check-env infra-config production-config production-build production-migrate \
@@ -77,16 +77,7 @@ dev-inference: infra-check-env
 		$(if $(DEPLOYMENT),SODAI_INFERENCE_DEPLOYMENT="$(DEPLOYMENT)") \
 		$(if $(ARTIFACT_ID),SODAI_INFERENCE_ARTIFACT_ID="$(ARTIFACT_ID)") \
 		$(if $(DEVICE),SODAI_INFERENCE_DEVICE="$(DEVICE)") \
-		$(if $(HINA_ARTIFACT_ID),HINA_ARTIFACT_ID="$(HINA_ARTIFACT_ID)") \
 		$(INFERENCE_VENV)/bin/sodai-inference
-
-import-hina: infra-check-env
-	@test -n "$(CHECKPOINT)" || { echo 'CHECKPOINT=/path/to/gpt_sft.pt を指定してください。' >&2; exit 1; }
-	@test -n "$(TOKENIZER)" || { echo 'TOKENIZER=/path/to/tokenizer を指定してください。' >&2; exit 1; }
-	set -a; . ./$(ENV_FILE); set +a; exec $(INFERENCE_VENV)/bin/sodai-import-hina \
-		--checkpoint "$(CHECKPOINT)" \
-		--tokenizer "$(TOKENIZER)" \
-		$(if $(SOURCE_REPOSITORY),--source-repository "$(SOURCE_REPOSITORY)")
 
 import-asuka1: infra-check-env
 	@test -n "$(CHECKPOINT)" || { echo 'CHECKPOINT=/path/to/gpt_sft.pt を指定してください。' >&2; exit 1; }
@@ -95,10 +86,6 @@ import-asuka1: infra-check-env
 		--checkpoint "$(CHECKPOINT)" \
 		--tokenizer "$(TOKENIZER)" \
 		$(if $(SOURCE_REPOSITORY),--source-repository "$(SOURCE_REPOSITORY)")
-
-deploy-hina: infra-check-env
-	@test -n "$(ARTIFACT_ID)" || { echo 'ARTIFACT_ID=<artifact-id> を指定してください。' >&2; exit 1; }
-	set -a; . ./$(ENV_FILE); set +a; exec $(INFERENCE_VENV)/bin/sodai-deploy-hina "$(ARTIFACT_ID)"
 
 deploy-asuka1: infra-check-env
 	@test -n "$(ARTIFACT_ID)" || { echo 'ARTIFACT_ID=<artifact-id> を指定してください。' >&2; exit 1; }
@@ -169,7 +156,7 @@ production-up: production-config
 
 production-up-gpu: production-config
 	$(COMPOSE_PRODUCTION) --profile tunnel --profile gpu up -d --wait --remove-orphans \
-		auth backend frontend inference-hina inference-asuka11 cloudflared
+		auth backend frontend inference-asuka11 cloudflared
 
 production-down: production-config
 	$(COMPOSE_PRODUCTION) --profile tunnel --profile gpu down --remove-orphans

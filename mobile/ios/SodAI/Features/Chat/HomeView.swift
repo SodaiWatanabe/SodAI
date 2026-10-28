@@ -82,7 +82,7 @@ struct HomeView: View {
     private var modelMenu: some View {
         Menu {
             if auth.user == nil {
-                Text("よりスマートな回答")
+                Text("ログインしてヒトに相談する")
                 Button("ログイン") { accountOpen = true }
             } else {
                 ForEach(currentModels) { answerer in modelButton(answerer) }

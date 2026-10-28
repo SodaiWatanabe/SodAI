@@ -100,7 +100,7 @@ make production-config
 | Frontend | Tunnelからのみ | non-root、read-only | `/healthz` |
 | Backend | TunnelとFrontendからのみ | non-root、read-only | PostgreSQLとRedisを検査 |
 | Auth | Frontendからのみ | non-root、read-only | PostgreSQLを検査 |
-| Inference × 2 | Redisからのみ | non-root、read-only | model artifactとworker leaseを検査 |
+| Inference | Redisからのみ | non-root、read-only | model artifactとworker leaseを検査 |
 | PostgreSQL / Redis | internal networkのみ | capability追加なし | native ping |
 
 全アプリコンテナはLinux capabilityをdropし、`no-new-privileges`を有効にします。
@@ -109,10 +109,9 @@ make production-config
 one-shot containerでのみ実行します。
 
 Inference imageへmodel weightは含めません。`.env.production`の
-`SODAI_MODEL_HOST_PATH`を`/models`へ読み取り専用mountします。HinaとAsuka 1.1は独立した
-workerで動き、既定では同じresource poolを共有してGPU生成を直列化します。標準構成の
-workerはhost側のUID/GID 1000で読み取れるmodel fileを前提とします。
-両workerが使用するGPUは、再起動で変わり得るindexではなく、`nvidia-smi -L`で確認した
+`SODAI_MODEL_HOST_PATH`を`/models`へ読み取り専用mountします。Asuka 1.1のworkerが
+ゲストと認証済みユーザーの生成を担当します。標準構成のworkerはhost側のUID/GID 1000で読み取れるmodel fileを前提とします。
+workerが使用するGPUは、再起動で変わり得るindexではなく、`nvidia-smi -L`で確認した
 `SODAI_INFERENCE_GPU_UUID`へ固定します。container内では選択したGPUが`cuda:0`になります。
 Backendは会話作成時にdeployment manifestを検証するため、GID 1000を補助グループとして
 使用します。artifactを有効化するコマンドはmodel treeへ所有グループの読取り権限を付与し、
@@ -141,7 +140,7 @@ make production-up-gpu
 
 GPU workerをまだ公開に含めない場合だけ、最後を`make production-up`にします。どちらの
 targetもAuth、Backend、Frontendがhealthyになった後でCloudflare Tunnelを起動します。
-`production-up-gpu`はさらにHinaとAsuka 1.1をloadし、両方のworker leaseを取得するまで
+`production-up-gpu`はさらにAsuka 1.1をloadし、worker leaseを取得するまで
 待ちます。
 
 稼働状態とログは次で確認します。

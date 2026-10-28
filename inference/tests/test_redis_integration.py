@@ -26,9 +26,9 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-class StubHina:
-    model_name = "hina"
-    resolved_model = "hina@integration"
+class StubAnswerEngine:
+    model_name = "asuka-1"
+    resolved_model = "asuka-1@integration"
     initial_phase = GenerationPhase.ANSWERING
     manifest = SimpleNamespace(artifact_id="integration")
 
@@ -49,14 +49,14 @@ async def test_event_publish_and_job_ack_are_atomic_in_redis() -> None:
         password=settings.redis_password,
         decode_responses=True,
     )
-    worker = InferenceWorker(settings, redis, StubHina())  # type: ignore[arg-type]
+    worker = InferenceWorker(settings, redis, StubAnswerEngine())  # type: ignore[arg-type]
     job = GenerationJob.create(
         execution_id=uuid4(),
         response_request_id=uuid4(),
         attempt_id=uuid4(),
         thread_id=uuid4(),
         answerer_actor_id=uuid4(),
-        model="hina",
+        model="asuka-1",
         artifact_id="integration",
         turns=(GenerationTurn(InferenceSpeaker.PARTNER, "統合テスト"),),
         deadline=datetime.now(timezone.utc) + timedelta(minutes=5),
@@ -71,7 +71,7 @@ async def test_event_publish_and_job_ack_are_atomic_in_redis() -> None:
             attempt_id=job.attempt_id,
             sequence=0,
             thread_id=job.thread_id,
-            resolved_model="hina@integration",
+            resolved_model="asuka-1@integration",
             phase=GenerationPhase.ANSWERING,
         )
         await worker._publish(event, progress_key, InferenceCorrelation.from_job(job))

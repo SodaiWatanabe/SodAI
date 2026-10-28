@@ -42,7 +42,7 @@ class Execution:
     response_request_id: UUID
     thread_id: UUID
     result_entry_id: UUID | None
-    answerer: AnswererId
+    answerer: AnswererId | str
     target: str
     status: ResponseStatus
     attempt_no: int
@@ -61,7 +61,7 @@ class ResponseRequest:
     id: UUID
     thread_id: UUID
     input_entry_id: UUID
-    requested_answerer: AnswererId
+    requested_answerer: AnswererId | str
     target_actor: Actor
     status: ResponseStatus
     execution: Execution

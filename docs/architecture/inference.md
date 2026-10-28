@@ -14,7 +14,6 @@ FastAPI ── PostgreSQL
   │           └─ response_context_items / outbox_events
   ▼
 Redis Streams
-  ├─ Hina worker ── var/models/hina/<artifact-id>
   └─ Asuka 1.1 worker ── var/models/asuka-1/<artifact-id>
 ```
 
@@ -22,7 +21,7 @@ Redis Streams
 - Workerはversioned jobを受信し、内部生成イベントを返すだけです。
 - WorkerはPostgreSQL、認証token、WebSocketを知りません。
 - PyTorch、tokenizer、CUDA依存は`inference/`だけに閉じ込めます。
-- HinaとAsukaはruntimeが違っても、同じjob、event、projectorを通ります。
+- ゲストと認証済みユーザーは同じAsuka runtime、job、event、projectorを通ります。
 
 ## ResponseRequestとExecution
 
@@ -104,36 +103,6 @@ Redisは配送路です。project済みeventと完了jobは`XACK + XDEL`し、�
 除去します。Redisへ未配信のままExecutionが期限切れになったoutboxは`discarded_at`を記録して
 payloadを除去し、機密な入力本文を未処理queueへ残しません。Entryと実行監査の正本は
 PostgreSQLだけです。
-
-## Hina
-
-`Hina`が製品モデル名です。`hina-1`という公開モデルは作りません。Building-SLMの`v1`は学習上の
-出自であり、SodAIの公開APIには現れません。
-
-```text
-公開answerer ID  hina
-runtime model     hina
-学習上の出自      Building-SLM v1 / gpt_sft.pt
-architecture      absolute_position_gpt
-context length    512
-prompt template   partner-self-v1
-resolved model    hina@<artifact-id>
-```
-
-`artifact-id`はcheckpoint、tokenizer bundle、manifest schema、runtime ABIから導出した内容hashです。
-manifestはdtype、prompt template、必須special tokenも固定します。job作成時にartifactをpinし、
-deployment変更後も実行途中で別の重みへ切り替えません。
-
-importとdeployment promotionは別操作です。新artifact専用workerを先に起動し、readinessをRedisで
-確認してからdeploymentを切り替えます。旧workerと新workerはartifact別streamを読むため共存できます。
-
-HinaのByteLevel tokenizerは単独tokenのdecodeで日本語の途中byteが置換文字になることがあります。
-Workerは生成済みtoken ID列全体をdecodeし、安定した接頭辞の差分だけを配信します。短い差分は
-4文字まで束ね、Redis AOFとDB更新を増やしすぎず視覚的なstreamingを維持します。
-
-モデル入力の役割は`<|partner|>`と`<|self|>`です。これは公開APIのActor表現をtokenizerへ落とす
-adapter境界であり、APIの`assistant/user`関係ではありません。512 tokenのうち標準で128 tokenを
-出力へ予約し、古いEntryから境界単位で除外します。
 
 ## Asuka 1.1
 

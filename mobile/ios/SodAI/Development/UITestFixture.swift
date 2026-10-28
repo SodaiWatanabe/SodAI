@@ -55,7 +55,6 @@
                     models += [
                         model("human-standard", name: "Human Standard", human: true),
                         model("human-pro", name: "Human Pro", human: true),
-                        model("hina", name: "Hina", human: false, legacy: true),
                     ]
                 }
                 return try jsonBody(["items": models])
@@ -209,7 +208,7 @@
         }
         private func model(_ id: String, name: String, human: Bool, legacy: Bool = false) -> [String: Any] {
             let descriptions = [
-                "asuka-1.1": "会話に最適。", "hina": "知能の萌芽を捉える。",
+                "asuka-1.1": "会話に最適。",
                 "human-lite": "日常のやりとりに最適。", "human-standard": "幅広い相談に対応。", "human-pro": "より高度な応答。",
             ]
             let efforts = human ? (id == "human-lite" ? ["low"] : ["low", "medium", "high"]) : ["none"]

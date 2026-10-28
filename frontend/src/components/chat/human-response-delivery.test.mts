@@ -122,7 +122,7 @@ test("進行中の同じHuman Executionだけを配送対象にする", () => {
     false,
   );
   assert.equal(
-    isLiveHumanResponseCompletion(thread, completed, new Set(["hina"])),
+    isLiveHumanResponseCompletion(thread, completed, new Set(["asuka-1.1"])),
     false,
   );
 });

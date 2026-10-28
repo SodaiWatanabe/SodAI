@@ -43,20 +43,20 @@ REQUEST_ID = UUID("018f96d4-7c48-7c27-a71f-591e3cb8748e")
 EXECUTION_ID = UUID("018f96d4-7c48-7c27-a71f-591e3cb8748f")
 PARTNER_ACTOR_ID = UUID("018f96d4-7c48-7c27-a71f-591e3cb87490")
 RESULT_ENTRY_ID = UUID("018f96d4-7c48-7c27-a71f-591e3cb87492")
-HINA_ACTOR_ID = UUID("00000000-0000-4000-8000-000000000001")
+ASUKA_ACTOR_ID = UUID("00000000-0000-4000-8000-000000000006")
 NOW = datetime(2026, 7, 13, 8, 0, tzinfo=timezone.utc)
 
 
 def creation_fixture() -> ResponseCreation:
     partner = Actor(PARTNER_ACTOR_ID, ActorKind.HUMAN, "guest:test", "対話相手")
-    hina = Actor(HINA_ACTOR_ID, ActorKind.MODEL, "model:hina", "Hina")
+    asuka = Actor(ASUKA_ACTOR_ID, ActorKind.MODEL, "model:asuka-1.1", "Asuka 1.1")
     execution = Execution(
         id=EXECUTION_ID,
         response_request_id=REQUEST_ID,
         thread_id=THREAD_ID,
         result_entry_id=None,
-        answerer=AnswererId.HINA,
-        target="local:hina",
+        answerer=AnswererId.ASUKA_1_1,
+        target="local:asuka-1",
         status=ResponseStatus.QUEUED,
         attempt_no=1,
         attempt_id=UUID("018f96d4-7c48-7c27-a71f-591e3cb87491"),
@@ -71,8 +71,8 @@ def creation_fixture() -> ResponseCreation:
         id=REQUEST_ID,
         thread_id=THREAD_ID,
         input_entry_id=INPUT_ENTRY_ID,
-        requested_answerer=AnswererId.HINA,
-        target_actor=hina,
+        requested_answerer=AnswererId.ASUKA_1_1,
+        target_actor=asuka,
         status=ResponseStatus.QUEUED,
         execution=execution,
         created_at=NOW,
@@ -81,7 +81,7 @@ def creation_fixture() -> ResponseCreation:
         id=THREAD_ID,
         space_id=SPACE_ID,
         title="こんにちは",
-        answerer=AnswererId.HINA,
+        answerer=AnswererId.ASUKA_1_1,
         revision=1,
         entries=(
             Entry(
@@ -109,7 +109,7 @@ def completed_thread_fixture() -> Thread:
         result_entry_id=RESULT_ENTRY_ID,
         status=ResponseStatus.COMPLETED,
         partial_output="回答です。",
-        resolved_model="hina@api-test",
+        resolved_model="asuka-1@api-test",
         evaluation=ResponseEvaluationValue.POSITIVE,
     )
     response = replace(
@@ -125,7 +125,7 @@ def completed_thread_fixture() -> Thread:
         content="回答です。",
         ordinal=1,
         created_at=NOW,
-        answerer=AnswererId.HINA,
+        answerer=AnswererId.ASUKA_1_1,
         response_status=ResponseStatus.COMPLETED,
         execution_id=EXECUTION_ID,
         evaluation=ResponseEvaluationValue.POSITIVE,
@@ -291,6 +291,21 @@ def clear_dependency_overrides():
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("endpoint", ["/api/v1/threads", "/api/v1/response-requests"])
+async def test_retired_model_is_rejected_before_creating_a_response(endpoint: str) -> None:
+    service = StubThreadService()
+    app.dependency_overrides[get_principal] = lambda: PRINCIPAL
+    app.dependency_overrides[get_thread_service] = lambda: service
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post(
+            endpoint,
+            json={"input": "こんにちは", "answerer": "hina", "thread_id": str(THREAD_ID)},
+        )
+    assert response.status_code == 422
+    assert service.received is None
+
+
+@pytest.mark.anyio
 async def test_create_thread_exposes_actor_authorship_without_speaker_enum() -> None:
     service = StubThreadService()
     app.dependency_overrides[get_principal] = lambda: PRINCIPAL
@@ -298,7 +313,7 @@ async def test_create_thread_exposes_actor_authorship_without_speaker_enum() -> 
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         response = await client.post(
-            "/api/v1/threads", json={"input": "こんにちは", "answerer": "hina"}
+            "/api/v1/threads", json={"input": "こんにちは", "answerer": "asuka-1.1"}
         )
 
     assert response.status_code == 201
@@ -309,7 +324,7 @@ async def test_create_thread_exposes_actor_authorship_without_speaker_enum() -> 
     assert "key" not in payload["thread"]["entries"][0]["author"]
     assert "speaker" not in payload["thread"]["entries"][0]
     assert payload["response"]["execution"]["status"] == "queued"
-    assert service.received == (PRINCIPAL, "こんにちは", AnswererId.HINA, None)
+    assert service.received == (PRINCIPAL, "こんにちは", AnswererId.ASUKA_1_1, None)
 
 
 @pytest.mark.anyio
@@ -323,7 +338,7 @@ async def test_read_thread_exposes_result_answerer_without_internal_model() -> N
 
     assert response.status_code == 200
     result_entry = response.json()["entries"][-1]
-    assert result_entry["answerer"] == "hina"
+    assert result_entry["answerer"] == "asuka-1.1"
     assert result_entry["execution_id"] == str(EXECUTION_ID)
     assert result_entry["evaluation"] == "positive"
     assert response.json()["latest_response"]["execution"]["evaluation"] == "positive"
@@ -339,11 +354,11 @@ async def test_response_request_is_a_first_class_endpoint() -> None:
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         response = await client.post(
             "/api/v1/response-requests",
-            json={"thread_id": str(THREAD_ID), "input": "続けて", "answerer": "hina"},
+            json={"thread_id": str(THREAD_ID), "input": "続けて", "answerer": "asuka-1.1"},
         )
 
     assert response.status_code == 202
-    assert response.json()["response"]["requested_answerer"] == "hina"
+    assert response.json()["response"]["requested_answerer"] == "asuka-1.1"
 
 
 @pytest.mark.anyio
@@ -358,7 +373,7 @@ async def test_response_request_accepts_shared_reasoning_effort() -> None:
             json={
                 "thread_id": str(THREAD_ID),
                 "input": "深く考えて",
-                "answerer": "hina",
+                "answerer": "asuka-1.1",
                 "reasoning_effort": "xhigh",
             },
         )
@@ -367,7 +382,7 @@ async def test_response_request_accepts_shared_reasoning_effort() -> None:
     assert service.received == (
         PRINCIPAL,
         "深く考えて",
-        AnswererId.HINA,
+        AnswererId.ASUKA_1_1,
         ReasoningEffort.XHIGH,
     )
 
@@ -381,7 +396,7 @@ async def test_response_request_rejects_blank_input_at_the_api_boundary() -> Non
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         response = await client.post(
             "/api/v1/response-requests",
-            json={"thread_id": str(THREAD_ID), "input": "   ", "answerer": "hina"},
+            json={"thread_id": str(THREAD_ID), "input": "   ", "answerer": "asuka-1.1"},
         )
 
     assert response.status_code == 422
@@ -408,7 +423,7 @@ async def test_thread_search_returns_message_context_without_exposing_actor_keys
                     "id": str(THREAD_ID),
                     "space_id": str(SPACE_ID),
                     "title": "こんにちは",
-                    "answerer": "hina",
+                    "answerer": "asuka-1.1",
                     "revision": 1,
                     "created_at": NOW.isoformat().replace("+00:00", "Z"),
                     "updated_at": NOW.isoformat().replace("+00:00", "Z"),
@@ -520,7 +535,7 @@ async def test_thread_rejects_concurrent_active_response() -> None:
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         response = await client.post(
             "/api/v1/response-requests",
-            json={"thread_id": str(THREAD_ID), "input": "続けて", "answerer": "hina"},
+            json={"thread_id": str(THREAD_ID), "input": "続けて", "answerer": "asuka-1.1"},
         )
 
     assert response.status_code == 409
